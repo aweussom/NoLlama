@@ -22,6 +22,42 @@ Write-Host "=== NoLlama Install ===" -ForegroundColor Cyan
 Write-Host ""
 
 # ---------------------------------------------------------------------------
+# Version check and warnings
+# ---------------------------------------------------------------------------
+
+$PSVersion = $PSVersionTable.PSVersion
+if ($PSVersion.Major -lt 7) {
+    Write-Host "WARNING: PowerShell $PSVersion detected." -ForegroundColor Yellow
+    Write-Host "  This script requires PowerShell 7+ for full compatibility." -ForegroundColor Yellow
+    Write-Host "  Current version may have syntax errors or unexpected behavior." -ForegroundColor Yellow
+    Write-Host "  Please upgrade to PowerShell 7: https://github.com/PowerShell/PowerShell" -ForegroundColor Yellow
+    Write-Host ""
+    $continue = Read-Host "Continue anyway? (y/N)"
+    if ($continue -ne "y" -and $continue -ne "Y") {
+        Write-Host "Install cancelled. Please upgrade PowerShell and try again." -ForegroundColor Red
+        Pop-Location
+        exit 1
+    }
+    Write-Host ""
+}
+
+# Check if Python is available
+try {
+    $pythonVersion = python --version 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw "Python not found"
+    }
+    Write-Host "Python version: $pythonVersion" -ForegroundColor Green
+} catch {
+    Write-Host "ERROR: Python is not installed or not in PATH." -ForegroundColor Red
+    Write-Host "  Please install Python 3.10+ from https://www.python.org/" -ForegroundColor Yellow
+    Pop-Location
+    exit 1
+}
+
+Write-Host ""
+
+# ---------------------------------------------------------------------------
 # 1. Create venv
 # ---------------------------------------------------------------------------
 
@@ -345,7 +381,8 @@ if ($HasNPU) {
             }
         }
     }
-} elseif ($HasGPU) {
+}
+elseif ($HasGPU) {
     # --- No NPU, GPU only ---
     Write-Host "No NPU detected. Selecting a GPU model." -ForegroundColor Yellow
     Write-Host ""
