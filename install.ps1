@@ -1,12 +1,37 @@
 # install.ps1 — NoLlama setup: venv, dependencies, model selection
 #
 # Usage:
-#     .\install.ps1              # interactive setup
-#     .\install.ps1 -SkipModel   # venv + deps only
+# .\install.ps1 # interactive setup
+# .\install.ps1 -SkipModel # venv + deps only
 #
 # Detects available devices (NPU, GPU, CPU), then walks the user
 # through model selection. NPU-first: if you have an NPU, that's
 # your primary chat device.
+#
+# ---------------------------------------------------------------------------
+# PowerShell 5.1 vs 7+ Compatibility Notes
+# ---------------------------------------------------------------------------
+#
+# This script targets PowerShell 7+ (pwsh). Windows PowerShell 5.1
+# (the version shipped with Windows) lacks several language features
+# used in this script and will produce syntax errors or unexpected
+# behavior. Key differences:
+#
+#   Feature                     PS 5.1         PS 7+
+#   --------------------------  ------------   -----------------
+#   Ternary operator            Not available   $cond ? $a : $b
+#   Null-coalescing operator    Not available   $x ?? $default
+#   Pipeline chain operators    Not available   && and ||
+#   Null-conditional access     Not available   $obj?.Prop
+#   ForEach-Object -Parallel    Not available   Available
+#   Unicode support (UTF-8)     Limited         Full
+#   Error view                  NormalView      ConciseView
+#
+# If you run this script under PS 5.1, the version-check block below
+# will warn you and prompt to continue at your own risk. For best
+# results, install PowerShell 7 from https://github.com/PowerShell/PowerShell
+# and run: pwsh -File .\install.ps1
+# ---------------------------------------------------------------------------
 
 param(
     [switch]$SkipModel

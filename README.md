@@ -433,6 +433,10 @@ The repo is pure code.
 
 ## Requirements
 
+- **PowerShell 7+** (required for `install.ps1`). Windows PowerShell 5.1 lacks
+  ternary operators (`? :`), null-coalescing (`??`), pipeline chain operators
+  (`&&`, `||`), and other features used in the install script. Download from
+  https://github.com/PowerShell/PowerShell
 - Python 3.10+
 - OpenVINO 2026.1+ with openvino-genai
 - At least one of:
