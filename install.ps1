@@ -213,6 +213,8 @@ function Show-ModelMenu {
         [bool]$AllowSkip = $false
     )
 
+    if ($null -eq $LocalModels) { $LocalModels = @() }
+
     Write-Host "=== $Title ===" -ForegroundColor Cyan
     Write-Host ""
 
