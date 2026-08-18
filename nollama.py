@@ -1239,7 +1239,31 @@ class DeviceSlot:
             VLMPipe = getattr(ovg, "VLMPipeline", None)
             if VLMPipe is None:
                 raise RuntimeError("No VLMPipeline in this openvino_genai build.")
-            self.pipe = VLMPipe(str(model_dir), device=self.device_id, **offload)
+            if PROMPT_CACHE and self.kv_pool_gb and self.device_name in ("GPU", "CPU"):
+                # VLMPipeline honors scheduler_config on current runtimes —
+                # measured 2026-08-18: 2026.3 release (140V, ~9k-token prefix
+                # 21.7s -> 3.9s TTFT) and 2026.4 nightly (B60, 33k-token
+                # prefix 54.5s -> 1.3s). The old "CB backend is LLM-only"
+                # belief was stale. A runtime that rejects the property falls
+                # back to the plain pipeline, same pattern as the LLM branch.
+                try:
+                    sc = ovg.SchedulerConfig()
+                    sc.enable_prefix_caching = True
+                    sc.cache_size = self.kv_pool_gb
+                    self.pipe = VLMPipe(str(model_dir), device=self.device_id,
+                                        scheduler_config=sc, **offload)
+                    src = "" if PROMPT_CACHE_GB is not None else \
+                        ", auto-sized — pin with --cache-size-gb"
+                    print(f"  [{self.device_name}] prefix caching on "
+                          f"({self.kv_pool_gb} GB KV pool{src})", flush=True)
+                except Exception as e:
+                    print(f"  [{self.device_name}] prefix caching unavailable "
+                          f"({e}); using plain pipeline", flush=True)
+                    self.pipe = VLMPipe(str(model_dir), device=self.device_id,
+                                        **offload)
+            else:
+                self.pipe = VLMPipe(str(model_dir), device=self.device_id,
+                                    **offload)
         else:
             # NPU has a default prompt limit of 1024 tokens — raise it
             if self.device_name == "NPU":
@@ -1287,7 +1311,11 @@ class DeviceSlot:
         session eventually owns the whole pool, hence the headroom fraction
         (see AUTO_KV_HEADROOM_SHARE).
         """
-        if not (PROMPT_CACHE and not vlm and self.supports_prefix_cache
+        # VLM slots size a pool too: openvino_genai honors scheduler_config
+        # on VLMPipeline (verified on 2026.3 release and the 2026.4 nightly;
+        # a runtime that rejects it falls back to the plain pipeline at load,
+        # leaving the pool unused).
+        if not (PROMPT_CACHE and self.supports_prefix_cache
                 and self.device_name in ("GPU", "CPU")):
             self.kv_pool_gb = 0
             return
@@ -1795,24 +1823,33 @@ class _AtemPlainFilter:
 
     Same surface as _AtemStreamFilter: to=self content -> <think>...</think>,
     to=user -> plain text; ATEM XML tool calls are ordinary text and pass
-    through to parse_tool_calls. Necessarily more fragile than the marker
-    filter — 'assistant to=user' could legitimately occur inside reasoning
-    content — but the alternative is raw channel soup in every client.
+    through to parse_tool_calls. A tool turn ends in a to=<name> channel
+    rather than to=user, so the think block also closes at the first
+    <atem:function_calls> — any 'assistant to=<name>' header glued in front
+    of it stays hidden inside the think block (channel names are glued to
+    their content; there is no delimiter to split them out reliably).
+    Necessarily more fragile than the marker filter — 'assistant to=user'
+    could legitimately occur inside reasoning content — but the alternative
+    is raw channel soup in every client.
     """
 
     _OPENERS = ("to=self", "to=user")
     _SWITCH = "assistant to=user"
+    _TOOL_XML = "<atem:function_calls>"
 
     def __init__(self):
         self._buf = ""
         self._state = "header"  # header -> think | answer
 
     def _held_tail(self):
-        """Length of the buffer tail that could be the start of the switch."""
-        for ln in range(min(len(self._buf), len(self._SWITCH) - 1), 0, -1):
-            if self._SWITCH.startswith(self._buf[-ln:]):
-                return ln
-        return 0
+        """Length of the buffer tail that could be the start of a marker."""
+        best = 0
+        for mk in (self._SWITCH, self._TOOL_XML):
+            for ln in range(min(len(self._buf), len(mk) - 1), 0, -1):
+                if mk.startswith(self._buf[-ln:]):
+                    best = max(best, ln)
+                    break
+        return best
 
     def feed(self, text):
         self._buf += text
@@ -1829,15 +1866,31 @@ class _AtemPlainFilter:
                     else:
                         self._state = "answer"
                     continue
-                if not lead or any(o.startswith(lead) for o in self._OPENERS):
+                # Tool channel straight from the header (no reasoning first):
+                # the name ends where its ATEM XML starts — '<' delimits.
+                m = re.match(r"to=[\w.]+(?=<)", lead)
+                if m:
+                    self._buf = lead[m.end():]
+                    self._state = "answer"
+                    continue
+                if (not lead or any(o.startswith(lead) for o in self._OPENERS)
+                        or re.fullmatch(r"to=[\w.]*", lead)):
                     break  # could still grow into a channel header — hold
                 self._state = "answer"  # no header at all — pass through
                 continue
             if self._state == "think":
                 i = self._buf.find(self._SWITCH)
-                if i >= 0:
+                j = self._buf.find(self._TOOL_XML)
+                if i >= 0 and (j < 0 or i < j):
                     out.append(self._buf[:i] + "</think>\n")
                     self._buf = self._buf[i + len(self._SWITCH):]
+                    self._state = "answer"
+                    continue
+                if j >= 0:
+                    # Tool call: close the think block and let the ATEM XML
+                    # flow through to parse_tool_calls (marker kept).
+                    out.append(self._buf[:j] + "</think>\n")
+                    self._buf = self._buf[j:]
                     self._state = "answer"
                     continue
                 held = self._held_tail()
@@ -2310,7 +2363,8 @@ def _sse_replay(completion_id, created, model, message, finish_reason):
     yield "data: [DONE]\n\n"
 
 
-def _sse_tool_stream(slot, raw_messages, gen, tools, completion_id, created, t0):
+def _sse_tool_stream(slot, raw_messages, gen, tools, completion_id, created, t0,
+                     vlm=None):
     """Buffered tool turn, streamed with keep-alive frames.
 
     A tool turn must be fully generated before we can emit a structured
@@ -2320,12 +2374,18 @@ def _sse_tool_stream(slot, raw_messages, gen, tools, completion_id, created, t0)
     until it finishes, then replay the parsed result. Without this the client
     sees nothing during prefill and aborts (and OpenVINO can't cancel a blocked
     prefill, so the abandoned generation keeps churning).
+
+    vlm: (text_prompt, images) when the slot is a VLM — the same buffered
+    turn, generated through the VLM pipeline instead of ChatHistory.
     """
     result = {}
 
     def _run():
         try:
-            result["text"] = slot.generate_llm(raw_messages, gen)
+            if vlm is not None:
+                result["text"] = slot.generate_vlm(vlm[0], vlm[1], gen)
+            else:
+                result["text"] = slot.generate_llm(raw_messages, gen)
         except Exception as e:  # noqa: BLE001 — surfaced to the client below
             result["error"] = e
 
@@ -2356,7 +2416,7 @@ def _sse_tool_stream(slot, raw_messages, gen, tools, completion_id, created, t0)
     if result.get("error") is not None:
         err = explain_genai_error(result["error"], slot)
         print(f"{datetime.now():%H:%M:%S} !! [{slot.device_name}] "
-              f"LLM error: {err}", flush=True)
+              f"{'VLM' if vlm is not None else 'LLM'} error: {err}", flush=True)
         yield ("data: " + json.dumps({
             "id": completion_id, "object": "chat.completion.chunk",
             "created": created, "model": slot.model_name,
@@ -2734,6 +2794,16 @@ def chat_completions():
 
     # --- VLM path ---
     if slot.model_type == "vlm":
+        # Tool turns are buffered like the LLM path's (structured tool_calls
+        # need the whole generation); images alongside tools are allowed — a
+        # screenshot plus tool specs is a legitimate agent turn.
+        if stream and tools_active:
+            return Response(
+                _sse_tool_stream(slot, raw_messages, gen, tools, completion_id,
+                                 created, t0, vlm=(text_prompt, images)),
+                mimetype="text/event-stream",
+                headers={"X-Device": slot.device_name, "X-Model": slot.model_name},
+            )
         if stream:
             return Response(
                 slot.stream_vlm(text_prompt, images, gen, completion_id, created, t0),
@@ -2751,10 +2821,25 @@ def chat_completions():
         print(f"{datetime.now():%H:%M:%S} -> [{slot.device_name}] "
               f"{len(text)} chars in {elapsed:.1f}s", flush=True)
 
+        tool_calls = []
+        if tools_active:
+            text, tool_calls = parse_tool_calls(text, tools)
+            if tool_calls:
+                print(f"{datetime.now():%H:%M:%S} -> [{slot.device_name}] "
+                      f"{len(tool_calls)} tool call(s): "
+                      f"{', '.join(tc['function']['name'] for tc in tool_calls)}",
+                      flush=True)
+        if tool_calls:
+            message = {"role": "assistant", "content": text or None, "tool_calls": tool_calls}
+            finish_reason = "tool_calls"
+        else:
+            message = {"role": "assistant", "content": text}
+            finish_reason = "stop"
+
         resp = jsonify({
             "id": completion_id, "object": "chat.completion",
             "created": created, "model": slot.model_name,
-            "choices": [{"index": 0, "message": {"role": "assistant", "content": text}, "finish_reason": "stop"}],
+            "choices": [{"index": 0, "message": message, "finish_reason": finish_reason}],
             "usage": {"prompt_tokens": -1, "completion_tokens": -1, "total_tokens": -1},
         })
         resp.headers["X-Device"] = slot.device_name
@@ -2952,8 +3037,9 @@ def ollama_chat():
     # we render tool specs into the prompt; on NPU/CPU we ignore `tools`.
     tools_active = bool(tools) and _tools_supported(slot)
     if tools_active:
-        # Tool turns are text-only: render tool specs + prior calls into the
-        # prompt. (Images + tools simultaneously is not a supported path.)
+        # Render tool specs + prior calls into the prompt. Images ride along
+        # untouched — a screenshot plus tool specs is a legitimate agent turn
+        # on a VLM slot.
         internal_messages = prepare_messages_for_tools(ollama_messages, tools)
     elif tools:
         print(f"{datetime.now():%H:%M:%S} -- [{slot.device_name}] [Ollama] "
@@ -3012,9 +3098,26 @@ def ollama_chat():
         print(f"{datetime.now():%H:%M:%S} -> [{slot.device_name}] [Ollama] "
               f"{len(text)} chars in {elapsed:.1f}s", flush=True)
 
+        message = {"role": "assistant", "content": text}
+        if tools_active:
+            text, tool_calls = parse_tool_calls(text, tools)
+            message["content"] = text
+            if tool_calls:
+                # Ollama shape: arguments are an object, not a JSON string.
+                message["tool_calls"] = [{
+                    "function": {
+                        "name": tc["function"]["name"],
+                        "arguments": json.loads(tc["function"]["arguments"]),
+                    }
+                } for tc in tool_calls]
+                print(f"{datetime.now():%H:%M:%S} -> [{slot.device_name}] [Ollama] "
+                      f"{len(tool_calls)} tool call(s): "
+                      f"{', '.join(tc['function']['name'] for tc in tool_calls)}",
+                      flush=True)
+
         return jsonify({
             "model": slot.model_name,
-            "message": {"role": "assistant", "content": text},
+            "message": message,
             "done": True,
             "total_duration": int(elapsed * 1e9),
         })

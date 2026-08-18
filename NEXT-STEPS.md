@@ -45,14 +45,40 @@ the docs — this file is only what's still open.
   the same gate Qwen3.8 is already waiting on. VLM slots get no prefix
   cache (the CB backend is LLM-only), so that win does not arrive with this.
 
-- **Glimmer lost structured tool calling in the reroute.** On the optimum
-  path Glimmer was `model_type="llm"` and tool turns went through
-  `parse_tool_calls`; on GenAI it is a VLM slot, and the VLM branch of
-  `chat_completions` streams text without ever parsing tool calls — the ATEM
-  XML now reaches the client raw. That's a pre-existing gap for *all* VLM
-  slots (Qwen3-VL has it too), Glimmer just makes it visible because it's an
-  agent model. Fix is "parse tool calls on the VLM path", a separate feature;
-  until then agent use of Glimmer arguably still wants `--backend optimum`.
+- **Branch `vlm-tool-calling`: VLM slots are agent-grade — review & merge.**
+  Two changes, both verified end-to-end 2026-08-18:
+
+  1. **Tool calling on VLM slots** (both API surfaces; buffered like LLM
+     tool turns; images may ride along with tools). Qwen3.5-4B on the 140V
+     and Glimmer on the B60 both return structured
+     `get_weather({"city":"Oslo"})` with `finish_reason=tool_calls`;
+     Glimmer's reasoning stays in `<think>` with no channel leak
+     (`_AtemPlainFilter` also closes the think block at
+     `<atem:function_calls>` so the tool XML reaches `parse_tool_calls`).
+     This un-does the one regression the GenAI reroute had — Glimmer agent
+     use no longer wants `--backend optimum`.
+  2. **Prefix caching on VLM slots.** VLMPipeline honors `scheduler_config`
+     — the long-standing "CB backend is LLM-only" belief was stale. Verified
+     on 2026.3 *release* (140V, ~9k-token prefix 21.7s→3.9s TTFT) and the
+     2026.4 nightly (B60/Glimmer, 33k-token prefix 53.7s→1.4s through
+     NoLlama's serving path). Runtimes that reject the property fall back to
+     the plain pipeline with a log line, like the LLM branch.
+
+  Honest observations from the measurements:
+  - **CB VLM prefill is slower cold**: the same 33k prompt prefilled in
+    ~8.7s on the plain pipeline vs 53.7s under CB (then 1.4s per repeat).
+    Agents win from turn two; one-shot prompts pay more once.
+    `--no-prompt-cache` restores the plain pipeline if that bites.
+  - The plain pipeline **OOM'd on the first 33k-token request** on the B60
+    (16 GB USM allocation failed; the immediate retry succeeded). Under CB
+    the same request completed first try. Unexplained — file upstream if it
+    reproduces.
+  - **Prewarm is still LLM-only** (`_maybe_capture_prewarm` and the prewarm
+    prefill gate on `model_type == "llm"`). With VLM caching working, wiring
+    prewarm up for VLM slots is the natural follow-up — it converts the one
+    remaining cold 53.7s prefill into a startup cost.
+  - The "minutes of prefill" worry for agent prompts was wrong for the B60
+    class: 33k tokens prefill in ~9s on the plain pipeline.
 
 - **Loading a big model stages through host memory first.** Watched on the B60
   (17 GB Glimmer): shared GPU memory ramps to near its 16 GB ceiling and holds

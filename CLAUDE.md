@@ -7,9 +7,12 @@ OpenAI-compatible LLM/VLM server for Intel hardware. NPU-first.
 - `nollama.py` — Flask server, DeviceSlot class per device, auto-detects VLM/LLM from config.json
 - NPU: LLMPipeline with MAX_PROMPT_LEN=4096, streaming via SSE
 - GPU: VLMPipeline (images) or LLMPipeline (text). Both stream as of openvino-genai 2026.1 — verified on Arc 140V iGPU.
-- Prefix (KV) caching: **default on** for GPU/CPU **LLM** slots — they load via the
-  continuous-batching backend (`LLMPipeline(..., scheduler_config=SchedulerConfig(
-  enable_prefix_caching=True, cache_size=slot.kv_pool_gb))`). A repeated prompt prefix (an
+- Prefix (KV) caching: **default on** for GPU/CPU **LLM and VLM** slots — they load via the
+  continuous-batching backend (`LLMPipeline/VLMPipeline(..., scheduler_config=SchedulerConfig(
+  enable_prefix_caching=True, cache_size=slot.kv_pool_gb))`). VLMPipeline honoring
+  scheduler_config was verified 2026-08-18 on 2026.3 release (140V: ~9k-token prefix
+  21.7s→3.9s TTFT) and 2026.4 nightly (B60: 33k tokens 54.5s→1.3s) — the earlier
+  "CB backend is LLM-only" note was stale. A repeated prompt prefix (an
   agent's fixed system prompt + tool schemas, identical every turn) is prefilled once, not
   every turn — measured ~47× faster on a cached turn (24.4s→0.5s for a ~2k-token prefix on
   the 285K CPU). Auto-invalidated by any prefix change (no staleness). `--no-prompt-cache`
@@ -18,9 +21,10 @@ OpenAI-compatible LLM/VLM server for Intel hardware. NPU-first.
   the model's KV geometry (`AUTO_KV_TOKENS`) — sized from the *total* budget (not free RAM)
   so it's stable across restarts/reloads; the CB backend grows into it rather than
   allocating upfront, but prefix-cached blocks are never released, hence the fraction.
-  `--cache-size-gb N` pins it (skips auto). NPU and VLM slots keep the
-  plain pipeline (NPU has no CB path; it keeps MAX_PROMPT_LEN). Falls back to the plain
-  pipeline with a warning if a device can't build the CB backend. `--prewarm <file>`
+  `--cache-size-gb N` pins it (skips auto). NPU slots keep the
+  plain pipeline (no CB path; NPU keeps MAX_PROMPT_LEN). Falls back to the plain
+  pipeline with a warning if a device or runtime can't build the CB backend.
+  Prewarm/prompt-capture is still LLM-only (VLM prewarm untested — see NEXT-STEPS). `--prewarm <file>`
   prefills a saved agent prompt at startup (the file auto-captures the first big prompt
   served via `_maybe_capture_prewarm` — on both the OpenAI and Ollama chat paths — so: run
   once → restart with `--prewarm`) so even the first turn is a cache hit instead of a cold
@@ -87,8 +91,10 @@ OpenAI-compatible LLM/VLM server for Intel hardware. NPU-first.
   projection stack, ~288 GB across 48 layers × 3. Measured: **400 GB of Windows pagefile
   (on 128 GB RAM) succeeded**, 200 GB did not (#19, Dmitriy Teteruk). Weight format is
   irrelevant to this stage — the blowup is before quantization.
-- Tool calling: **GPU/iGPU + CPU** (gated by `_tools_supported`, i.e.
-  `device_name in ("GPU","CPU")`); the **NPU is excluded** — it has a hard prompt cap and
+- Tool calling: **GPU/iGPU + CPU**, on both LLM and VLM slots (VLM tool turns —
+  including images alongside tools — added 2026-08-18; buffered like LLM tool turns,
+  generated through the VLM pipeline). Gated by `_tools_supported`, i.e.
+  `device_name in ("GPU","CPU")`; the **NPU is excluded** — it has a hard prompt cap and
   small NPU-class models can't drive agent loops, so when the NPU serves the request we
   ignore `tools` and answer as plain chat. `/api/show` advertises the `tools` capability only
   for GPU/CPU slots (so Copilot won't offer NPU models for agent mode). CPU is viable for

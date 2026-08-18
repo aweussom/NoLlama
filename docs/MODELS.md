@@ -243,9 +243,13 @@ What to know before switching:
 - Needs the **nightly runtime** (`install.ps1 -Nightly`) until OpenVINO
   2026.4 ships as a release — Intel exported it with a 2026.4 build and the
   card wants 2026.3.1+ with a genai pre-release. Same gate as Qwen3.8-27B.
-- It lands on a **VLM slot**: no prefix cache / prewarm, and tool calls are
-  **not parsed into structured `tool_calls`** (they pass through as text) —
-  the optimum path did parse them. Images are untested on Glimmer.
+- It lands on a **VLM slot** — which since 2026-08-18 means **tool calling
+  works** (structured `tool_calls` on both API surfaces, verified with
+  Glimmer on the B60) and **prefix caching works** (VLMPipeline honors
+  `scheduler_config` on 2026.3+; measured on the B60: a 33k-token prefix
+  went 54.5s → 1.3s TTFT on the repeat turn — what an agent's fixed system
+  prompt does every turn). Prewarm is still LLM-only, and images are
+  untested on Glimmer.
 - `--backend optimum` still forces the old path (needs `venv-optimum/`).
 
 ## Brand-new architectures: the optimum backend
@@ -400,9 +404,10 @@ Know what you are signing up for before you pull 15.7 GB:
 
 - Intel labels the export **experimental / "not fully validated with
   OpenVINO"**, and nightly wheels change daily.
-- It is a **VLM**, so it lands on `VLMPipeline` — **no prefix cache, no
-  prewarm**. For agent work that means every turn re-prefills the system
-  prompt. Fine for chat and vision; painful for OpenClaw.
+- It is a **VLM**, so it lands on `VLMPipeline`. Prefix caching now works
+  on VLM slots (verified 2026-08-18 on 2026.3 release and the 2026.4
+  nightly), so agent turns reuse the prefilled system prompt; prewarm is
+  still LLM-only, so the *first* turn after a start pays the full prefill.
 - It is **dense**, not MoE, so `--offload-ratio` does nothing for it. The
   15.7 GB of weights must be resident.
 - That rules out a stock 16 GB Arc 140V. It wants a 24 GB card (Arc B60)
