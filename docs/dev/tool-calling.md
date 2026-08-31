@@ -83,6 +83,16 @@ a client that turns out to depend on it. The **Ollama surface is
 unchanged**: `/api/chat` keeps `<think>` in content and still emits a
 tool-enabled turn as one buffered ndjson line.
 
+Two layers of test, and they cover different halves. `scripts/agent-loop-test.py`
+runs the **round trip against real weights**: stream a turn that ends in
+`tool_calls`, send the conversation back with a tool-call-only assistant
+message (`content: null`) plus a `tool` result, stream the second turn, and
+check the model actually used the result. That second-turn history is the
+shape that broke Zed (#24) and the one `prepare_messages_for_tools` re-renders
+every turn — nothing else exercises it. Point it at a running GPU/CPU server:
+`python scripts/agent-loop-test.py http://127.0.0.1:8000` (verified 2026-08-31,
+Qwen3-8B on an Arc 140V).
+
 Tests: `tests/test_stream_tools.py` drives the real `_sse_tool_stream` with
 a fake seam (fuzzed chunkings, keep-alives, false alarms, bare JSON, errors,
 legacy flag) — no model needed.
