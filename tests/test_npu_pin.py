@@ -6,13 +6,19 @@ branch cannot be silently displaced below the broader
 the wrong advice. The real driver-4841 failure surface contains both
 strings; the AUTO_DETECT / ``--npu-platform`` hint must win.
 
-Runs anywhere with the NoLlama venv — no NPU hardware required, just
-``import nollama`` (the imports that pull are pure-Python plus the
-openvino/openvino_genai wheels).
-"""
-import pytest
+Runs anywhere with the NoLlama venv — no NPU hardware required, and no pytest
+either: pytest is not a NoLlama dependency, so this file puts the repo root on
+sys.path and carries its own __main__ runner, the same shape as
+tests/test_stream_tools.py. Both work:
 
-from nollama import explain_genai_error
+    venv\\Scripts\\python tests\\test_npu_pin.py
+    venv\\Scripts\\python -m pytest tests\\test_npu_pin.py   # where pytest exists
+"""
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from nollama import explain_genai_error  # noqa: E402  (needs the path above)
 
 
 def _exc(msg: str) -> RuntimeError:
@@ -52,3 +58,30 @@ def test_compilation_failed_without_auto_detect_still_uses_old_hint():
     msg = explain_genai_error(_exc(real))
     assert "NPU driver too old" in msg
     assert "--npu-platform" not in msg
+
+
+def test_auto_detect_on_a_gpu_slot_does_not_get_npu_advice():
+    # "AUTO_DETECT" is an OpenVINO-wide token, so the branch is gated on the
+    # slot: a GPU-side message mentioning it must fall through to the generic
+    # handling rather than telling the user to pass --npu-platform.
+    class _Slot:
+        device_name = "GPU"
+        kv_pool_gb = 0
+
+    msg = "Exception ... [GPU] plugin mentions AUTO_DETECT somewhere"
+    assert "--npu-platform" not in explain_genai_error(_exc(msg), _Slot())
+    # No slot to consult (many call sites) keeps the NPU hint.
+    assert "--npu-platform" in explain_genai_error(_exc(msg))
+
+
+if __name__ == "__main__":
+    failures = 0
+    for name, fn in sorted(globals().items()):
+        if name.startswith("test_") and callable(fn):
+            try:
+                fn()
+                print("ok  ", name)
+            except AssertionError as e:
+                failures += 1
+                print("FAIL", name, "-", e)
+    sys.exit(1 if failures else 0)

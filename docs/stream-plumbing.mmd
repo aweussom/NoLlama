@@ -15,7 +15,7 @@ flowchart TB
 
   stream_tokens --> worker
   stream_vlm_tokens --> worker
-  worker -.->|"backend exception"| _stream_error["_stream_error set;<br/>explain_genai_error names the fix<br/>(KV pool too small, NPU compiler, ...)"]
+  worker -.->|"backend exception"| _stream_error["_stream_error set;<br/>explain_genai_error names the fix<br/>(KV pool too small, NPU compiler,<br/>AUTO_DETECT -> --npu-platform, ...).<br/>Order matters: the specific matchers run<br/>before the broad 'Compilation failed' one,<br/>and the NPU hints are gated on the slot's<br/>device — see tests/test_npu_pin.py"]
 
   _sse_stream["_sse_stream (OpenAI SSE, shared body)<br/>None -> empty-content delta keepalive;<br/>first token stamps wall-clock TTFT;<br/>finish stop / cancelled / error, [DONE]"]
   stream_llm["stream_llm / stream_vlm<br/>thin wrappers: pick the seam,<br/>delegate to _sse_stream"]

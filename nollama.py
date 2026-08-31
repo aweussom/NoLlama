@@ -898,8 +898,11 @@ def explain_genai_error(e, slot=None):
         # ways the GPU plugin can't execute. Observed on Xe-LPG (285K iGPU).
         return (f"{msg} — the OpenVINO GPU plugin cannot run this model's "
                 f"dynamic-shape graph on this GPU; serve it with --device CPU")
-    if "AUTO_DETECT" in msg:
+    if "AUTO_DETECT" in msg and (slot is None or slot.device_name == "NPU"):
         # NPU compiler-in-plugin couldn't resolve the default platform.
+        # Gated on the slot because "AUTO_DETECT" is an OpenVINO-wide token:
+        # a GPU-side message that merely mentions it must not collect NPU
+        # advice (slot is None only for callers with no slot to hand us).
         # NoLlama pins NPU_PLATFORM from DEVICE_ARCHITECTURE (or --npu-platform)
         # so this path shouldn't trigger on current drivers; if it does,
         # the override is the fix. Must precede the generic "Compilation
