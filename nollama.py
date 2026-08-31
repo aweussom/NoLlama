@@ -898,6 +898,17 @@ def explain_genai_error(e, slot=None):
         # ways the GPU plugin can't execute. Observed on Xe-LPG (285K iGPU).
         return (f"{msg} — the OpenVINO GPU plugin cannot run this model's "
                 f"dynamic-shape graph on this GPU; serve it with --device CPU")
+    if "AUTO_DETECT" in msg:
+        # NPU compiler-in-plugin couldn't resolve the default platform.
+        # NoLlama pins NPU_PLATFORM from DEVICE_ARCHITECTURE (or --npu-platform)
+        # so this path shouldn't trigger on current drivers; if it does,
+        # the override is the fix. Must precede the generic "Compilation
+        # failed" NPU branch below — the real error contains both strings.
+        return (f"{msg} — the NPU compiler could not resolve the default "
+                f"platform (AUTO_DETECT). NoLlama pins NPU_PLATFORM from "
+                f"DEVICE_ARCHITECTURE; pass --npu-platform <arch> (e.g. 3720 "
+                f"for Meteor Lake / Arrow Lake, 4000 for Lunar Lake) to set "
+                f"it explicitly.")
     if "Compilation failed" in msg and ("NPU" in msg or "ZE_RESULT" in msg or "vpux" in msg):
         # NPU (vpux) compiler rejected the model — a model/driver-combination
         # problem, not a busy device (issue #20). Known trigger: an INT4
@@ -1318,15 +1329,17 @@ class DeviceSlot:
 
     backend = "genai"  # which runtime serves this slot (surfaced in /health)
 
-    def __init__(self, device_name, device_id=None):
+    def __init__(self, device_name, device_id=None, npu_platform=None):
         """Bare slot, nothing loaded; every field's meaning is inline below.
 
         In: canonical device kind ("NPU"/"GPU"/"CPU") plus the OpenVINO id
-        when they differ (multi-GPU: "GPU.1"). Out: a slot in status
+        when they differ (multi-GPU: "GPU.1"). npu_platform is the resolved
+        NPU_PLATFORM ("" = plugin default). Out: a slot in status
         not_configured — load() + warmup() make it serve.
         """
         self.device_name = device_name   # canonical "NPU", "GPU", "CPU" (display + routing)
         self.device_id = device_id or device_name  # OpenVINO id (may be "GPU.1" on multi-GPU)
+        self.npu_platform = npu_platform or ""     # resolved NPU_PLATFORM; "" -> plugin default
         self.device_full = ""            # "Intel(R) AI Boost"
         self.pipe = None
         self.model_name = ""
@@ -1418,9 +1431,32 @@ class DeviceSlot:
         else:
             # NPU has a default prompt limit of 1024 tokens — raise it
             if self.device_name == "NPU":
+                if self.npu_platform:
+                    # Pin the architecture so the compiler never sees AUTO_DETECT.
+                    # Provenance for why this kwarg exists:
+                    # [OBSERVED 2026-08-27, Meteor Lake 135H, NPU 3720, Intel
+                    # NPU driver 32.0.100.4841, OpenVINO 2026.3.0
+                    # (openvino 2026.3.0-22451 / openvino-genai 2026.3.0.0-3277)]
+                    # the NPU pipeline compile failed with::
+                    #
+                    #   Exception from src/plugins/intel_npu/src/plugin/src/plugin.cpp:576:
+                    #   Exception from src/plugins/intel_npu/src/compiler_adapter/src/compiler_impl.cpp:280:
+                    #   Compilation failed. vclAllocatedExecutableCreate4 result: 0x78000004
+                    #     - [NPU_VCL] Compiler returned msg:
+                    #   ENABLE_STRIDES_FOR not supported on NPU3720
+                    #
+                    # [OBSERVED 2026-08-30] on the same box with driver
+                    # 32.0.100.5540 + OpenVINO 2026.3.1 the failure no longer
+                    # reproduces — driver-correlated. The "isolate detect_devices
+                    # in a subprocess" fix that was first proposed for this
+                    # turned out to be unproven (no A/B on the same driver);
+                    # it was dropped (PR #34). The verified guard is this
+                    # constructor kwarg, pinned from DEVICE_ARCHITECTURE (or
+                    # --npu-platform).
+                    plugin_props["NPU_PLATFORM"] = self.npu_platform
                 self.pipe = ovg.LLMPipeline(
                     str(model_dir), device=self.device_id,
-                    MAX_PROMPT_LEN=4096,
+                    MAX_PROMPT_LEN=4096, **plugin_props,
                 )
             elif PROMPT_CACHE:
                 # GPU/CPU: enable prefix (KV) caching via the continuous-batching
@@ -2297,15 +2333,16 @@ class OptimumSlot(DeviceSlot):
 
     backend = "optimum"
 
-    def __init__(self, device_name, device_id=None):
+    def __init__(self, device_name, device_id=None, npu_platform=None):
         """DeviceSlot fields plus the HF pair; prefix cache off from birth.
 
         Why supports_prefix_cache=False here and not at load: _resolve_kv_pool
         and _prewarm_slot consult it, and both can run before/without a
         successful load — the capability is a property of the backend, not of
-        a loaded model.
+        a loaded model. npu_platform is accepted for signature parity with
+        DeviceSlot (the optimum backend has no NPU path, so it is unused).
         """
-        super().__init__(device_name, device_id)
+        super().__init__(device_name, device_id, npu_platform=npu_platform)
         self.supports_prefix_cache = False
         self.model = None
         self.tokenizer = None
@@ -3877,7 +3914,7 @@ def _identify_ollama(port):
         return False
 
 
-def detect_devices():
+def detect_devices(npu_platform=None):
     """Return {kind: {"id": ov_id, "name": full_name}} of usable devices.
 
     kind is the canonical category ("NPU", "GPU", "CPU"). For "GPU", "id"
@@ -3888,6 +3925,16 @@ def detect_devices():
     any OpenCL-capable GPU (NVIDIA, AMD), but its kernels only run on Intel
     hardware. Selecting a non-Intel GPU produces hundreds of compile errors
     and crashes at warmup with CL_INVALID_VALUE — better not to offer it.
+
+    For NPU, the resolved architecture ("3720", "4000", "5010", …) is added
+    to the dict as ``platform`` — from ``npu_platform`` when given, else read
+    from ``DEVICE_ARCHITECTURE``. This is the value NoLlama pins as the
+    ``NPU_PLATFORM`` constructor kwarg in DeviceSlot.load() so the NPU
+    compiler never sees AUTO_DETECT; the [OBSERVED 2026-08-27] / 2026-08-30
+    strides-failure provenance that originally motivated the pin lives next
+    to the kwarg in load() (the in-process isolation it first suggested
+    turned out to be unproven and was dropped — driver-correlated). Detection
+    itself is in-process, as on main.
     """
     devices = {}
     core = ov.Core()
@@ -3903,6 +3950,15 @@ def detect_devices():
                 devices["GPU"] = {"id": d, "name": full_name}
         elif d in ("NPU", "CPU"):
             devices[d] = {"id": d, "name": full_name}
+    if "NPU" in devices:
+        plat = str(npu_platform) if npu_platform else None
+        if not plat:
+            try:
+                plat = core.get_property("NPU", "DEVICE_ARCHITECTURE")
+            except Exception:
+                plat = None
+        if plat:
+            devices["NPU"]["platform"] = plat
     return devices
 
 
@@ -3967,8 +4023,11 @@ def _load_in_background(slot, model_dir, devices, port, ollama_port, banner_slot
         lines = []
         for s in banner_slots:
             if s.status == "ready":
+                suffix = (f" (NPU platform: {s.npu_platform})"
+                          if s.device_name == "NPU" and getattr(s, "npu_platform", "")
+                          else "")
                 lines.append(f"    {s.device_name:5s}: {s.model_name} ({s.model_type.upper()}) "
-                             f"-- {s.device_full}")
+                             f"-- {s.device_full}{suffix}")
         url = f"http://localhost:{port}"
         api_lines = [f"    API  : {url}  (OpenAI)"]
         if ollama_port:
@@ -4001,6 +4060,11 @@ def parse_args():
                    help="Primary model directory (default: model/)")
     p.add_argument("--device", default="auto",
                    help="Device for primary model: NPU, GPU, CPU, or auto (default: auto)")
+    p.add_argument("--npu-platform", default=None,
+                   help="Override the NPU_PLATFORM plugin value (e.g. 3720 for Meteor "
+                        "Lake / Arrow Lake, 4000 for Lunar Lake) instead of reading "
+                        "DEVICE_ARCHITECTURE. NoLlama pins the resolved architecture so "
+                        "the NPU compiler never sees AUTO_DETECT.")
     p.add_argument("--gpu-model-dir", default=None,
                    help="Secondary GPU model (enables dual mode: NPU chat + GPU vision/LLM)")
     p.add_argument("--port", type=int, default=8000,
@@ -4174,7 +4238,7 @@ def main():
         args.ollama_port = 0
 
     # 2. Detect devices
-    devices = detect_devices()
+    devices = detect_devices(npu_platform=args.npu_platform)
     print("  Devices:", flush=True)
     for kind, info in devices.items():
         suffix = f" [{info['id']}]" if info['id'] != kind else ""
@@ -4251,14 +4315,15 @@ def main():
               f"optimum path)", flush=True)
 
     # 5. Create device slots
-    primary = primary_cls(device, _id_of(device))
+    npu_plat = devices.get("NPU", {}).get("platform", "")
+    primary = primary_cls(device, _id_of(device), npu_platform=npu_plat)
     all_slots = [primary]
 
     if args.gpu_model_dir:
         if "GPU" not in devices:
             print("WARNING: --gpu-model-dir given but no GPU detected. Ignoring.")
         else:
-            secondary = secondary_cls("GPU", _id_of("GPU"))
+            secondary = secondary_cls("GPU", _id_of("GPU"), npu_platform=npu_plat)
             all_slots.append(secondary)
 
     if args.whisper_dir:
