@@ -26,7 +26,7 @@
             "hf_id": "aweussom/LFM2.5-1.2B-Instruct-int4-cw-ov",
             "source": "pre-exported",
             "est_size_gb": 1,
-            "notes": "Tested on 285K NPU (NPU 3, Arrow Lake): 38.8 tok/s — fastest verified NPU model. NPU-only build (fails CPU/GPU, see model card). WARNING: on Lunar Lake (Core Ultra 200V, NPU 4) it produces word salad at full speed — driver 32.0.100.4778, OpenVINO 2026.3.0/2026.3.1/2026.5-nightly all alike, Intel's own LFM2.5 exports too (verified 2026-08-30; see TODONT). Arrow Lake / Meteor Lake NPUs only until that is fixed."
+            "notes": "Tested on 285K NPU (NPU 3, Arrow Lake): 38.8 tok/s — fastest verified NPU model. NPU-only build (fails CPU/GPU, see model card). WARNING: on Lunar Lake (Core Ultra 200V, NPU 4) it produces word salad at full speed — NPU drivers 32.0.100.4778 and .5540, OpenVINO 2026.3.0/2026.3.1/2026.5-nightly all alike, Intel's own LFM2.5 exports too — a driver update does not fix it (verified 2026-09-01; see TODONT). Arrow Lake / Meteor Lake NPUs only until that is fixed."
         },
         {
             "name": "Phi 3.5 Mini (INT4-CW)",

@@ -989,18 +989,38 @@ are fixed. They run at 46–48 tok/s and emit word salad. Registry notes and
   IR exported by the 2026.5 toolchain — separate hazard, same day: a newer
   IR is not a drop-in on an older runtime.
 
-**Still open — the one axis not varied:** every failing run shared the
-**4778 kernel driver/firmware**. Driver 32.0.100.5540 is installed
-(pnputil, `oem43.inf`) but a reboot is needed before a process sees it
-(`NPU_DRIVER_VERSION` still reads 1004778). Correct after the reboot →
-4778 runtime bug on NPU 4, fix = "update your NPU driver", then bisect
-down through the staged 4724/4512. Still garbage → hardware/firmware path,
-report the whole matrix to #37322. Commands are at the top of
-`NEXT-STEPS.md`; the full log is `C:\Users\tommyl\npu-driver-backup\FINDINGS.md`.
+**The last unvaried axis is now closed: it is not the driver (2026-09-01).**
+Every failing run above shared the **4778 kernel driver/firmware**, which
+left "a 4778 runtime bug, fixable by a driver update" open as the kind
+answer. The laptop rebooted onto **32.0.100.5540** (`NPU_DRIVER_VERSION`
+reads 1005540, `DEVICE_ARCHITECTURE=4000`) and
+`LFM2.5-1.2B-Instruct-int4-cw-ov` re-probed **byte-identical**: `Say
+hello.` → `cohclclcl…`, `What is 2+2?` → `an anthankank…`, `capital of
+Norway` → `ablelelele…`, with the plugin compiler and the driver compiler
+alike. Same-session positive control on the same NPU and driver:
+SmolLM3-3B-int8-cw answers correctly at 15.4 tok/s (16.8 on 4778 — the
+device is healthy, so this is not a dead NPU).
 
-Re-evaluate if: the post-reboot probe is correct; an NPU driver or
-OpenVINO release names LFM2 on NPU4000; or Intel publishes an LFM2 build
-validated on Lunar Lake. Retest is `npu-probe.sh LFM2.5-1.2B-Instruct-int4-cw-ov`
+So the fix is **not** "update your NPU driver", and there is nothing to
+bisect downward — 4724/4512 are older than the driver that already fails,
+and stay staged in `rollback-npu-driver.ps1` for other purposes. Two
+driver generations, three OpenVINO versions, both compilers, every NPUW
+knob, our export and Intel's own: the only variable that has ever moved
+the result is the **NPU generation**. Report the matrix to
+openvinotoolkit/openvino#37322. Retest when the *NPU 4 firmware or the
+plugin's LFM/short-conv path* changes — not on a routine driver bump.
+
+Scope note: the 5540 re-probe covered `LFM2.5-1.2B-Instruct-int4-cw-ov`
+and, re-downloaded for the upstream report, Intel's own
+`OpenVINO/LFM2.5-350M-int8-ov` — garbage on NPU, correct on CPU **and**
+GPU in the same venv on the same day. `LFM2-1.2B-int4-cw-ov` was not
+re-tested (it lives on the 285K); the "NPU 3 only" caveat covers it on
+the 4778 evidence. Full log:
+`C:\Users\tommyl\npu-driver-backup\FINDINGS.md`.
+
+Re-evaluate if: an NPU driver or OpenVINO release names LFM2 on NPU4000;
+NPU 4 firmware changes; or Intel publishes an LFM2 build validated on
+Lunar Lake. Retest is `npu-probe.sh LFM2.5-1.2B-Instruct-int4-cw-ov`
 (two minutes) plus the SmolLM3 control.
 
 ## Qwen3.6-35B-A3B (Qwen3.5-MoE arch) on the NPU (2026-08-06)

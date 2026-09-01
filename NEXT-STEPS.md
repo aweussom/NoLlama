@@ -3,61 +3,36 @@
 State after the 2026-08-18 merge. Anything settled lives in README, TODONT or
 the docs — this file is only what's still open.
 
-## Pending a reboot of the 258V laptop — LFM2 garbage on NPU 4
+## LFM2 on NPU 4 — closed 2026-09-01, and it is not the driver
 
-NPU driver **32.0.100.5540** is installed (pnputil, `oem43.inf`, exit 3010)
-but the kernel driver + firmware swap waits for a reboot; every process still
-reports `NPU_DRIVER_VERSION=1004778`. Do not reboot for it — the WSL2 project
-comes first. When the laptop does reboot anyway, run this **first** (Git Bash,
-no admin):
+The 258V laptop rebooted onto NPU driver **32.0.100.5540**
+(`NPU_DRIVER_VERSION=1005540`). `LFM2.5-1.2B-Instruct-int4-cw-ov` still
+emits the same word salad, **byte-identical** to every 4778 run, with the
+plugin compiler and the driver compiler alike; SmolLM3-3B-int8-cw on the
+same NPU and driver answers correctly at 15.4 tok/s. So the driver was the
+last unvaried axis and it moved nothing — no downward bisect (4724/4512 are
+older than a driver that already fails), and the user-facing fix is not
+"update your NPU driver". Recorded in `TODONT.md`, `models.json` and
+`docs/MODELS.md`; full log in
+`C:\Users\tommyl\npu-driver-backup\FINDINGS.md`.
 
-```bash
-cd /c/devel/aweussom/python/NoLlama
-./venv/Scripts/python.exe -c "import openvino as ov; print(ov.Core().get_property('NPU','NPU_DRIVER_VERSION'))"   # expect 1005540
-PYTHONIOENCODING=utf-8 ./venv/Scripts/python.exe /c/Users/tommyl/npu-driver-backup/compiler-probe.py C:/Users/tommyl/models/LFM2.5-1.2B-Instruct-int4-cw-ov
-bash /c/Users/tommyl/npu-driver-backup/npu-probe.sh SmolLM3-3B-int8-cw-ov control   # NPU still healthy?
-```
+Left to do, all outward-facing:
+- **Report the matrix to openvinotoolkit/openvino#37322** — Intel already
+  reproduced "LFM2.5-1.2B gibberish on NPU" there (2026-08-13); this adds
+  the NPU 3 positive control and the two-driver result.
+- **The two HF model cards** (`aweussom/LFM2.5-1.2B-Instruct-int4-cw-ov`,
+  `aweussom/LFM2-1.2B-int4-cw-ov`) need the "NPU 3 only, a driver update
+  does not fix it" caveat.
+- **Reply on issue #24.**
 
-Read it as:
-- `Hello!`-type answers → the garbage was a **4778 runtime bug on NPU 4**; the
-  fix for users is "update the NPU driver". Then bisect downward to find the
-  first good driver: elevated pwsh 7,
-  `C:\Users\tommyl\npu-driver-backup\rollback-npu-driver.ps1 -Target 32.0.100.4724`
-  (and `.4512`), probe again after each.
-- still `cohclclcl…` → **NPU 4 is wrong for LFM2 regardless of driver**;
-  report the full matrix to openvinotoolkit/openvino#37322 (Intel already
-  reproduced "LFM2.5-1.2B gibberish on NPU" there on 2026-08-13).
-
-Either way, afterwards: TODONT entry, `models.json` + `docs/MODELS.md` caveat
-on the two LFM builds ("verified NPU 3 only"), the two HF model cards, and a
-reply on issue #24. To go back to the shipped driver:
-`rollback-npu-driver.ps1` (no args) — 4778 is still staged and backed up.
-
-What is already established (2026-08-30, full log in
-`C:\Users\tommyl\npu-driver-backup\FINDINGS.md`): with OpenVINO 2026.3.0,
-driver 4778 and the same files held constant, **NPU 3 (285K, arch 3720) is
-correct and NPU 4 (258V, arch 4000) emits byte-identical garbage** — through
-2026.3.0, 2026.3.1, the 2026.5.0 nightly, plugin *and* driver compiler, every
-NPUW knob tried, and Intel's own `LFM2.5-350M-int8-ov`. Same file on CPU/GPU
-in the same venv: correct. SmolLM3/Qwen3 on the same NPU: correct.
-
-## PR #34 (NPU_PLATFORM pin) — author has until 2026-09-01 ~07:00 UTC
-
-Third revision `606b779` was sent back 2026-08-30 18:46 UTC: the commit that
-says it drops the subprocess isolation still contains it (`subprocess.run`,
-`_detect_devices_inproc`, `[RETEST]`, "≈0.3 s" all present), and its merge
-commit's second parent is PR #35's branch, so the PR carries #35's three
-files. The *pin itself* is verified here (Lunar Lake: `NPU_PLATFORM="4000"`
-and `"NPU4000"` both load; `--npu-platform` works; banner shows it).
-
-Decision (owner, 2026-08-30): wait 36 h for a clean branch. If nothing by
-the deadline, write the pin ourselves — `npu_platform` on `DeviceSlot` and
-`OptimumSlot`, the `NPU_PLATFORM` kwarg in `load()` for NPU slots,
-`--npu-platform`, `platform` in `detect_devices()`'s NPU dict, the banner
-suffix, and the `explain_genai_error` hint for `Unsupported platform:
-'AUTO_DETECT'` — in-process detection as on `main`, `nollama.py` only,
-credit PearTr0191 in the commit, close #34 as superseded. Verify with the
-`npu-probe.sh` SmolLM3 control before pushing.
+Note for whoever re-probes: the 5540 run covered LFM2.5-1.2B and Intel's
+`OpenVINO/LFM2.5-350M-int8-ov` (re-downloaded; NPU garbage, CPU and GPU
+correct same-venv). `LFM2-1.2B-int4-cw-ov` is no longer on the laptop.
+A device-parameterised repro is at
+`npu-driver-backup/probes/repro37322.py` — note `MAX_PROMPT_LEN` is
+NPU-only and throws on CPU, which is why the script gates it. Also, `npu-probe.sh` prints only `content`, so
+thinking models now log `text=''`; the answer is in `reasoning_content`.
+Worth teaching the probe to print both before the next driver hunt.
 
 ## Open
 

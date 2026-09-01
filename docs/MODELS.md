@@ -43,15 +43,19 @@ driver compiler (a known vpux bug — `"Found N duplicated names"`). If you
 convert your own models for the NPU, use `download-model.ps1 -Weight
 int4-cw` (or `int8-cw`), which encodes the working recipe.
 
-**The two LFM builds are NPU 3 only (Arrow Lake / Meteor Lake) as of
-2026-08-30.** On a Lunar Lake NPU 4 (Core Ultra 7 258V) the same files run
-at 46–48 tok/s and emit word salad — `Say hello.` → `cohclclclcl…`,
-byte-identical across OpenVINO 2026.3.0, 2026.3.1 and the 2026.5 nightly,
-with the plugin compiler and the driver compiler alike; Intel's own
+**The two LFM builds are NPU 3 only (Arrow Lake / Meteor Lake).** On a
+Lunar Lake NPU 4 (Core Ultra 7 258V) the same files run at 46–48 tok/s and
+emit word salad — `Say hello.` → `cohclclclcl…`, byte-identical across
+OpenVINO 2026.3.0, 2026.3.1 and the 2026.5 nightly, with the plugin
+compiler and the driver compiler alike; Intel's own
 `OpenVINO/LFM2.5-350M-int8-ov` fails the same way, and the same file on
 CPU/GPU in the same venv answers correctly. The 285K's NPU 3 runs them
-correctly with identical software. Upstream: openvinotoolkit/openvino#37322.
-Details and the still-open driver-runtime question in `TODONT.md`.
+correctly with identical software.
+
+**Updating the NPU driver does not fix it** (checked 2026-09-01): output
+is byte-identical on 32.0.100.4778 and 32.0.100.5540, while other models
+stay correct on the same NPU and driver. Upstream:
+openvinotoolkit/openvino#37322. Details in `TODONT.md`.
 
 ## Models
 
