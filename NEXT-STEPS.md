@@ -167,11 +167,20 @@ credit PearTr0191 in the commit, close #34 as superseded. Verify with the
   as "E4B fixed" with the docs untouched. Watch for that.
 
   Open on our side, waiting on the reporter in issue #24: the
-  `Phi-3.5-vision-instruct-int4-ov` failure log (both image tests fail, text
-  fine — its own issue if there is a stack trace) and the
-  `Qwen3.5-9B-int4` runaway (1022 tokens for "say hello" in no-think mode,
-  190 s; the int8 of the same model answered in 21). Both asked for
-  2026-09-01; do not chase.
+  `Phi-3.5-vision-instruct-int4-ov` failure log — both image tests fail while
+  text generation is among the fastest in his batch, and there is no stack
+  trace yet. Its own issue if one arrives; do not chase.
+
+  **The `Qwen3.5-9B` "runaway" is answered and the question should be
+  withdrawn.** Reproduced the mechanism locally on `Qwen3.5-4B-int4-ov`
+  (Arc 140V, greedy, 2026-09-01): Qwen3.5 honours *neither* no-think lever —
+  `benchmark.py`'s system prompt still yields 127 chars of reasoning for
+  "Say hello." and 618 for "What is 2+2?", and the literal `/no_think`
+  marker yields 1483, *more* than the 939 with no system prompt at all. So
+  every "(no-think)" row on a Qwen3.5 model measures thinking output whose
+  length follows the greedy trajectory, which is exactly how the same prompt
+  returns 21 tokens on int8 and 1022 on int4. Expected, not a defect;
+  recorded at the `NO_THINK_SYSTEM` definition in `benchmark.py`.
 
 - **USM OOM: filed upstream as openvino.genai#4344 (2026-08-18).**
   Raw VLMPipeline (plain, no scheduler_config), Glimmer int4 on the B60:

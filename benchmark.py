@@ -264,6 +264,17 @@ TESTS_GPU_TEXT = [
 # not via system message. The no_think system prompt below is best-effort and
 # may still trigger thinking on some Qwen3 builds — that's fine, we capture
 # both content and reasoning channels and count them together for tok/s.
+#
+# On Qwen3.5 **neither lever works** [OBSERVED 2026-09-01, Qwen3.5-4B-int4-ov
+# on Arc 140V, greedy]: the system prompt above yields 127 chars of reasoning
+# for "Say hello." and 618 for "What is 2+2?", and the literal `/no_think`
+# marker yields 1483 — more than the 939 with no system prompt at all. So a
+# "(no-think)" row on a Qwen3.5 model is measuring *thinking* output, and its
+# length is a property of the greedy trajectory rather than of the prompt.
+# That is why the same prompt can return 21 tokens on one quantization and
+# 1022 on another (reported as a suspected runaway, NoLlama#24) — it is
+# expected, not a defect. Throughput stays valid; token counts are not
+# comparable across builds.
 TESTS_LLM = [
     make_llm_test(
         "LLM: say hello (thinking)",
