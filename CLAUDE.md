@@ -97,6 +97,40 @@ The same order applies to a model that *works* but looks wrong: wrong
 answers, odd token counts, suspicious speed. Establish what the runtime
 does with it before blaming or crediting the server.
 
+## And on every device — standing order
+
+Bare-vs-NoLlama is one axis. **The device is the other, and it has caught
+just as much.** A model is not tested until it has run on **CPU, the iGPU
+and the B60**, and on the **NPU** wherever the model can go there — each
+through bare genai *and* through the server. Devices span three machines,
+so this is not one command: → `docs/dev/machines.md`.
+
+**A device that refuses the model is a result, not a skip.** "Does not run
+on CPU/GPU" is exactly what the LFM2 int4-cw cards document, and it is load-
+bearing. Record it in the verified list with the error, in
+`docs/dev/models.md`.
+
+Why this is a rule. Every one of these was invisible on a single device:
+
+- **LFM2 on the NPU.** NPU 3 correct, NPU 4 byte-identical word salad, with
+  files, OpenVINO, compiler and driver all held constant. One NPU would have
+  "proved" either that the model is fine or that it is broken; only two
+  showed that the *NPU generation* is the whole variable.
+- **`gemma-4-E4B` and the allocation cap.** A user hit a hard per-allocation
+  ceiling at 67k tokens. The laptop cannot reproduce it at any sane prompt
+  length — its cap is 27.2 GB against a stock ~4.29 GB. **A clean run on one
+  box is not a refutation** (issue #24).
+- **"Never emits EOS."** Shipped upstream as fact on NPU-only evidence. CPU
+  is what turned it into the real finding: the sampler reports STOP
+  perfectly well, so the fault is upstream of the stopping logic. Same file,
+  same script, different device.
+- **Prefix caching on Intel's E4B export.** Confirmed as an IR defect rather
+  than a GPU one only because it failed identically on a second GPU class.
+
+The failure mode this closes is the one Phi-3.5-vision already demonstrated
+in the other axis: a pile of true negative results that never varied the
+thing that mattered.
+
 ## Known issues
 
 - Qwen3 thinking models can exhaust the token budget on `<think>` before

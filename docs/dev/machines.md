@@ -4,6 +4,12 @@ Which box to use for what, and what not to touch. Every measured number in
 `docs/` came from one of these three, so knowing which one matters when
 comparing results.
 
+**A model gets run on CPU, iGPU, B60 and (where it fits) NPU** — the standing
+order in `CLAUDE.md`. No single box has all of those, so the matrix below is
+what makes that rule executable. The two NPUs are **different generations**,
+and that has already been the whole answer once (LFM2), so "the NPU" is never
+one device.
+
 ## 1. B60 box — the primary workstation
 
 Where this repo lives and where most measurements are taken.
@@ -119,24 +125,46 @@ Ollama, ComfyUI and the drivers are still ask-first.
 | | |
 |---|---|
 | CPU | Intel Core Ultra 7 258V (Lunar Lake) |
-| GPU | Intel Arc 140V, 16 GB iGPU |
-| NPU | yes — the stronger of the two NPUs we have |
+| GPU | Intel Arc 140V iGPU — **~25.5 GB budget**, not the stock 16 GB (Intel Shared GPU Memory Override is on) |
+| NPU | yes — **NPU 4, `DEVICE_ARCHITECTURE=4000`.** The newer generation, and not the better one for every model |
 
-**Hands off.** The owner needs this machine to work and is unwilling to have
-WSL messed with on it. That is a hard constraint, not a preference: do not
-install, update, or reconfigure WSL, Docker, or drivers here.
+**WSL and Docker: hands off.** The owner needs this machine to work and is
+unwilling to have WSL messed with on it. That is a hard constraint, not a
+preference — do not install, update or reconfigure either, here, ever.
 
-It can `git pull` and run scripts. That is the extent of it.
+**Drivers: ask first, and the owner does the reboot.** Not the same rule. The
+NPU driver work in Aug–Sep 2026 happened on this box because it is the only
+NPU 4; it was asked for each time and the owner rebooted. Never assume that
+consent carries to the next swap.
+
+Running scripts, probes and model loads needs no permission — that is what
+the box is for.
 
 Also, for benchmarking: a busy 140V reads about **30% low**, so numbers from
 this machine are not comparable to the desktops unless it is otherwise idle.
+
+**It is the only NPU 4 we have**, so every NPU-generation comparison needs it
+and the 285K together.
+
+**The memory override also moved the per-allocation cap, and that costs repro
+ability** [OBSERVED 2026-09-01]: `GPU_DEVICE_MAX_ALLOC_MEM_SIZE` reads
+**27,208,896,512** here against the ~4.29 GB (`4,294,959,104`) a stock iGPU
+reports — which is what users actually have. So this box **cannot reproduce an
+allocation-cap bug** at any sane prompt length: the dense `[1,1,S,S]` mask that
+dies at 67k tokens elsewhere would need ~165k tokens here. When a report names
+*"Exceeded max size of memory object allocation"*, reach for another box, and
+never read a clean run here as a refutation (issue #24).
 
 ## Choosing a machine
 
 | Question | Machine | Why |
 |---|---|---|
+| The full device matrix for a new model | all three | CPU+B60 here, iGPU+NPU4 on the laptop, NPU3+Xe-LPG on the 285K |
 | Intel GPU / OpenVINO GPU plugin | B60 box | only Intel GPU present, no vendor confusion |
-| NPU behaviour | 285K | the laptop is off-limits |
+| iGPU behaviour | laptop (140V) or 285K (Xe-LPG) | two iGPU generations; the B60 is discrete and not a substitute |
+| NPU behaviour | **both** — 285K is NPU 3, laptop is NPU 4 | one NPU proves nothing; the generation has been the whole variable before |
+| NPU in a container | 285K only | the laptop's WSL/Docker is off-limits |
+| An allocation-cap or per-buffer-limit report | **not** the laptop | its cap is 27.2 GB, ~6x a stock iGPU |
 | NPU in a container | 285K only | ditto, and it already has WSL + Docker |
 | Ollama / llama.cpp comparison | 285K | that is where Ollama lives |
 | Big-model memory pressure | 285K (63 GB) | the B60 box has half the RAM |
