@@ -132,10 +132,9 @@ Ollama, ComfyUI and the drivers are still ask-first.
 unwilling to have WSL messed with on it. That is a hard constraint, not a
 preference — do not install, update or reconfigure either, here, ever.
 
-**Drivers: ask first, and the owner does the reboot.** Not the same rule. The
-NPU driver work in Aug–Sep 2026 happened on this box because it is the only
-NPU 4; it was asked for each time and the owner rebooted. Never assume that
-consent carries to the next swap.
+**Drivers: ask first, and the owner does the reboot** — see *Drivers* below.
+The NPU work in Aug–Sep 2026 happened here because it is the only NPU 4; it
+was asked for each time. Consent does not carry to the next swap.
 
 Running scripts, probes and model loads needs no permission — that is what
 the box is for.
@@ -154,6 +153,52 @@ allocation-cap bug** at any sane prompt length: the dense `[1,1,S,S]` mask that
 dies at 67k tokens elsewhere would need ~165k tokens here. When a report names
 *"Exceeded max size of memory object allocation"*, reach for another box, and
 never read a clean run here as a refutation (issue #24).
+
+## Drivers — never forcibly, but never stale either
+
+Two halves, and the second is the one that gets forgotten.
+
+**Never update a driver unprompted.** Ask, and let the owner reboot. Leading
+edge, not bleeding edge: a driver swap costs a reboot on a machine someone is
+working on, and it can move a result you are mid-way through explaining.
+
+**But do not let a box drift.** Users run the latest driver, and when
+something breaks, *updating the driver is the first thing they will try* —
+and the first thing Intel will tell them to try. Two consequences we have
+already paid for:
+
+- **A bug reported from a stale driver gets closed as "update your driver."**
+  The LFM2 report only survived contact with Intel because we were on
+  32.0.100.5540 and could say the failure is byte-identical on two driver
+  generations. On 4778 alone it would have been dismissed in one reply, and
+  correctly so.
+- **A bug we cannot reproduce may simply be newer than us.** If a user is on
+  a driver we have never run, "works here" means nothing.
+
+So: **record the driver with every measurement**, and check the gap before
+believing a negative result. `explain_genai_error` and the model cards name
+driver versions for this reason.
+
+| Box | GPU driver | NPU driver |
+|---|---|---|
+| 258V laptop | `32.0.101.8826` (2026-05-29) — **~3 months old, check for newer before trusting a GPU negative** | `32.0.100.5540` (2026-08-20) |
+| B60 box | not recorded — check | none (no NPU) |
+| 285K | not recorded — check | not recorded — check |
+
+Read them back with:
+
+```powershell
+Get-CimInstance Win32_VideoController | Select-Object Name, DriverVersion, DriverDate
+Get-CimInstance Win32_PnPSignedDriver |
+  Where-Object { $_.DeviceName -match 'AI Boost' } |
+  Select-Object DeviceName, DriverVersion, DriverDate
+```
+
+From inside OpenVINO, the NPU reports its own:
+`core.get_property("NPU", "NPU_DRIVER_VERSION")` — note that this reads the
+*running* driver, so it still shows the old one after an install until the
+machine reboots. That gap cost a day once: pnputil said 5540, every process
+said 4778, and the difference was a pending reboot.
 
 ## Choosing a machine
 

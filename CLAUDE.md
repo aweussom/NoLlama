@@ -69,7 +69,12 @@ never inside.
 - VLM prompts must be dead simple for small models (3B): one question, one
   answer, minimal JSON. All logic in Python, not in the prompt.
 - Leading edge, not bleeding edge: nightly-only models don't get installer
-  entries.
+  entries. **Drivers too — never update one unprompted (ask; the owner
+  reboots), but never let a box go stale either.** Users run the latest, and
+  "update your driver" is the first thing both they and Intel will say when
+  something breaks; a report from an old driver gets closed on sight, and a
+  bug we "cannot reproduce" may just be newer than we are. Record the driver
+  with every measurement. → `docs/dev/machines.md`
 
 ## A new model gets tested outside the server first — standing order
 
