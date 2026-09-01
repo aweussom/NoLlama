@@ -58,14 +58,15 @@ python nollama.py --scan D:\models      # search somewhere else
 is called:
 
 ```
-  C:\Users\you\models\Qwen3-Coder-Next-int8-ov
-    Name in API/UI : Qwen3-Coder-Next      (from directory name)
+  C:\Users\you\models\Qwen3-30B-A3B-int4-ov
+    Name in API/UI : Qwen3-30B-A3B      (from directory name)
     Kind           : LLM (text)
-    Architecture   : Qwen3NextForCausalLM / qwen3_next
-    Weights        : INT8 (asymmetric, channel-wise)   80.1 GB on disk
-    MoE            : 512 experts, 10 active per token
-    Geometry       : 48 layers, 262,144-token context, 32 KB/token KV
-    Exported with  : OpenVINO 2026.1.0, optimum-intel 1.27.0, transformers 4.57.6
+    Architecture   : Qwen3MoeForCausalLM / qwen3_moe
+    Weights        : INT4 (asymmetric, group size 128)   15.2 GB on disk
+    MoE            : 128 experts, 8 active per token
+    Geometry       : 48 layers, 40,960-token context, 96 KB/token KV
+    Exported with  : OpenVINO 2026.0.0, optimum-intel 1.27.0.dev0, transformers 4.57.6
+    Prefix caching : yes — 48 fused SDPA ops
     Agent mode     : tool calling on GPU/CPU; never on NPU (hard prompt cap)
     Integrity      : weights complete
 ```
@@ -75,6 +76,29 @@ The precision comes from the IR's own `nncf` record, not the directory name
 the weights actually are (including partial quantization and AWQ). It also
 runs the truncation check, so it's the quickest way to tell a bad download
 from a bad model.
+
+**`Prefix caching` is the one line that can save you a download.** Caching is
+built by rewriting the fused `ScaledDotProductAttention` nodes in the
+language model's IR, so an export that traced attention decomposed into
+matmul+softmax cannot cache at all, and says so:
+
+```
+    Prefix caching : NO — no fused SDPA op in the language model, so the
+                     caching backend cannot be built and this IR runs on
+                     the plain pipeline. An export defect — re-export fixes it.
+```
+
+Nothing in a model's name, size, precision or geometry reveals this, and
+until you see it you have no way to know: Intel's own
+`OpenVINO/gemma-4-E4B-it-int8-ov` has the defect while its two siblings do
+not (openvino.genai#4343). On a `NO` model every turn re-prefills the whole
+prompt — fine for one-shot vision, wrong for an agent loop.
+
+Don't read the count as "one per layer". That holds for dense models, but
+hybrids emit one node per *attention* layer: Qwen3.5-4B shows 8 for 32
+layers because it interleaves linear attention every fourth layer, and it is
+perfectly healthy. **Any count above zero can cache.** NPU slots never
+cache regardless — they keep the plain pipeline by design.
 
 **To rename a model,** rename its directory: that name is what the web UI
 shows and what clients request as the model ID. There's deliberately no

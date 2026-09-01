@@ -155,6 +155,24 @@ credit PearTr0191 in the commit, close #34 as superseded. Verify with the
   standalone repro. (Track: Intel has historically fixed our reports
   within a day.)
 
+  **Status 2026-09-01.** The thread has moved onto the E4B export defect,
+  which Intel accepted on 2026-08-31 and intends to fix by re-uploading the
+  IR (see `TODONT.md`). We posted three things in reply: a second
+  independent reproduction (Arc 140T, issue #24, dated the same day, HF repo
+  untouched since 2026-04-23); the argument that the durable fix is adding
+  `gemma4` to optimum-intel's `FORCE_ATTN_MODEL_CLASSES` rather than
+  re-uploading one artifact; and the cold-prefill repro offer, now that a
+  performance engineer is on the thread. **Item 1 — the actual documentation
+  ask — is still unanswered**, and was restated so the issue does not close
+  as "E4B fixed" with the docs untouched. Watch for that.
+
+  Open on our side, waiting on the reporter in issue #24: the
+  `Phi-3.5-vision-instruct-int4-ov` failure log (both image tests fail, text
+  fine — its own issue if there is a stack trace) and the
+  `Qwen3.5-9B-int4` runaway (1022 tokens for "say hello" in no-think mode,
+  190 s; the int8 of the same model answered in 21). Both asked for
+  2026-09-01; do not chase.
+
 - **USM OOM: filed upstream as openvino.genai#4344 (2026-08-18).**
   Raw VLMPipeline (plain, no scheduler_config), Glimmer int4 on the B60:
   first ~33k-token generate fails with a USM Device allocation error;

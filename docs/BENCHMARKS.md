@@ -173,6 +173,74 @@ Reported by Dmitriy Teteruk in issue #24 (2026-08-28, `benchmark.py --runs
 | Qwen3-VL-8B (int8) | 5.3–6.5 | 7.2 s with images | int8-vs-int4 explains the gap to Qwen3-8B |
 | LFM2.5-1.2B int4-cw **on the NPU** | **32.5** (41 on short prompts) | 1.0 s | 285K desktop NPU: 38.8. His first run gave 16–21 tok/s on a 100 W USB-dock supply; the laptop's own 140 W adapter restored it — **NPU throughput follows the power budget**, so benchmark on the real adapter (driver 5540, genai 2026.3.1) |
 
+**Everything above except the LFM2.5 row was measured on the 100 W dock
+supply.** A second batch on 2026-08-31 re-ran two of them on the laptop's own
+140 W adapter, and the power effect is not an NPU quirk — it costs the
+**iGPU** as much or more [OBSERVED 2026-08-31, issue #24]:
+
+| Model | 100 W dock | 140 W adapter | |
+|---|---|---|---|
+| Qwen3-Coder-Next int4 (80B-A3B) | 14.8 | **18.0** | +22% |
+| Qwen3-Coder-Next int8 (74 GB) | 8.6 | **11.3** | +31% |
+
+So the rule generalises: **benchmark on the machine's real power adapter**,
+and treat any laptop number taken through a dock as a lower bound. The
+tables below are all 140 W.
+
+#### Arrow Lake-H, second batch (2026-08-31, 140 W) — text models
+
+| Model | Decode tok/s (count 1-100) | TTFT |
+|---|---|---|
+| Qwen2.5-Coder-1.5B int4 | **57.0** | 0.09 s |
+| Qwen2.5-Coder-7B int4 | 16.3 | 0.21 s |
+| Qwen3-Coder-Next int4 (80B-A3B) | 18.8 | 0.70 s |
+| Qwen3-Coder-Next int8 | 11.8 | 1.04 s |
+| DeepSeek-R1-Distill-Qwen-7B int4-cw **(NPU)** | 8.6 | 4.30 s |
+| Mistral-7B-Instruct-v0.3 int4-cw **(NPU)** | 10.5 | 5.05 s |
+
+Both NPU entries load and answer correctly — the two longest-standing
+"Untested" rows in issue #24. Note the NPU's ~4–5 s TTFT against the iGPU's
+0.1–1.0 s: that is the NPU's fixed prompt-compile cost, and it is why the
+NPU suits short prompts and the GPU suits agent loops.
+
+#### Arrow Lake-H, second batch (2026-08-31, 140 W) — vision models
+
+Best decode tok/s seen across the two image questions and the text-only
+questions on the same slot. VLM slots have no `count 1-100` test, so these
+are not directly comparable with the text table above.
+
+| Model | Image | Text | Note |
+|---|---|---|---|
+| Qwen3-VL-4B-Instruct int4 | **17.2** | 16.8 | best vision throughput of the batch |
+| gemma-4-E2B-it int4 | 14.5 | 18.8 | |
+| InternVL2-4B int4 | 12.3 | 18.9 | first image answer was 4 tokens — see below |
+| gemma-3-4b-it int4-cw | 10.6 | 14.6 | |
+| gemma-4-26b-a4b-it int4 (MoE) | 8.4 | 11.1 | 4B active; pin `--cache-size-gb`, its KV is 240 KB/token |
+| gemma-4-E4B-it int8 | 8.1 | 8.0 | **Intel's build — no prefix caching** (see below) |
+| Qwen3.5-9B int4 | 8.9 | 6.3 | |
+| Qwen3-VL-8B-Instruct int8 | 7.0 | 6.9 | |
+| Qwen3-VL-4B-Instruct fp16 | 6.0 | 5.0 | ~3x slower than the int4 of the same model |
+| Qwen3.5-9B int8 | 5.7 | 3.7 | |
+| gemma-3-12b-it int4 | 5.6 | 6.0 | |
+| Qwen3.8-27B int4 | 2.9 | 2.6 | |
+| Qwen3.8-27B int8 | 1.5 | 1.6 | unusable |
+| Qwen3.5-9B fp16 | 2.4 | 1.6 | unusable; int4 is ~4x faster |
+| Phi-3.5-vision int4 | **FAILED** | 18.7 | both image questions failed; text generation fine |
+
+Three things in that table are worth more than their row:
+
+- **`Phi-3.5-vision-instruct-int4-ov` cannot do vision on this stack** while
+  its text path is among the fastest in the batch. No stack trace captured
+  yet; treat the model as unverified for images until there is one.
+- **`gemma-4-E4B-it-int8` was Intel's published build**, whose IR has no
+  fused SDPA op and therefore gets no prefix caching at all — a defect Intel
+  confirmed on 2026-08-31 (openvino.genai#4343). The number above is honest
+  for that artifact, and `models.json` ships our re-export instead. See
+  `docs/dev/prefix-cache.md`.
+- **fp16 is never worth it here.** Both fp16 entries are 3–4x slower than the
+  int4 of the same weights, on a memory-bound iGPU where the extra precision
+  buys nothing measurable.
+
 ### NoLlama vs Ollama on the Arc 140V iGPU
 
 Ollama now runs on Intel iGPUs via its Vulkan backend, so this is the

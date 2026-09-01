@@ -626,6 +626,52 @@ def read_ir_rt_info(model_dir):
     return {}
 
 
+def _count_sdpa_ops(model_dir):
+    """Count fused ScaledDotProductAttention nodes in a model's language IR.
+
+    Why: the continuous-batching backend is built by rewriting those nodes
+    (`SDPAToPagedAttention`), so an export that traced attention decomposed
+    into matmul+softmax has nothing to rewrite and silently loses prefix
+    caching. Nothing in a model's name, size, precision or geometry reveals
+    which one you got, so the failure only ever surfaced at load time --
+    reading it here lets --scan say so before a download is spent.
+    optimum-intel pins the attention implementation only for models in
+    `FORCE_ATTN_MODEL_CLASSES`; everything else takes whatever the export
+    environment resolved to (openvino.genai#4343).
+
+    Only the *language* model counts. A VLM's vision tower can be fused while
+    its language model is not, which is exactly the shape of Intel's
+    `gemma-4-E4B-it-int8-ov` [OBSERVED 2026-08-21, Arc Pro B60 / OpenVINO
+    2026.3: 0 SDPA ops in the language model, 32 in the vision tower].
+
+    In: a model directory. Out: an int count, or None when no top-level IR is
+    readable. **Zero is a real answer** meaning "cannot cache" -- callers must
+    not conflate it with None.
+    """
+    needle = b'type="ScaledDotProductAttention"'
+    for base in ("openvino_model", "openvino_language_model"):
+        xml = os.path.join(model_dir, base + ".xml")
+        if not os.path.isfile(xml):
+            continue
+        try:
+            count, carry = 0, b""
+            with open(xml, "rb") as f:
+                while True:
+                    chunk = f.read(1 << 20)
+                    if not chunk:
+                        break
+                    buf = carry + chunk
+                    count += buf.count(needle)
+                    # Keep needle-1 bytes so a match split across the read
+                    # boundary is still seen; too short to hold a whole
+                    # needle, so nothing is counted twice.
+                    carry = buf[-(len(needle) - 1):]
+            return count
+        except OSError:
+            return None
+    return None
+
+
 def weight_precision(model_dir, rt=None):
     """Human-readable weight precision, read from the IR's own nncf record.
 
@@ -727,6 +773,7 @@ def describe_model(model_dir):
         "openvino_version": rt.get("Runtime_version"),
         "optimum_intel_version": rt.get("optimum/optimum_intel_version"),
         "transformers_version": rt.get("optimum/transformers_version"),
+        "sdpa_ops": _count_sdpa_ops(model_dir),
     }
 
 
@@ -838,6 +885,16 @@ def scan_models(paths):
         ) if v]
         if built:
             print(f"    Exported with  : {', '.join(built)}")
+        if not info["kind"].startswith("Whisper") and info["sdpa_ops"] is not None:
+            if info["sdpa_ops"] == 0:
+                print("    Prefix caching : NO — no fused SDPA op in the language "
+                      "model, so the")
+                print("                     caching backend cannot be built and this "
+                      "IR runs on")
+                print("                     the plain pipeline. An export defect — "
+                      "re-export fixes it.")
+            else:
+                print(f"    Prefix caching : yes — {info['sdpa_ops']} fused SDPA ops")
         if info["kind"].startswith("LLM"):
             print(f"    Agent mode     : tool calling on GPU/CPU; never on NPU "
                   f"(hard prompt cap)")

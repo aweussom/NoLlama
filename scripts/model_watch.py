@@ -33,6 +33,19 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
 SEEN_FILE = HERE / "seen_models.json"
+REVISIONS_FILE = HERE / "watched_revisions.json"
+
+# Published models we are waiting on a *fix* for. Key is the repo id, value is
+# why — it goes verbatim into the issue, so write it for whoever reads that
+# issue in three months, not for today.
+REVISION_WATCH = {
+    "OpenVINO/gemma-4-E4B-it-int8-ov":
+        "its IR has no fused SDPA op, so it silently gets no prefix caching. "
+        "Intel confirmed the defect on 2026-08-31 (openvino.genai#4343) and "
+        "said the stored IR needs re-exporting. When this fires, re-check with "
+        "`--scan` and consider pointing models.json back at Intel's build "
+        "(theirs is ~2.2x faster on a cold turn) — see TODONT.md.",
+}
 TITLE_FILE = HERE / ".watch_title"
 BODY_FILE = HERE / ".watch_body.md"
 MODELS_JSON = REPO / "models.json"
@@ -62,6 +75,68 @@ WATCHES = {
     "nvidia": (re.compile(r"nemotron", re.I), UPSTREAM_SKIP, True),
     "meta-models": (re.compile(r"glimmer", re.I), UPSTREAM_SKIP, True),
 }
+
+
+def fetch_revision(mid):
+    """Current commit sha and mtime of one Hugging Face repo.
+
+    Why: the id diff below only ever sees *new* repos. When a published model
+    is defective and upstream has agreed to re-upload it, the id never
+    changes — only the commit does — so that model would go un-watched
+    forever. This is the hook for "tell me when they actually fix it",
+    without anyone having to remember to look.
+
+    In: a full repo id. Out: {"sha", "lastModified"}, or None if the repo is
+    unreachable — callers must treat None as "no news", never as a change,
+    or a flaky network turns into a false fix report.
+    """
+    url = f"{API}/{mid}?blobs=false"
+    req = urllib.request.Request(url, headers={"User-Agent": "nollama-model-watch"})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            d = json.load(r)
+    except (urllib.error.URLError, urllib.error.HTTPError,
+            ValueError, TimeoutError) as e:
+        print(f"WARN: failed to fetch revision {mid}: {e}", file=sys.stderr)
+        return None
+    return {"sha": d.get("sha") or "", "lastModified": (d.get("lastModified") or "")[:10]}
+
+
+def check_revisions():
+    """Report watched repos whose commit changed since the last run.
+
+    Why: separate snapshot from seen_models.json on purpose — that file is a
+    flat list of ids with its own baseline-on-first-run rule, and overloading
+    it would make an empty revision map look like a fresh baseline and
+    swallow the first real change. Seeded with the known-bad sha at the time
+    of writing, so the very next run reports a re-upload rather than quietly
+    establishing a baseline.
+
+    In: nothing. Out: a list of markdown lines (empty when nothing moved).
+    Rewrites the snapshot as a side effect.
+    """
+    try:
+        before = json.loads(REVISIONS_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        before = {}
+
+    lines, after = [], dict(before)
+    for mid, why in REVISION_WATCH.items():
+        now = fetch_revision(mid)
+        if not now:
+            continue
+        after[mid] = now
+        was = before.get(mid)
+        if was and was.get("sha") and was["sha"] != now["sha"]:
+            lines.append(
+                f"- [`{mid}`](https://huggingface.co/{mid}) was re-uploaded "
+                f"({was['sha'][:7]} → {now['sha'][:7]}, {now['lastModified']}). "
+                f"Watched because: {why}")
+
+    if after != before:
+        REVISIONS_FILE.write_text(json.dumps(after, indent=2, sort_keys=True) + "\n",
+                                  encoding="utf-8")
+    return lines
 
 
 def fetch_org(author, limit=1000):
@@ -130,6 +205,59 @@ def set_output(key, value):
             f.write(f"{key}={value}\n")
 
 
+def emit_issue(new_ids, current, revision_notes):
+    """Write the issue title/body files and flag the Action to open it.
+
+    Why: two independent triggers now share one issue — new models appearing,
+    and a watched model being re-uploaded. Either alone must produce a
+    coherent issue, so the sections are built independently and the title
+    names whichever fired.
+
+    In: the new ids (possibly empty) with their `current` metadata, and the
+    re-upload note lines (possibly empty); at least one must be non-empty or
+    the caller has nothing to report. Out: None — writes TITLE_FILE and
+    BODY_FILE and sets the `new` output.
+    """
+    sections, headline = [], []
+
+    if new_ids:
+        headline.append(f"{len(new_ids)} new model(s)")
+        stems = known_family_stems()
+        rows = []
+        for mid in sorted(new_ids, key=lambda m: current[m]["created"], reverse=True):
+            info = current[mid]
+            rows.append(
+                f"| {classify(mid, stems)} | [`{mid}`](https://huggingface.co/{mid}) "
+                f"| {info['source']} | {info['created']} "
+                f"| {info['pipeline'] or '—'} | {info['downloads']} | {info['likes']} |")
+        sections.append(
+            f"**{len(new_ids)} new NoLlama-relevant model(s)** appeared on "
+            "Hugging Face.\n\n"
+            "`⬆ upgrade?` = another size/revision of a family you already list in "
+            "`models.json`. `✨ new` = a family you don't track yet. "
+            "Quality isn't judged here — verify before trusting.\n\n"
+            "| | Model | Org | Created | Task | DLs/mo | ♥ |\n"
+            "|---|---|---|---|---|---|---|\n" + "\n".join(rows))
+
+    if revision_notes:
+        headline.append(f"{len(revision_notes)} re-upload(s)")
+        sections.append(
+            "### Watched model re-uploaded\n\n"
+            "A model we were waiting on a fix for has a new commit. Verify "
+            "before believing it is fixed — re-download and check `--scan`, "
+            "don't trust the commit alone.\n\n" + "\n".join(revision_notes))
+
+    body = "\n\n---\n\n".join(sections) + (
+        "\n\n_Watched orgs: OpenVINO (ready-to-run), Qwen (upstream Coder/VL/Omni), "
+        "nvidia (Nemotron), meta-models (Muse Glimmer). "
+        "To add one, drop it into the matching block of `models.json`. "
+        "Watched revisions live in `REVISION_WATCH` in this script._")
+
+    TITLE_FILE.write_text(f"Model watch: {' and '.join(headline)}", encoding="utf-8")
+    BODY_FILE.write_text(body, encoding="utf-8")
+    set_output("new", "true")
+
+
 def main():
     current = {}
     for author in WATCHES:
@@ -138,8 +266,18 @@ def main():
         except (urllib.error.URLError, urllib.error.HTTPError, ValueError, TimeoutError) as e:
             print(f"WARN: failed to fetch {author}: {e}", file=sys.stderr)
 
+    # Independent of the org diff: a watched repo can be re-uploaded in a week
+    # where no new model appears at all, and an org fetch failing must not
+    # suppress it.
+    revision_notes = check_revisions()
+
     if not current:
         print("No models fetched (network?); leaving snapshot untouched.")
+        if revision_notes:
+            emit_issue([], {}, revision_notes)
+            # Without this the re-upload snapshot is never committed and the
+            # same re-upload is reported again every week.
+            set_output("changed", "true")
         return 0
 
     try:
@@ -160,39 +298,18 @@ def main():
               "No issue (first run).")
         return 0
 
-    if not new_ids:
+    if not new_ids and not revision_notes:
         print("No new models since last run.")
         return 0
 
-    stems = known_family_stems()
-    rows = []
-    for mid in sorted(new_ids, key=lambda m: current[m]["created"], reverse=True):
-        info = current[mid]
-        tag = classify(mid, stems)
-        rows.append(
-            f"| {tag} | [`{mid}`](https://huggingface.co/{mid}) | {info['source']} "
-            f"| {info['created']} | {info['pipeline'] or '—'} "
-            f"| {info['downloads']} | {info['likes']} |")
-
-    body = (
-        f"**{len(new_ids)} new NoLlama-relevant model(s)** appeared on Hugging Face.\n\n"
-        "`⬆ upgrade?` = another size/revision of a family you already list in "
-        "`models.json`. `✨ new` = a family you don't track yet. "
-        "Quality isn't judged here — verify before trusting.\n\n"
-        "| | Model | Org | Created | Task | DLs/mo | ♥ |\n"
-        "|---|---|---|---|---|---|---|\n"
-        + "\n".join(rows)
-        + "\n\n_Watched orgs: OpenVINO (ready-to-run), Qwen (upstream Coder/VL/Omni), "
-        "nvidia (Nemotron), meta-models (Muse Glimmer). "
-        "To add one, drop it into the matching block of `models.json`._"
-    )
-    TITLE_FILE.write_text(f"Model watch: {len(new_ids)} new model(s) on Hugging Face",
-                          encoding="utf-8")
-    BODY_FILE.write_text(body, encoding="utf-8")
-    set_output("new", "true")
-    print(f"{len(new_ids)} new model(s) found:")
+    emit_issue(new_ids, current, revision_notes)
     for mid in new_ids:
-        print(f"  {mid}")
+        print(f"  new: {mid}")
+    for mid in REVISION_WATCH:
+        if any(mid in note for note in revision_notes):
+            # ASCII only: this runs on a Windows console too, where the
+            # note's own arrow glyph would raise UnicodeEncodeError.
+            print(f"  re-upload: {mid}")
     return 0
 
 

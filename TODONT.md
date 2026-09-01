@@ -188,8 +188,78 @@ byte-identically** to Intel's, including both of its wrong answers (16 for
 17 dots, 8 for 7). The re-export adds a capability; it changes nothing else.
 
 Re-evaluate if: Intel re-exports E4B, or `gemma4` lands in
-`FORCE_ATTN_MODEL_CLASSES`. Verify by grepping the IR, not by assuming --
-see `docs/dev/prefix-cache.md`.
+`FORCE_ATTN_MODEL_CLASSES`. Verify with `--scan`, not by assuming -- see
+`docs/dev/prefix-cache.md`.
+
+**Update 2026-08-31 -- Intel accepted it; the trigger is armed, not fired.**
+An OpenVINO engineer reproduced the defect on openvino.genai#4343: the
+stored IR has no fused SDPA node, a local export from the same weights does,
+and *"we need to update the IRs stored in `OpenVINO/gemma-4-E4B-it-int8-ov`
+with the one exported using the latest tool set"*. A third party
+independently hit it the same day on unrelated hardware (Arc 140T, issue
+#24), so it is still shipping. **Nothing has been re-uploaded** -- the HF
+repo is untouched since 2026-04-23 -- so `models.json` still points at our
+re-export. `REVISION_WATCH` in `scripts/model_watch.py` now watches that
+repo's commit sha and files an issue when it moves; do not flip the entry
+on the strength of a changelog, re-download and check `--scan`.
+
+We also argued upstream that re-uploading one artifact is the narrow fix:
+`gemma4` is still absent from `FORCE_ATTN_MODEL_CLASSES` in optimum-intel
+2.1.0 **and** 2.2.0.dev0+dd4ed1a, so the export environment keeps deciding
+and the next gemma4 export can land decomposed again.
+
+## Pointing every Gemma download at our own re-exports (2026-09-01)
+
+Idea: we already ship `aweussom/gemma-4-E4B-it-int8-ov` because Intel's is
+defective. Do the same for the rest of the family and stop depending on
+Intel's export quality at all.
+
+**Verdict:** no. Fix the artifact that is broken, not the family.
+
+**Why not:**
+
+- **Only one of three is defective.** E2B carries 35 fused SDPA ops and
+  26b-a4b carries 30, one per layer, and both cache correctly. There is
+  nothing to fix on either.
+- **26b-a4b is INT4-AWQ.** Re-exporting it is not re-running the exporter,
+  it is reproducing a calibrated quantization. Getting that subtly wrong
+  trades a real quality regression for a caching fix that was not needed.
+- **Intel's E4B is ~2.2x faster on a cold turn**, which is why the entry
+  above deliberately keeps both and picks by workload. A blanket "ours"
+  policy deletes a measured choice.
+- **Every DIY Gemma export re-arms the chat-template trap** (the
+  `raise_exception` implicit-concatenation failure above). That footgun is
+  Gemma-specific and recurs on every re-export, forever.
+- Upstream has accepted the E4B defect, so the one reason we self-host is
+  scheduled to disappear.
+
+The standing policy is unchanged and is the right one: **host our own only
+when the published artifact is defective or does not exist.** The real gap
+was never hosting, it was detection -- closed by the `Prefix caching` line
+in `--scan` (2026-09-01).
+
+## Warning when SDPA op count != layer count (2026-09-01)
+
+Idea: `--scan` knows the fused SDPA count and the layer count, so flag any
+IR where they disagree -- a cheap early warning for a half-broken export.
+
+**Verdict:** rejected, built and removed the same day.
+
+**Why not:** it fires on healthy models. Attention type per layer is not
+uniform, and only *linear* attention omits the node [OBSERVED 2026-09-01,
+local IRs]: Qwen3.5-4B has 8 ops for 32 layers (`full_attention_interval`
+4), LFM2.5-1.2B has 6 for 16, and Muse Glimmer has all 52 because its 39
+`sliding_attention` layers still fuse. The first version of this warning
+condemned Glimmer, a model we ship and know works.
+
+Refining it to "expected = layers minus linear_attention layers" fits all
+four observed families, but on two architectures' worth of evidence it is a
+guess dressed as a check, and a checker that cries wolf on a good model
+teaches people to ignore the line that matters. **The predicate is `> 0`.**
+`--scan` reports the count so a human can judge; only zero is a verdict.
+
+Re-evaluate if: a real export defect turns up that has a *non-zero* op count
+-- that is the only case this would have caught.
 
 ## Untracking the model-watch state file (2026-08-18 -> reverted 2026-08-21)
 

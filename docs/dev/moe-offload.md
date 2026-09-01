@@ -5,9 +5,17 @@ slots (OpenVINO 2026.3 `OFFLOAD_RATIO`).
 
 **Requires XMX** (Arc / Lunar Lake — `GPU_HW_MATMUL` in
 `OPTIMIZATION_CAPABILITIES`). Without it the property is a **silent no-op**,
-so NoLlama warns at startup. Non-XMX iGPUs can't load big MoE at all (USM
-staging OOM) — full story in `TODONT.md`, which also records that
-OFFLOAD_RATIO could not be validated on the desktop iGPU.
+so NoLlama warns at startup — full story in `TODONT.md`, which also records
+that OFFLOAD_RATIO could not be validated on the desktop iGPU.
+
+**XMX gates the offload, not the model.** This note used to say non-XMX
+iGPUs "can't load big MoE at all (USM staging OOM)". That is wrong when the
+memory is actually there: on an Arc 140T (Xe-LPG, no XMX) with a 64 GB
+shared budget, Qwen3-Coder-Next int4 (80B-A3B, ~40 GB) runs resident at 18.8
+tok/s and gemma-4-26b-a4b at 8–11 tok/s [OBSERVED 2026-08-28 and 2026-08-31,
+issue #24, two independent batches]. What a non-XMX GPU cannot do is *stream
+experts from disk* — so it cannot trade residency for capacity, and a model
+that does not fit simply does not load.
 
 Verified on Arc 140V, Qwen3-30B-A3B int4, steady state:
 

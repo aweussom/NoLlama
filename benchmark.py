@@ -563,7 +563,14 @@ def main():
             else:
                 print(f"    => NO RESULTS\n")
     elif not args.vlm_only:
-        print("No LLM model found, skipping text tests.\n")
+        # Text tests may already have run on the VLM slot above (the GPU
+        # text block). Saying "skipping text tests" there is false, and it
+        # was read as doubt about the numbers themselves — NoLlama#24.
+        if vlm_model and not args.llm_only:
+            print("No dedicated LLM slot — the text tests above ran on "
+                  "the VLM slot.\n")
+        else:
+            print("No LLM model found, skipping text tests.\n")
 
     # --- Summary table ---
     print("=" * 88)

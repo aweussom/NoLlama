@@ -71,8 +71,12 @@ Both found while re-exporting `google/gemma-4-E4B-it` to check an Intel IR.
    environment resolves to. Check the result, don't assume:
 
    ```bash
-   grep -c 'ScaledDotProductAttention' openvino_language_model.xml  # want one per layer
+   python nollama.py --scan <dir>   # Prefix caching : yes — N fused SDPA ops
    ```
+
+   Any count above zero can cache; `> 0` is the predicate, **not** one per
+   layer — hybrids legitimately carry fewer (`prefix-cache.md` has the
+   measured table).
 
 2. **The chat template is baked into `openvino_tokenizer.xml` at export
    time.** Editing `chat_template.jinja` in a finished export changes

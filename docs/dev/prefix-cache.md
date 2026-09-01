@@ -47,13 +47,34 @@ exports. The tell is static — count the ops in the language model's `.xml`:
 | `gemma-4-26b-a4b-it-int4-ov` | 30 (= layers) | 0 | builds |
 | `gemma-4-E4B-it-int8-ov` | **0** | **42** | **refuses** |
 
+**`--scan` reports this** (`Prefix caching : yes — N fused SDPA ops`, or a
+`NO` with the reason), so the check no longer needs doing by hand. The
+equivalent by hand:
+
 ```bash
-grep -c 'ScaledDotProductAttention' openvino_language_model.xml   # want: one per layer
+grep -c 'ScaledDotProductAttention' openvino_language_model.xml   # want: > 0
 ```
 
-One fused SDPA node per layer means the rewrite has something to match;
-decomposed matmul+softmax attention means it does not. E4B's *vision* tower
-has 32 SDPA ops and is fine — only its language model is affected.
+A fused SDPA node means the rewrite has something to match; decomposed
+matmul+softmax attention means it does not. E4B's *vision* tower has 32 SDPA
+ops and is fine — only its language model is affected, which is why the
+count must come from `openvino_language_model.xml` and not the tower.
+
+**The predicate is `> 0`, not `== layers`.** An earlier version of this note
+said "want: one per layer", which is true only for dense models and
+condemns healthy hybrids [OBSERVED 2026-09-01, local IRs via `--scan`]:
+
+| IR | layers | SDPA ops | why |
+|---|---|---|---|
+| `Qwen3-1.7B-int4-ov` | 28 | 28 | dense — one per layer |
+| `Qwen2.5-VL-3B-int8-ov` | 36 | 36 | dense |
+| `Qwen3.5-4B-int4-ov` | 32 | **8** | `full_attention_interval` 4; the other 24 layers are `linear_attention` and emit no SDPA node |
+| `Muse-Glimmer-30B-int4-ov` | 52 | **52** | 39 `sliding_attention` + 13 `full_attention` — sliding attention is still attention and still fuses |
+| `LFM2.5-1.2B-int4-cw-ov` | 16 | **6** | conv-heavy hybrid |
+
+Those last three are all fine. Only zero is a defect. A warning keyed to
+`layers` was written and then rejected for exactly this reason — it fired on
+Glimmer, and a check that cries wolf on a good model is worse than no check.
 
 **This is an export defect, not a model property.** Re-exporting the same
 `google/gemma-4-E4B-it` weights to the same INT8 precision with a current
