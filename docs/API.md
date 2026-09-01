@@ -190,7 +190,8 @@ repetition-penalty transformer asserts when it walks them
 turn, warns once, and serves that slot's image turns with the penalty off;
 text turns on the same slot keep it. The practical effect is that image
 descriptions from such a model have a slightly higher chance of repeating
-themselves. `OpenVINO/Phi-3.5-vision-instruct-int4-ov` is the known case.
+themselves. `OpenVINO/Phi-3.5-vision-instruct-int4-ov` is the known case,
+filed upstream as openvino.genai#4405.
 
 ## API
 

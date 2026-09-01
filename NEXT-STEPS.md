@@ -184,10 +184,11 @@ credit PearTr0191 in the commit, close #34 as superseded. Verify with the
   **identical on discrete Battlemage**, so the bug is hardware-independent
   across three GPUs, two GPU classes, two runtimes and both pipelines.
 
-  One thing still open: **file it upstream.** A repetition penalty over a
-  VLM prompt should skip placeholder ids rather than assert. The repro is
-  ready and server-free (`scripts/phi35v-repro/run.ps1`, or
-  `scripts/bare-probe.py` directly) and the matrix above is the evidence.
+  **Filed upstream as openvino.genai#4405** (2026-09-01). The bar for
+  filing was CPU reproducing it, not just our GPUs — an Intel-GPU-only
+  repro is one the maintainers may not be able to run. CPU on the 2026.5
+  nightly fails identically, so the report leads with an 18-line CPU-only
+  script against their own published model.
 
   Also learned, and it constrains planning: the B60 box **cannot run
   `venv-nightly` at all** — its application-control policy blocks the

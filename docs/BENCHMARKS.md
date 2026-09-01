@@ -250,14 +250,14 @@ Three things in that table are worth more than their row:
   broken is that we apply a repetition penalty to a prompt containing
   placeholder ids.
 
-  **Hardware-independent** [OBSERVED 2026-09-01]: identical on Arc 140T
-  (community), Arc 140V, and Arc **Pro B60 discrete** — integrated Xe and
-  discrete Battlemage alike — and on genai 2026.3.0.0-3277 and
-  2026.5.0.0-3402. **Fixed in NoLlama 2026-09-01**: an image turn that hits
+  **Hardware-independent** [OBSERVED 2026-09-01]: identical on **CPU**, Arc
+  140T (community), Arc 140V, and Arc **Pro B60 discrete** — so no Intel GPU
+  is needed to see it — and on genai 2026.3.0.0-3277 and 2026.5.0.0-3402. **Fixed in NoLlama 2026-09-01**: an image turn that hits
   the assertion retries once without the penalty and the slot remembers, so
   the model serves vision normally from then on and text turns keep their
-  penalty. Still worth an upstream report — a penalty over a VLM prompt
-  should skip placeholder ids rather than assert. See `TODONT.md`.
+  penalty. **Filed upstream as openvino.genai#4405** (2026-09-01) — a
+  penalty over a VLM prompt should skip placeholder ids rather than assert.
+  See `TODONT.md`.
 - **`gemma-4-E4B-it-int8` was Intel's published build**, whose IR has no
   fused SDPA op and therefore gets no prefix caching at all — a defect Intel
   confirmed on 2026-08-31 (openvino.genai#4343). The number above is honest

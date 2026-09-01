@@ -280,8 +280,11 @@ The retry is safe on the streaming seam too: the assertion fires in the
 sampler before any token reaches the streamer callback, so there is nothing
 already sent to un-send. Cost is one re-prefill, once per load.
 
-Worth an upstream report too: a repetition penalty over a VLM prompt should
-skip placeholder ids rather than assert.
+**Filed upstream as openvino.genai#4405** (2026-09-01), once CPU was
+confirmed to reproduce it -- that was the bar for filing, since an
+Intel-GPU-only repro is one they may not be able to run. The report carries
+an 18-line CPU-only script against their own published model, and the full
+matrix: genai 2026.3 and 2026.5, CPU plus three Arc GPUs, both backends.
 
 ## Pointing every Gemma download at our own re-exports (2026-09-01)
 
