@@ -230,8 +230,20 @@ are not directly comparable with the text table above.
 Three things in that table are worth more than their row:
 
 - **`Phi-3.5-vision-instruct-int4-ov` cannot do vision on this stack** while
-  its text path is among the fastest in the batch. No stack trace captured
-  yet; treat the model as unverified for images until there is one.
+  its text path is among the fastest in the batch. **Reproduced here**
+  [OBSERVED 2026-09-01, Arc 140V, openvino_genai 2026.3.0.0-3277]: any image
+  at all — one is enough, it is not a multi-image problem — returns
+
+  ```
+  Check '(prompt_id >= 0) && (prompt_id < vocab_size)' failed at
+  .../sampling/logit_transformers.hpp:412: input_ids token out of bounds
+  ```
+
+  Text generation on the same slot answers normally, and the failure is
+  identical with `--no-prompt-cache`, so it is neither the caching path nor
+  the hardware — two different GPUs, two OS installs, same assertion. Phi-3
+  vision encodes image placeholders as negative token ids, which is exactly
+  what that bound check rejects. **Do not add this model**; see `TODONT.md`.
 - **`gemma-4-E4B-it-int8` was Intel's published build**, whose IR has no
   fused SDPA op and therefore gets no prefix caching at all — a defect Intel
   confirmed on 2026-08-31 (openvino.genai#4343). The number above is honest

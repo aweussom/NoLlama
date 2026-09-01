@@ -166,10 +166,15 @@ credit PearTr0191 in the commit, close #34 as superseded. Verify with the
   ask — is still unanswered**, and was restated so the issue does not close
   as "E4B fixed" with the docs untouched. Watch for that.
 
-  Open on our side, waiting on the reporter in issue #24: the
-  `Phi-3.5-vision-instruct-int4-ov` failure log — both image tests fail while
-  text generation is among the fastest in his batch, and there is no stack
-  trace yet. Its own issue if one arrives; do not chase.
+  **`Phi-3.5-vision` is answered too — reproduced here 2026-09-01**, so
+  nothing is owed by the reporter. Any single image fails in the genai
+  sampler (`input_ids token out of bounds`, `logit_transformers.hpp:412`) on
+  an Arc 140V, identically with `--no-prompt-cache`, while text works. Not
+  multi-image, not caching, not hardware. Verdict and the ruled-out list are
+  in `TODONT.md`. **Open question: file it upstream?** We have a clean
+  two-hardware repro and a plausible cause (Phi-3 vision uses negative token
+  ids as image placeholders); the IR is also old enough (OpenVINO 2025.0,
+  transformers 4.47) that "re-export first" is a fair upstream response.
 
   **The `Qwen3.5-9B` "runaway" is answered and the question should be
   withdrawn.** Reproduced the mechanism locally on `Qwen3.5-4B-int4-ov`

@@ -208,6 +208,47 @@ We also argued upstream that re-uploading one artifact is the narrow fix:
 2.1.0 **and** 2.2.0.dev0+dd4ed1a, so the export environment keeps deciding
 and the next gemma4 export can land decomposed again.
 
+## Phi-3.5-vision as a GPU VLM entry (2026-09-01)
+
+Idea: `OpenVINO/Phi-3.5-vision-instruct-int4-ov` is small (2.2 GB), Intel
+publishes it ready to run, and its text path is quick -- an obvious cheap
+vision option for a 16 GB card. It sat in issue #24's "untested" table for
+weeks looking like an easy win.
+
+**Verdict:** it does not do vision at all on this runtime. Text only, which
+makes it pointless -- there are better text models at that size.
+
+**Why not:** any image, one is enough, fails in the sampler:
+
+```
+Check '(prompt_id >= 0) && (prompt_id < vocab_size)' failed at
+.../sampling/logit_transformers.hpp:412: input_ids token out of bounds
+```
+
+Ruled out, in this order [OBSERVED 2026-09-01, Arc 140V,
+openvino_genai 2026.3.0.0-3277]:
+
+- **Not multi-image.** The community report failed on the suite's two-image
+  comparisons, so the obvious guess was that this model takes one image.
+  A single image fails identically.
+- **Not the caching path.** `--no-prompt-cache` gives the same assertion,
+  so the CB backend is not implicated.
+- **Not the hardware.** Reported first on an Arc 140T under a separate
+  Windows install (issue #24, 2026-08-31) and reproduced on a 140V here.
+- **Not the model loading.** It loads clean, reports 32 fused SDPA ops, and
+  answers text prompts normally.
+
+Likely cause: Phi-3 vision encodes image placeholders as **negative** token
+ids, and that bound check rejects anything below zero. Untested against
+genai source, so treat as [INFERRED] -- confirming it means finding where
+the vision placeholders enter `input_ids` on the VLM path.
+
+Re-evaluate if: a newer openvino_genai changes the vision placeholder
+handling, or Intel republishes the export against a current stack (this IR
+was built with OpenVINO 2025.0 / optimum-intel 1.22 / transformers 4.47,
+which is old enough that a re-export is worth trying before writing the
+model off permanently).
+
 ## Pointing every Gemma download at our own re-exports (2026-09-01)
 
 Idea: we already ship `aweussom/gemma-4-E4B-it-int8-ov` because Intel's is
