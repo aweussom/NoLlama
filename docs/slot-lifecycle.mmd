@@ -1,5 +1,6 @@
 %% Slot lifecycle: backend pick, load, prefix cache, prewarm, idle unload.
 %% Drawn 2026-08-19 from nollama.py @ 85e796f.
+%% Updated 2026-09-01: --gpu-large-alloc manual override of the alloc gate (issue #24).
 %% Legend: solid = normal path, dashed = failure/fallback/degraded,
 %%         ALL-CAPS nodes = prose annotations.
 %% Palette: route (blue) = decisions, gen (green) = live pipeline states,
@@ -25,7 +26,11 @@ flowchart TB
   _resolve_kv_pool["_resolve_kv_pool<br/>pin via --cache-size-gb, else auto:<br/>(budget - weights*1.1)/3, floor 2 GB,<br/>cap 64k tokens of KV geometry"]
   _resolve_kv_pool --> _preflight_memory["_preflight_memory<br/>WARNS, never blocks; logs pool
   token capacity"]
-  _preflight_memory --> _gpu_large_alloc_props
+  _preflight_memory --> alloc_gate
+
+  alloc_gate{"GPU slot:<br/>--gpu-large-alloc given?"}
+  alloc_gate -.->|"yes: force the property,<br/>skip the inspection entirely"| pipebuild
+  alloc_gate -->|"no (the default)"| _gpu_large_alloc_props
 
   _gpu_large_alloc_props{"_gpu_large_alloc_props<br/>GPU only: _largest_weight_tensor_bytes<br/>&gt; this device's per-alloc cap?"}
   _gpu_large_alloc_props -.->|"yes: add<br/>GPU_ENABLE_LARGE_ALLOCATIONS"| pipebuild
@@ -70,6 +75,18 @@ flowchart TB
   model meets an iGPU's ~4 GB cap natively and wants the same hint."]
   _gpu_large_alloc_props -.-> DXGCAP
 
+  RUNTIMEALLOC["WHY THERE IS A MANUAL FLAG AT ALL: the inspection above asks
+  a LOAD-time question - is any stored weight bigger than the cap - and no
+  amount of reading the IR answers the RUN-time one. On the plain VLM path
+  the biggest buffer is a dense [1,1,S,S] attention mask built per request,
+  so the true ceiling is a prompt LENGTH and it grows as the square of it.
+  Reported at 4,490,608,144 bytes = 67,012 x 67,012 exactly, against a
+  4,294,959,104 cap on an Arc 140T (issue #24) - a model whose weights are
+  nowhere near the cap and which is fine at 60k tokens. Hence: automatic for
+  weights, --gpu-large-alloc for the rest, and explain_genai_error names
+  the flag when it sees the error (stream-plumbing.mmd)."]
+  alloc_gate -.-> RUNTIMEALLOC
+
   POOLSTABLE["Pool auto-size uses the TOTAL device budget, not free RAM:
   stable across restarts/reloads. CB grows into the pool rather than
   allocating upfront, but prefix-cached blocks are never released -
@@ -82,7 +99,7 @@ flowchart TB
   classDef gen fill:#e6ffe6,stroke:#00b300,color:#000
   classDef client fill:#ffffcc,stroke:#b3b300,color:#000
   classDef warn fill:#fec,stroke:#a60,color:#000
-  class main,_slot_class,_verify_weights_integrity,_resolve_kv_pool,_preflight_memory,_gpu_large_alloc_props,pipebuild,_prewarm_slot,_idle_watchdog,_load_in_background route
+  class main,_slot_class,_verify_weights_integrity,_resolve_kv_pool,_preflight_memory,alloc_gate,_gpu_large_alloc_props,pipebuild,_prewarm_slot,_idle_watchdog,_load_in_background route
   class load,optimum_load,npu_pipe,cb_pipe,plain_pipe,cb_fallback,warmup,ready,ensure_loaded gen
   class loaderr,unload client
-  class NOREWARM,POOLSTABLE,DXGCAP warn
+  class NOREWARM,POOLSTABLE,DXGCAP,RUNTIMEALLOC warn

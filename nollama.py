@@ -28,6 +28,7 @@ import hashlib
 import io
 import itertools
 import json
+import math
 import os
 import re
 import socket
@@ -981,6 +982,34 @@ def explain_genai_error(e, slot=None):
                 f"model is beyond the NPU envelope (proven NPU models are "
                 f"INT4-CW, 8B params or less). Try an NPU model from the "
                 f"install menu, or run this model on GPU/CPU instead.")
+    if "Exceeded max size of memory object allocation" in msg:
+        # One buffer over the device's PER-ALLOCATION cap — not "out of
+        # memory": the device can hold it, no single object may be that big.
+        # On the plain (non-CB) VLM path the largest such buffer is the dense
+        # [1, 1, S, S] attention mask, so the real ceiling is a prompt
+        # length, and it moves as the SQUARE of that length — which is why a
+        # model that is fine at 60k tokens dies at 67k.
+        # [OBSERVED 2026-09-01, Arc 140T iGPU, gemma-4-E4B int8: requested
+        # 4,490,608,144 = 67,012**2 for a 67,012-token prompt against a
+        # 4,294,959,104 cap. Reported in issue #24.]
+        req = re.search(r"requested (\d+) bytes", msg)
+        shape = ""
+        if req:
+            n = int(req.group(1))
+            root = math.isqrt(n)
+            if root * root == n:
+                shape = (f" The {n:,} bytes is exactly {root:,}x{root:,} — a "
+                         f"dense attention mask for a {root:,}-token prompt, "
+                         f"so this is a prompt-length limit that grows as the "
+                         f"square of the prompt.")
+        return (f"{msg} — one buffer exceeded this GPU's per-allocation cap "
+                f"(the device has the memory; no single object may be that "
+                f"large).{shape} Remedies, cheapest first: send a shorter "
+                f"prompt; keep prefix caching on, whose chunked prefill never "
+                f"builds the full-sequence buffer (a model exported with "
+                f"attention decomposed cannot use it — see docs/MODELS.md); "
+                f"or restart with --gpu-large-alloc to lift the cap for this "
+                f"model, which costs load time.")
     if "Could not find a model in the directory" in msg:
         # read_model() found neither openvino_model.xml nor
         # openvino_language_model.xml — usually an interrupted download that
@@ -1452,12 +1481,17 @@ class DeviceSlot:
             print(f"  [{self.device_name}] MoE disk offload on "
                   f"({OFFLOAD_RATIO}% of expert weights streamed)", flush=True)
         if self.device_name == "GPU":
-            large = _gpu_large_alloc_props(self.device_id, model_dir)
-            if large:
-                plugin_props.update(large)
-                print(f"  [{self.device_name}] large allocations enabled — a "
-                      f"weights buffer in this model exceeds the device's "
-                      f"per-allocation cap", flush=True)
+            if GPU_LARGE_ALLOC:
+                plugin_props["GPU_ENABLE_LARGE_ALLOCATIONS"] = True
+                print(f"  [{self.device_name}] large allocations enabled "
+                      f"(--gpu-large-alloc)", flush=True)
+            else:
+                large = _gpu_large_alloc_props(self.device_id, model_dir)
+                if large:
+                    plugin_props.update(large)
+                    print(f"  [{self.device_name}] large allocations enabled — a "
+                          f"weights buffer in this model exceeds the device's "
+                          f"per-allocation cap", flush=True)
 
         if vlm:
             VLMPipe = getattr(ovg, "VLMPipeline", None)
@@ -1751,6 +1785,49 @@ class DeviceSlot:
               f"image placeholders are outside its vocab; repetition_penalty "
               f"disabled for image turns (text turns keep it)", flush=True)
 
+    def _reset_vlm_state(self):
+        """Clear pipeline state that a throwing generate may leave half-updated.
+
+        Why: a VLM generate that throws part-way skips the bookkeeping that
+        runs after a normal return, and a later request can then size
+        `prompt_ids` from an attention mask that never advanced while
+        `tokenized_history` did — dying on `Prompt ids size is less than
+        tokenized history size` for every request after it until the process
+        restarts. [OBSERVED 2026-09-01, reported on an Arc 140T in issue #24,
+        genai 2026.3.0.0-3277: a failed image turn made every later one fail
+        this way; the reporter's log shows the failure and the assertion
+        three seconds apart.]
+
+        That the state diverges at exactly that point, and that
+        `finish_chat()` is the lever which reconverges it, is [INFERRED] from
+        reading the genai VLMPipeline source. It is NOT reproduced locally,
+        and one attempt failed to reproduce it at all: on a 140V, a bare-genai
+        throw at the sampler stage (the #4405 penalty assertion) left the
+        pipeline fully usable for two later requests, with and without
+        `finish_chat()` [OBSERVED 2026-09-01, scripts in issue #24's probe
+        set]. That throw fires after prefill; the reporter's fires inside it,
+        and this machine's 27.2 GB per-allocation cap puts the allocation
+        failure that causes it out of reach without a ~165k-token prompt. So
+        treat this as a cheap defensive reset rather than a verified fix —
+        what IS established is that calling it on a healthy pipe costs
+        nothing [OBSERVED 2026-09-01, same probe].
+
+        `finish_chat()` is deprecated as of genai 2026.3 — "will be removed
+        in the next major release, use generate() with a ChatHistory
+        argument" — so this needs rewriting before that lands.
+
+        In: nothing; a no-op on runtimes with no `finish_chat`. Out: nothing.
+        Never raises — it runs inside an exception handler and the caller's
+        original error is the one that must survive.
+        """
+        fin = getattr(self.pipe, "finish_chat", None)
+        if fin is None:
+            return
+        try:
+            fin()
+        except Exception:
+            pass
+
     def generate_vlm(self, text_prompt, images, gen):
         """VLM generate — images optional.
 
@@ -1762,6 +1839,10 @@ class DeviceSlot:
             try:
                 result = self._vlm_generate_once(text_prompt, images, gen)
             except Exception as e:
+                # Unwedge before anything else: a throw skipped the
+                # pipeline's own state reset, so both the retry below and
+                # any later request would fail on stale history.
+                self._reset_vlm_state()
                 if not (images and self._is_placeholder_bounds_error(e)
                         and getattr(gen, "repetition_penalty", 1.0) != 1.0):
                     raise
@@ -1894,6 +1975,7 @@ class DeviceSlot:
                         # here because the assertion fires in the sampler
                         # before any token reaches streamer_callback, so the
                         # consumer has seen nothing to un-send.
+                        self._reset_vlm_state()
                         if not (images and self._is_placeholder_bounds_error(e)
                                 and getattr(gen, "repetition_penalty", 1.0) != 1.0):
                             raise
@@ -2849,6 +2931,11 @@ AUTO_KV_TOKENS = 65536  # auto-size cap, in tokens of the model's KV geometry: c
 AUTO_KV_HEADROOM_SHARE = 3  # auto takes at most 1/(this) of what's left after weights —
                             # iGPU "device memory" and the CPU pool are the same RAM the
                             # agent's own compilers and tests run in
+GPU_LARGE_ALLOC = False  # force GPU_ENABLE_LARGE_ALLOCATIONS (--gpu-large-alloc). Off by
+                         # default: it costs load time, and the automatic weight-based
+                         # check in _gpu_large_alloc_props covers load-time failures. This
+                         # is the escape hatch for a RUNTIME buffer over the cap, which no
+                         # load-time inspection can predict (issue #24).
 OFFLOAD_RATIO = 0     # % of MoE expert weights streamed from disk on GPU (--offload-ratio).
                       # Needs an XMX-capable GPU (Arc/Lunar Lake+) — silent no-op without.
                       # Measured on Arc 140V: 30B-A3B int4 runs in 2.35 GB resident at 90.
@@ -4245,6 +4332,13 @@ def parse_args():
                    help="Disable prefix (KV) caching on GPU/CPU LLM slots. Caching is "
                         "ON by default — it prefills a repeated prompt prefix (e.g. an "
                         "agent's fixed system prompt) once instead of every turn.")
+    p.add_argument("--gpu-large-alloc", action="store_true",
+                   help="Let one GPU buffer exceed the device per-allocation cap. "
+                        "Needed only when a request dies with 'Exceeded max size "
+                        "of memory object allocation' — a long prompt on a VLM whose "
+                        "export cannot use prefix caching. Costs load time, so it is "
+                        "off by default; weight-sized overruns are detected "
+                        "automatically and need no flag.")
     p.add_argument("--cache-size-gb", type=int, default=None,
                    help=f"KV-cache pool size in GB when prefix caching is on. "
                         f"Default: auto — sized per device from its memory "
@@ -4294,6 +4388,7 @@ def main():
     """
     global primary, secondary, whisper_slot, max_dim, debug, vscode_compat
     global PROMPT_CACHE, PROMPT_CACHE_GB, PREWARM_FILE, OFFLOAD_RATIO, THINK_IN_CONTENT
+    global GPU_LARGE_ALLOC
     global VSCODE_OLLAMA_VERSION
 
     args = parse_args()
@@ -4312,6 +4407,7 @@ def main():
     PROMPT_CACHE = not args.no_prompt_cache
     PROMPT_CACHE_GB = args.cache_size_gb
     THINK_IN_CONTENT = args.think_in_content
+    GPU_LARGE_ALLOC = args.gpu_large_alloc
     OFFLOAD_RATIO = max(0, min(99, args.offload_ratio))
     if OFFLOAD_RATIO:
         # Offload is a silent no-op without XMX — say so up front instead of

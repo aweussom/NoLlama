@@ -2,11 +2,12 @@
 %% Drawn 2026-08-19 from nollama.py @ 85e796f.
 %% Updated 2026-08-30: stream_vlm_tokens seam, shared _sse_stream, _ThinkSplitter/_ToolCallGate (issue #36).
 %% Updated 2026-09-01: _vlm_penalty_guard one-shot retry on the image path.
+%% Updated 2026-09-01: _reset_vlm_state on the VLM throw path (issue #24).
 %% Legend: solid = normal path, dashed = failure/timeout/cancel paths,
 %%         ALL-CAPS nodes = prose annotations.
 %% Palette: route (blue) = protocol consumers, gen (green) = backend/worker,
 %%          client (yellow) = wire frames, warn (orange) = annotations.
-%% covers: nollama.py:stream_tokens,stream_vlm_tokens,_vlm_penalty_guard,_is_placeholder_bounds_error,stream_llm,stream_vlm,_sse_stream,_ollama_stream_chat,_ollama_stream_generate,generate_llm,cancel,explain_genai_error,_AtemStreamFilter,_AtemPlainFilter,_ThinkSplitter,_split_think,_ToolCallGate,_prompt_preseeds_think
+%% covers: nollama.py:stream_tokens,stream_vlm_tokens,_reset_vlm_state,_vlm_penalty_guard,_is_placeholder_bounds_error,stream_llm,stream_vlm,_sse_stream,_ollama_stream_chat,_ollama_stream_generate,generate_llm,cancel,explain_genai_error,_AtemStreamFilter,_AtemPlainFilter,_ThinkSplitter,_split_think,_ToolCallGate,_prompt_preseeds_think
 flowchart TB
   stream_tokens["DeviceSlot.stream_tokens<br/>SEAM between backend and protocol.<br/>Owns: worker thread, lock, clearing<br/>_cancel INSIDE the lock, _stream_error.<br/>Yields str chunk, or None after
   'heartbeat' quiet seconds"]
@@ -18,7 +19,10 @@ flowchart TB
   stream_vlm_tokens --> worker
 
   penalty_guard["_vlm_penalty_guard (image turns only)<br/>Some VLM exports put image placeholders<br/>outside 0..vocab_size. genai's repetition<br/>-penalty transformer walks the PROMPT ids<br/>and asserts on them, so every image turn died<br/>while text turns worked. First failure sets a<br/>per-slot flag, warns once, and retries with<br/>repetition_penalty = 1.0; later image turns<br/>skip the penalty up front. Text turns keep it"]
-  worker -.->|"image turn asserts:<br/>prompt_id out of bounds"| penalty_guard
+  reset_state["_reset_vlm_state<br/>FIRST thing on any throwing VLM generate:<br/>finish_chat() to reconverge the attention mask<br/>with tokenized_history, so one failure does not<br/>wedge every later request on the slot"]
+  worker -.->|"VLM generate throws"| reset_state
+  reset_state -.->|"image turn asserted:<br/>prompt_id out of bounds"| penalty_guard
+  reset_state -.->|"anything else"| _stream_error
   penalty_guard -.->|"retry once, penalty cleared"| worker
 
   RETRYSAFE["THE RETRY IS SAFE TO REPLAY: the assertion fires in the sampler
@@ -27,7 +31,20 @@ flowchart TB
   streaming seam at all. Cost is one re-prefill, once per load.
   Observed on Arc 140T, 140V and Arc Pro B60, genai 2026.3 and 2026.5."]
   penalty_guard -.-> RETRYSAFE
-  worker -.->|"backend exception"| _stream_error["_stream_error set;<br/>explain_genai_error names the fix<br/>(KV pool too small, NPU compiler,<br/>AUTO_DETECT -> --npu-platform, ...).<br/>Order matters: the specific matchers run<br/>before the broad 'Compilation failed' one,<br/>and the NPU hints are gated on the slot's<br/>device — see tests/test_npu_pin.py"]
+
+  WEDGEUNPROVEN["THE RESET IS DEFENSIVE, NOT A VERIFIED FIX. The wedge it
+  targets - every later request dying on 'Prompt ids size is less than
+  tokenized history size' - is a USER REPORT (Arc 140T, issue #24), and the
+  claim that finish_chat() reconverges the state is INFERRED from the genai
+  source. A bare-genai probe on a 140V could not wedge the pipeline at all:
+  a sampler-stage throw left it usable for two later requests, with and
+  without finish_chat. That throw fires AFTER prefill; the reporter's fires
+  inside it, and a 27.2 GB per-allocation cap puts the real repro out of
+  reach without a ~165k-token prompt. What IS observed: calling it on a
+  healthy pipe costs nothing. Note finish_chat() is deprecated in genai
+  2026.3 and needs rewriting before it is removed."]
+  reset_state -.-> WEDGEUNPROVEN
+  worker -.->|"backend exception"| _stream_error["_stream_error set;<br/>explain_genai_error names the fix<br/>(KV pool too small, NPU compiler,<br/>AUTO_DETECT -> --npu-platform, and the<br/>per-allocation cap: a perfect-square<br/>'requested N bytes' is named as an S-squared<br/>attention mask, i.e. a prompt-length limit).<br/>Order matters: the specific matchers run<br/>before the broad 'Compilation failed' one,<br/>and the NPU hints are gated on the slot's<br/>device — see tests/test_npu_pin.py"]
 
   _sse_stream["_sse_stream (OpenAI SSE, shared body)<br/>None -> empty-content delta keepalive;<br/>first token stamps wall-clock TTFT;<br/>finish stop / cancelled / error, [DONE]"]
   stream_llm["stream_llm / stream_vlm<br/>thin wrappers: pick the seam,<br/>delegate to _sse_stream"]
@@ -87,6 +104,6 @@ flowchart TB
   classDef client fill:#ffffcc,stroke:#b3b300,color:#000
   classDef warn fill:#fec,stroke:#a60,color:#000
   class _sse_stream,stream_llm,tool_stream,_ollama_stream_chat,_ollama_stream_generate,generate_llm route
-  class stream_tokens,stream_vlm_tokens,opt_stream_tokens,worker,atem,splitter,gate,penalty_guard gen
+  class stream_tokens,stream_vlm_tokens,opt_stream_tokens,worker,atem,splitter,gate,penalty_guard,reset_state gen
   class cancel,_stream_error client
-  class FINALLY,CANCELLIMIT,ORDER,RETRYSAFE warn
+  class FINALLY,CANCELLIMIT,ORDER,RETRYSAFE,WEDGEUNPROVEN warn
