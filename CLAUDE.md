@@ -71,6 +71,32 @@ never inside.
 - Leading edge, not bleeding edge: nightly-only models don't get installer
   entries.
 
+## A new model gets tested outside the server first — standing order
+
+Before a model is judged, run it through **bare openvino_genai**, no NoLlama:
+
+```powershell
+.\venv\Scripts\python scripts\bare-probe.py <model-dir>
+```
+
+Only then bring it up under the server. If bare works and NoLlama doesn't,
+the bug is ours — and that is the common case, not the rare one.
+
+**Why this is a rule and not a suggestion.** Phi-3.5-vision was declared
+broken and written off after a full day of testing: four separate negative
+results (not multi-image, not the prefix cache, not the runtime version
+across a release *and* a nightly, not the hardware across two GPUs). Every
+one was true. Every one ran through NoLlama, so the variable never varied
+was NoLlama. The actual cause — our own default `repetition_penalty` of
+1.05 colliding with Phi-3's out-of-vocab image placeholders — fell out in
+ten minutes of calling `VLMPipeline` directly. Ruling out four things you
+thought of is not the same as ruling out the thing you didn't.
+→ `TODONT.md`, "Phi-3.5-vision as a GPU VLM entry".
+
+The same order applies to a model that *works* but looks wrong: wrong
+answers, odd token counts, suspicious speed. Establish what the runtime
+does with it before blaming or crediting the server.
+
 ## Known issues
 
 - Qwen3 thinking models can exhaust the token budget on `<think>` before

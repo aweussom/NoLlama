@@ -22,3 +22,6 @@ nollama.ini
 # NOTE: scripts/seen_models.json is model_watch.py state, but it must stay
 # TRACKED -- .github/workflows/model-watch.yml commits it back, and without it
 # every run re-baselines and silently stops opening issues. See TODONT.md.
+
+# Probe reports from scripts/phi35v-repro/run.ps1 — paste into an issue, do not commit
+phi35v-report-*.txt
