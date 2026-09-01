@@ -16,14 +16,22 @@ older than a driver that already fails), and the user-facing fix is not
 `docs/MODELS.md`; full log in
 `C:\Users\tommyl\npu-driver-backup\FINDINGS.md`.
 
-Left to do, all outward-facing:
-- **Report the matrix to openvinotoolkit/openvino#37322** — Intel already
-  reproduced "LFM2.5-1.2B gibberish on NPU" there (2026-08-13); this adds
-  the NPU 3 positive control and the two-driver result.
-- **The two HF model cards** (`aweussom/LFM2.5-1.2B-Instruct-int4-cw-ov`,
-  `aweussom/LFM2-1.2B-int4-cw-ov`) need the "NPU 3 only, a driver update
-  does not fix it" caveat.
-- **Reply on issue #24.**
+All three outward-facing items are done (2026-09-01):
+- **Matrix reported** to openvinotoolkit/openvino#37322 —
+  [comment 5498407344](https://github.com/openvinotoolkit/openvino/issues/37322#issuecomment-5498407344),
+  addressed to @Zulkifli-Intel's 2026-08-13 "gibberish on NPU" observation,
+  with the NPU 3 positive control and the two-driver result. Nothing back yet.
+- **Both HF model cards** carry the caveat. The wording differs on purpose:
+  LFM2.5-1.2B says a driver update does not fix it (measured on 4778 and
+  5540); LFM2-1.2B says it is not expected to (that build was never
+  re-probed on 5540 — the claim is inherited from its sibling, and the card
+  says so).
+- **Issue #24 answered** — the Phi-3.5 fix, the S-squared allocation
+  explanation, and an explicit ask, since that reporter's 4.29 GB cap is the
+  only place `_reset_vlm_state` can be verified.
+
+Open, waiting on other people: a reply from Intel on #37322, and the
+issue #24 reporter confirming whether the slot reset actually works.
 
 Note for whoever re-probes: the 5540 run covered LFM2.5-1.2B and Intel's
 `OpenVINO/LFM2.5-350M-int8-ov` (re-downloaded; NPU garbage, CPU and GPU
