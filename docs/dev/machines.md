@@ -22,6 +22,17 @@ Where this repo lives and where most measurements are taken.
 result here is unambiguous. Also where the Docker work happens (#31) — the
 container GPU results in `DOCKER-INSTALL.md` are all from this box.
 
+**An application-control policy blocks venv console-script shims here**
+[OBSERVED 2026-09-01]. `venv\Scripts\hf.exe` — a generated launcher, not a
+signed binary — is refused with *"En programkontrollpolicy har blokkert
+denne filen"*, while `python.exe` from the same venv runs fine.
+`download-model.ps1` no longer depends on it (it calls
+`scripts/hf_download.py` through python instead), but **anything else that
+shells out to a `Scripts\*.exe` entry point will hit this** — `optimum-cli`
+during a conversion is the obvious next one. Prefer `python -m <module>` or
+a small script over the console-script name when writing anything that has
+to run here.
+
 Watch the RAM: 32 GB with ~19-26 GB typically free. Loading a big model
 stages through host RAM at roughly model size, so **one model server at a
 time** — two concurrent 14 GB loads thrashed the pagefile for 40 minutes on

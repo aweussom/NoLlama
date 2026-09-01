@@ -163,7 +163,10 @@ if ($Convert) {
 
     Write-Host "Running: optimum-cli $($args -join ' ')" -ForegroundColor DarkGray
     Write-Host ""
-    & optimum-cli @args
+    # `python -m` rather than the optimum-cli shim, for the same reason as the
+    # download path below: application-control policies block generated
+    # Scripts\*.exe launchers on managed machines. Same entry point.
+    & python -m optimum.commands.optimum_cli @args
     if (-not $?) {
         Write-Host ""
         Write-Host "ERROR: Conversion failed." -ForegroundColor Red
@@ -193,7 +196,13 @@ if ($Convert) {
     $env:PYTHONIOENCODING = "utf-8"
     $revArgs = @()
     if ($Revision) { $revArgs = @("--revision", $Revision); Write-Host "  Revision: $Revision" }
-    hf download $HfId --local-dir $Output @revArgs
+    # Via python, not the `hf` console script: `hf download` runs
+    # venv\Scripts\hf.exe, a generated launcher that Windows application
+    # -control policies (WDAC / AppLocker / Smart App Control) block on
+    # managed machines while still allowing python.exe. Seen 2026-09-01 on a
+    # Win11 Pro workstation — "En programkontrollpolicy har blokkert denne
+    # filen" — with the rest of the venv working normally.
+    & python (Join-Path $ScriptDir "scripts" "hf_download.py") $HfId $Output @revArgs
     if (-not $?) {
         Write-Host ""
         Write-Host "ERROR: Download failed." -ForegroundColor Red
