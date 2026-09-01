@@ -211,43 +211,63 @@ and the next gemma4 export can land decomposed again.
 ## Phi-3.5-vision as a GPU VLM entry (2026-09-01)
 
 Idea: `OpenVINO/Phi-3.5-vision-instruct-int4-ov` is small (2.2 GB), Intel
-publishes it ready to run, and its text path is quick -- an obvious cheap
-vision option for a 16 GB card. It sat in issue #24's "untested" table for
-weeks looking like an easy win.
+publishes it ready to run, and its text path is quick. It sat in issue #24's
+"untested" table for weeks.
 
-**Verdict:** it does not do vision at all on this runtime. Text only, which
-makes it pointless -- there are better text models at that size.
+**Verdict (2026-09-01, corrected the same day): the model works. NoLlama
+broke it.** An earlier version of this entry said the model "does no vision
+on this runtime" and recommended rejecting it. That was wrong, and the
+mistake is worth keeping visible because of how it happened -- see below.
 
-**Why not:** any image, one is enough, fails in the sampler:
+**What actually fails:** every image request returns
 
 ```
 Check '(prompt_id >= 0) && (prompt_id < vocab_size)' failed at
 .../sampling/logit_transformers.hpp:412: input_ids token out of bounds
 ```
 
-Ruled out, in this order [OBSERVED 2026-09-01, Arc 140V,
-openvino_genai 2026.3.0.0-3277]:
+**The trigger is our default `repetition_penalty` of 1.05** [OBSERVED
+2026-09-01, Arc 140V, driving `VLMPipeline` directly with no server in the
+loop]:
 
-- **Not multi-image.** The community report failed on the suite's two-image
-  comparisons, so the obvious guess was that this model takes one image.
-  A single image fails identically.
-- **Not the caching path.** `--no-prompt-cache` gives the same assertion,
-  so the CB backend is not implicated.
-- **Not the hardware.** Reported first on an Arc 140T under a separate
-  Windows install (issue #24, 2026-08-31) and reproduced on a 140V here.
-- **Not the model loading.** It loads clean, reports 32 fused SDPA ops, and
-  answers text prompts normally.
+| generation config | text | image |
+|---|---|---|
+| bare `GenerationConfig` | OK | **OK** |
+| `repetition_penalty = 1.0` | OK | **OK** |
+| `repetition_penalty = 1.05` | OK | **FAILS** |
+| `presence_penalty = 0.5` | OK | OK |
+| `frequency_penalty = 0.5` | OK | OK |
 
-Likely cause: Phi-3 vision encodes image placeholders as **negative** token
-ids, and that bound check rejects anything below zero. Untested against
-genai source, so treat as [INFERRED] -- confirming it means finding where
-the vision placeholders enter `input_ids` on the VLM path.
+Only the repetition-penalty transformer walks the *prompt* ids; presence and
+frequency penalties score generated tokens. Phi-3 vision puts image
+placeholders outside `[0, vocab_size)`, and that bound check rejects them.
+Text prompts contain no placeholders, which is why text always worked.
 
-Re-evaluate if: a newer openvino_genai changes the vision placeholder
-handling, or Intel republishes the export against a current stack (this IR
-was built with OpenVINO 2025.0 / optimum-intel 1.22 / transformers 4.47,
-which is old enough that a re-export is worth trying before writing the
-model off permanently).
+The model itself is fine: a bare `VLMPipeline` reads a real screenshot
+correctly at every size from 336x336 to 2048x2048, and describes synthetic
+images correctly.
+
+**How the wrong verdict happened, because the next person will repeat it.**
+Four negative results were collected -- not multi-image, not the caching
+path, not the runtime version (2026.3 release *and* 2026.5 nightly), not the
+hardware (140T and 140V) -- and each one genuinely narrowed the problem. But
+every single test ran *through NoLlama*, so the one variable never varied
+was NoLlama itself. Ruling out four things you thought of is not the same as
+ruling out the thing you did not. The bug was found in the first ten minutes
+of driving `VLMPipeline` directly, which is what the standalone repro in
+`scripts/phi35v-repro/` exists to force.
+
+**Still to do:** decide the fix. Options considered, none implemented yet --
+skip the repetition penalty when a request carries images (penalises every
+VLM for one model's convention); catch this assertion and retry once with
+the penalty off, remembering per slot (general, self-healing, costs a
+re-prefill once); or key it to the `phi3_v` architecture (narrow and
+hardcoded, with precedent in `NEEDS_OPTIMUM`). Do not simply lower the
+global default -- 1.05 is a deliberate compromise, documented at
+`REPETITION_PENALTY`.
+
+Worth an upstream report too: a repetition penalty over a VLM prompt should
+skip placeholder ids rather than assert.
 
 ## Pointing every Gemma download at our own re-exports (2026-09-01)
 

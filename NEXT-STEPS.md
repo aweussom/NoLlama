@@ -166,26 +166,35 @@ credit PearTr0191 in the commit, close #34 as superseded. Verify with the
   ask — is still unanswered**, and was restated so the issue does not close
   as "E4B fixed" with the docs untouched. Watch for that.
 
-  **`Phi-3.5-vision` is answered too — reproduced here 2026-09-01**, so
-  nothing is owed by the reporter. Any single image fails in the genai
-  sampler (`input_ids token out of bounds`, `logit_transformers.hpp:412`) on
-  an Arc 140V, identically with `--no-prompt-cache`, while text works. Not
-  multi-image, not caching, not hardware. Verdict and the ruled-out list are
-  in `TODONT.md`. **Open question: file it upstream?** We have a clean
-  two-hardware repro and a plausible cause (Phi-3 vision uses negative token
-  ids as image placeholders); the IR is also old enough (OpenVINO 2025.0,
-  transformers 4.47) that "re-export first" is a fair upstream response.
+  **`Phi-3.5-vision`: the model works, we broke it.** Every image request
+  died in the genai sampler (`input_ids token out of bounds`,
+  `logit_transformers.hpp:412`) on a 140T (community) and a 140V (here),
+  on the 2026.3 release and the 2026.5 nightly, with and without prefix
+  caching. All of that was true and all of it was beside the point: driving
+  `VLMPipeline` directly, the trigger is **NoLlama's default
+  `repetition_penalty` of 1.05**. At 1.0 the same model reads the same
+  images correctly; presence/frequency penalties are harmless. Phi-3 vision
+  places image placeholders outside `[0, vocab_size)` and only the
+  repetition-penalty transformer walks prompt ids.
 
-  **The `Qwen3.5-9B` "runaway" is answered and the question should be
-  withdrawn.** Reproduced the mechanism locally on `Qwen3.5-4B-int4-ov`
-  (Arc 140V, greedy, 2026-09-01): Qwen3.5 honours *neither* no-think lever —
-  `benchmark.py`'s system prompt still yields 127 chars of reasoning for
-  "Say hello." and 618 for "What is 2+2?", and the literal `/no_think`
-  marker yields 1483, *more* than the 939 with no system prompt at all. So
-  every "(no-think)" row on a Qwen3.5 model measures thinking output whose
-  length follows the greedy trajectory, which is exactly how the same prompt
-  returns 21 tokens on int8 and 1022 on int4. Expected, not a defect;
-  recorded at the `NO_THINK_SYSTEM` definition in `benchmark.py`.
+  Open, in order:
+
+  1. **Pick the fix.** Three candidates weighed in `TODONT.md`; the retry
+     -once-without-penalty option is the general one. Not implemented.
+  2. **File upstream** — a repetition penalty over a VLM prompt should skip
+     placeholder ids, not assert. Standalone repro ready at
+     `scripts/phi35v-repro/`, no server involved.
+  3. **B60 leg still unrun.** Every failure so far is on an integrated Xe
+     GPU; `machines.md` gives no SSH address for the B60 box, so it needs
+     running there by hand. Less urgent now the cause is known, but it is
+     the one hardware class untested.
+  4. Our own export of `microsoft/Phi-3.5-vision-instruct` was started and
+     **cancelled** — the published IR turned out to be fine, so it was
+     answering a question that no longer exists. Note `phi3_v` is pinned to
+     `"eager"` in optimum-intel's `FORCE_ATTN_MODEL_CLASSES`, so a current
+     -stack re-export would likely *lose* the 32 fused SDPA ops Intel's
+     2025.0 IR has, and with them prefix caching. Re-run only if that
+     prediction is worth confirming.
 
 - **USM OOM: filed upstream as openvino.genai#4344 (2026-08-18).**
   Raw VLMPipeline (plain, no scheduler_config), Glimmer int4 on the B60:

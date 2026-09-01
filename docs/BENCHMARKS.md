@@ -229,21 +229,27 @@ are not directly comparable with the text table above.
 
 Three things in that table are worth more than their row:
 
-- **`Phi-3.5-vision-instruct-int4-ov` cannot do vision on this stack** while
-  its text path is among the fastest in the batch. **Reproduced here**
-  [OBSERVED 2026-09-01, Arc 140V, openvino_genai 2026.3.0.0-3277]: any image
-  at all — one is enough, it is not a multi-image problem — returns
+- **`Phi-3.5-vision-instruct-int4-ov` fails on images — and it is our bug,
+  not the model's.** Every image request returns
 
   ```
   Check '(prompt_id >= 0) && (prompt_id < vocab_size)' failed at
   .../sampling/logit_transformers.hpp:412: input_ids token out of bounds
   ```
 
-  Text generation on the same slot answers normally, and the failure is
-  identical with `--no-prompt-cache`, so it is neither the caching path nor
-  the hardware — two different GPUs, two OS installs, same assertion. Phi-3
-  vision encodes image placeholders as negative token ids, which is exactly
-  what that bound check rejects. **Do not add this model**; see `TODONT.md`.
+  The trigger is **NoLlama's default `repetition_penalty` of 1.05**
+  [OBSERVED 2026-09-01, Arc 140V, genai 2026.3.0.0-3277 and 2026.5.0.0-3402]:
+  driving `VLMPipeline` directly, the same model and the same images answer
+  correctly with the penalty at 1.0 and fail at 1.05, while `presence_penalty`
+  and `frequency_penalty` change nothing. Only the repetition-penalty
+  transformer walks the *prompt* ids, and Phi-3 vision's image placeholders
+  sit outside `[0, vocab_size)`.
+
+  So the model is fine and the images are fine — a bare `VLMPipeline` reads
+  a screenshot correctly at every size from 336x336 to 2048x2048. What is
+  broken is that we apply a repetition penalty to a prompt containing
+  placeholder ids. Fix belongs in NoLlama (and arguably in genai, which
+  should skip placeholders rather than assert). See `TODONT.md`.
 - **`gemma-4-E4B-it-int8` was Intel's published build**, whose IR has no
   fused SDPA op and therefore gets no prefix caching at all — a defect Intel
   confirmed on 2026-08-31 (openvino.genai#4343). The number above is honest
