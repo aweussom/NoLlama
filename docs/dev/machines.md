@@ -27,11 +27,25 @@ container GPU results in `DOCKER-INSTALL.md` are all from this box.
 signed binary — is refused with *"En programkontrollpolicy har blokkert
 denne filen"*, while `python.exe` from the same venv runs fine.
 `download-model.ps1` no longer depends on it (it calls
-`scripts/hf_download.py` through python instead), but **anything else that
-shells out to a `Scripts\*.exe` entry point will hit this** — `optimum-cli`
-during a conversion is the obvious next one. Prefer `python -m <module>` or
-a small script over the console-script name when writing anything that has
-to run here.
+`scripts/hf_download.py` through python instead, and `optimum-cli` now goes
+through `python -m optimum.commands.optimum_cli`). Prefer `python -m
+<module>` or a small script over a console-script name when writing anything
+that has to run here.
+
+**It is not only `.exe` shims — the policy blocks unsigned native modules
+too, so `venv-nightly` cannot import openvino_genai on this box at all:**
+
+```
+ImportError: DLL load failed while importing py_openvino_genai:
+En programkontrollpolicy har blokkert denne filen.
+```
+
+The release venv is fine; the nightly wheels are not. **Elevation does not
+help** — this is code-integrity policy, not a permission check. So *the B60
+box cannot run the nightly stack*, which matters when planning: anything
+needing "release vs nightly" on a discrete Intel GPU has nowhere to run
+today. Check what is enforcing it with
+`Get-CimInstance Win32_DeviceGuard | Select CodeIntegrityPolicyEnforcementStatus`.
 
 Watch the RAM: 32 GB with ~19-26 GB typically free. Loading a big model
 stages through host RAM at roughly model size, so **one model server at a

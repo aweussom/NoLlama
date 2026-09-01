@@ -177,24 +177,23 @@ credit PearTr0191 in the commit, close #34 as superseded. Verify with the
   places image placeholders outside `[0, vocab_size)` and only the
   repetition-penalty transformer walks prompt ids.
 
-  Open, in order:
+  **Closed 2026-09-01.** Fix landed (`_vlm_penalty_guard`: retry once
+  without the penalty, remember per slot, warn once; text turns keep it).
+  Verified on the 140V through both the streaming and non-streaming server
+  paths, and Qwen2.5-VL-3B confirmed unaffected. The B60 leg came back
+  **identical on discrete Battlemage**, so the bug is hardware-independent
+  across three GPUs, two GPU classes, two runtimes and both pipelines.
 
-  1. **Pick the fix.** Three candidates weighed in `TODONT.md`; the retry
-     -once-without-penalty option is the general one. Not implemented.
-  2. **File upstream** — a repetition penalty over a VLM prompt should skip
-     placeholder ids, not assert. Standalone repro ready at
-     `scripts/phi35v-repro/`, no server involved.
-  3. **B60 leg still unrun.** Every failure so far is on an integrated Xe
-     GPU; `machines.md` gives no SSH address for the B60 box, so it needs
-     running there by hand. Less urgent now the cause is known, but it is
-     the one hardware class untested.
-  4. Our own export of `microsoft/Phi-3.5-vision-instruct` was started and
-     **cancelled** — the published IR turned out to be fine, so it was
-     answering a question that no longer exists. Note `phi3_v` is pinned to
-     `"eager"` in optimum-intel's `FORCE_ATTN_MODEL_CLASSES`, so a current
-     -stack re-export would likely *lose* the 32 fused SDPA ops Intel's
-     2025.0 IR has, and with them prefix caching. Re-run only if that
-     prediction is worth confirming.
+  One thing still open: **file it upstream.** A repetition penalty over a
+  VLM prompt should skip placeholder ids rather than assert. The repro is
+  ready and server-free (`scripts/phi35v-repro/run.ps1`, or
+  `scripts/bare-probe.py` directly) and the matrix above is the evidence.
+
+  Also learned, and it constrains planning: the B60 box **cannot run
+  `venv-nightly` at all** — its application-control policy blocks the
+  unsigned `py_openvino_genai` DLL, and elevation does not lift it. Any
+  future "release vs nightly on a discrete Intel GPU" question has nowhere
+  to run today. → `docs/dev/machines.md`.
 
 - **USM OOM: filed upstream as openvino.genai#4344 (2026-08-18).**
   Raw VLMPipeline (plain, no scheduler_config), Glimmer int4 on the B60:

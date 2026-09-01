@@ -1,11 +1,12 @@
 %% Token streaming: the stream_tokens seam, its consumers, cancel semantics.
 %% Drawn 2026-08-19 from nollama.py @ 85e796f.
 %% Updated 2026-08-30: stream_vlm_tokens seam, shared _sse_stream, _ThinkSplitter/_ToolCallGate (issue #36).
+%% Updated 2026-09-01: _vlm_penalty_guard one-shot retry on the image path.
 %% Legend: solid = normal path, dashed = failure/timeout/cancel paths,
 %%         ALL-CAPS nodes = prose annotations.
 %% Palette: route (blue) = protocol consumers, gen (green) = backend/worker,
 %%          client (yellow) = wire frames, warn (orange) = annotations.
-%% covers: nollama.py:stream_tokens,stream_vlm_tokens,stream_llm,stream_vlm,_sse_stream,_ollama_stream_chat,_ollama_stream_generate,generate_llm,cancel,explain_genai_error,_AtemStreamFilter,_AtemPlainFilter,_ThinkSplitter,_split_think,_ToolCallGate,_prompt_preseeds_think
+%% covers: nollama.py:stream_tokens,stream_vlm_tokens,_vlm_penalty_guard,_is_placeholder_bounds_error,stream_llm,stream_vlm,_sse_stream,_ollama_stream_chat,_ollama_stream_generate,generate_llm,cancel,explain_genai_error,_AtemStreamFilter,_AtemPlainFilter,_ThinkSplitter,_split_think,_ToolCallGate,_prompt_preseeds_think
 flowchart TB
   stream_tokens["DeviceSlot.stream_tokens<br/>SEAM between backend and protocol.<br/>Owns: worker thread, lock, clearing<br/>_cancel INSIDE the lock, _stream_error.<br/>Yields str chunk, or None after
   'heartbeat' quiet seconds"]
@@ -15,6 +16,17 @@ flowchart TB
 
   stream_tokens --> worker
   stream_vlm_tokens --> worker
+
+  penalty_guard["_vlm_penalty_guard (image turns only)<br/>Some VLM exports put image placeholders<br/>outside 0..vocab_size. genai's repetition<br/>-penalty transformer walks the PROMPT ids<br/>and asserts on them, so every image turn died<br/>while text turns worked. First failure sets a<br/>per-slot flag, warns once, and retries with<br/>repetition_penalty = 1.0; later image turns<br/>skip the penalty up front. Text turns keep it"]
+  worker -.->|"image turn asserts:<br/>prompt_id out of bounds"| penalty_guard
+  penalty_guard -.->|"retry once, penalty cleared"| worker
+
+  RETRYSAFE["THE RETRY IS SAFE TO REPLAY: the assertion fires in the sampler
+  BEFORE any token reaches streamer_callback, so the consumer has seen
+  nothing to un-send. That is what makes one-shot retry viable on a
+  streaming seam at all. Cost is one re-prefill, once per load.
+  Observed on Arc 140T, 140V and Arc Pro B60, genai 2026.3 and 2026.5."]
+  penalty_guard -.-> RETRYSAFE
   worker -.->|"backend exception"| _stream_error["_stream_error set;<br/>explain_genai_error names the fix<br/>(KV pool too small, NPU compiler,<br/>AUTO_DETECT -> --npu-platform, ...).<br/>Order matters: the specific matchers run<br/>before the broad 'Compilation failed' one,<br/>and the NPU hints are gated on the slot's<br/>device — see tests/test_npu_pin.py"]
 
   _sse_stream["_sse_stream (OpenAI SSE, shared body)<br/>None -> empty-content delta keepalive;<br/>first token stamps wall-clock TTFT;<br/>finish stop / cancelled / error, [DONE]"]
@@ -75,6 +87,6 @@ flowchart TB
   classDef client fill:#ffffcc,stroke:#b3b300,color:#000
   classDef warn fill:#fec,stroke:#a60,color:#000
   class _sse_stream,stream_llm,tool_stream,_ollama_stream_chat,_ollama_stream_generate,generate_llm route
-  class stream_tokens,stream_vlm_tokens,opt_stream_tokens,worker,atem,splitter,gate gen
+  class stream_tokens,stream_vlm_tokens,opt_stream_tokens,worker,atem,splitter,gate,penalty_guard gen
   class cancel,_stream_error client
-  class FINALLY,CANCELLIMIT,ORDER warn
+  class FINALLY,CANCELLIMIT,ORDER,RETRYSAFE warn

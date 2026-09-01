@@ -1416,6 +1416,7 @@ class DeviceSlot:
         self.kv_pool_gb = 0              # resolved KV pool for THIS slot (_resolve_kv_pool)
         self._atem = False               # Muse Glimmer channel stream needs translating
         self.think_preseeded = False     # chat template opens <think> in the generation prompt (Qwen3.5/3.8)
+        self._rep_penalty_breaks_images = False  # set once this model proves it (see _vlm_penalty_guard)
 
     def load(self, model_dir):
         """Load model, auto-detecting VLM vs LLM."""
@@ -1688,18 +1689,86 @@ class DeviceSlot:
             self.load(self.model_dir)
             self.warmup()
 
+    def _vlm_generate_once(self, text_prompt, images, gen):
+        """One VLMPipeline.generate call, images optional.
+
+        Why it exists: generate_vlm may have to run the same call twice (see
+        _vlm_penalty_guard), and duplicating the images/no-images branch at
+        both call sites is how the two drift apart.
+
+        In: prompt text, a list of ov.Tensor or empty, a GenerationConfig.
+        Out: whatever genai returns — caller extracts text. Caller holds the
+        lock; this does not take it.
+        """
+        if images:
+            imgs = images[0] if len(images) == 1 else images
+            return self.pipe.generate(
+                prompt=text_prompt, images=imgs, generation_config=gen,
+            )
+        return self.pipe.generate(prompt=text_prompt, generation_config=gen)
+
+    def _is_placeholder_bounds_error(self, exc):
+        """True for the genai assertion raised by a penalty over image placeholders.
+
+        Why: some VLM exports encode image placeholders as token ids outside
+        `[0, vocab_size)`, and the repetition-penalty transformer — alone
+        among the penalties — walks the *prompt* ids and asserts on them.
+        Matching the text is ugly but it is all genai gives us: the failure
+        arrives as a generic RuntimeError from native code.
+
+        In: any exception. Out: bool. Deliberately matches on the two stable
+        fragments of the message rather than the file/line, which move
+        between builds. [OBSERVED 2026-09-01, identical string on genai
+        2026.3.0.0-3277 and 2026.5.0.0-3402.]
+        """
+        text = str(exc)
+        return "prompt_id" in text and "vocab_size" in text
+
+    def _vlm_penalty_guard(self, gen, images):
+        """Drop the repetition penalty when this model cannot survive it with images.
+
+        Why not just lower the global default: 1.05 is a deliberate
+        compromise (see REPETITION_PENALTY) and every other VLM we serve
+        takes it fine. Why not key it to an architecture: the convention
+        that breaks — out-of-vocab image placeholders — belongs to the
+        export, not reliably to the arch name, so the honest test is whether
+        this model actually failed. The flag is set by the caller's except
+        branch on first failure and costs one re-prefill, once per load.
+
+        In: the GenerationConfig and the request's images. Out: True when the
+        penalty was cleared, so the caller can log it once.
+        """
+        if not (images and self._rep_penalty_breaks_images):
+            return False
+        if getattr(gen, "repetition_penalty", 1.0) == 1.0:
+            return False
+        gen.repetition_penalty = 1.0
+        return True
+
+    def _warn_penalty_disabled(self):
+        """Say once, per load, that image turns run without a repetition penalty."""
+        print(f"{datetime.now():%H:%M:%S} -- [{self.device_name}] this model's "
+              f"image placeholders are outside its vocab; repetition_penalty "
+              f"disabled for image turns (text turns keep it)", flush=True)
+
     def generate_vlm(self, text_prompt, images, gen):
-        """VLM generate — images optional."""
+        """VLM generate — images optional.
+
+        Retries once without the repetition penalty when the model turns out
+        to encode image placeholders out of vocab; see _vlm_penalty_guard.
+        """
         with self.lock:
-            if images:
-                imgs = images[0] if len(images) == 1 else images
-                result = self.pipe.generate(
-                    prompt=text_prompt, images=imgs, generation_config=gen,
-                )
-            else:
-                result = self.pipe.generate(
-                    prompt=text_prompt, generation_config=gen,
-                )
+            self._vlm_penalty_guard(gen, images)
+            try:
+                result = self._vlm_generate_once(text_prompt, images, gen)
+            except Exception as e:
+                if not (images and self._is_placeholder_bounds_error(e)
+                        and getattr(gen, "repetition_penalty", 1.0) != 1.0):
+                    raise
+                self._rep_penalty_breaks_images = True
+                self._warn_penalty_disabled()
+                gen.repetition_penalty = 1.0
+                result = self._vlm_generate_once(text_prompt, images, gen)
             self.last_used = time.time()
         text = extract_text(result)
         if self._atem:
@@ -1813,11 +1882,25 @@ class DeviceSlot:
             try:
                 with self.lock:
                     self._cancel.clear()
+                    self._vlm_penalty_guard(gen, images)
                     kwargs = dict(prompt=text_prompt, generation_config=gen,
                                   streamer=streamer_callback)
                     if images:
                         kwargs["images"] = images[0] if len(images) == 1 else images
-                    self.pipe.generate(**kwargs)
+                    try:
+                        self.pipe.generate(**kwargs)
+                    except Exception as e:
+                        # Same one-shot retry as generate_vlm. Safe to replay
+                        # here because the assertion fires in the sampler
+                        # before any token reaches streamer_callback, so the
+                        # consumer has seen nothing to un-send.
+                        if not (images and self._is_placeholder_bounds_error(e)
+                                and getattr(gen, "repetition_penalty", 1.0) != 1.0):
+                            raise
+                        self._rep_penalty_breaks_images = True
+                        self._warn_penalty_disabled()
+                        gen.repetition_penalty = 1.0
+                        self.pipe.generate(**kwargs)
                     self.last_used = time.time()
             except Exception as e:
                 self._stream_error = e

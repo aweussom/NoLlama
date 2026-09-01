@@ -257,14 +257,28 @@ ruling out the thing you did not. The bug was found in the first ten minutes
 of driving `VLMPipeline` directly, which is what the standalone repro in
 `scripts/phi35v-repro/` exists to force.
 
-**Still to do:** decide the fix. Options considered, none implemented yet --
-skip the repetition penalty when a request carries images (penalises every
-VLM for one model's convention); catch this assertion and retry once with
-the penalty off, remembering per slot (general, self-healing, costs a
-re-prefill once); or key it to the `phi3_v` architecture (narrow and
-hardcoded, with precedent in `NEEDS_OPTIMUM`). Do not simply lower the
-global default -- 1.05 is a deliberate compromise, documented at
-`REPETITION_PENALTY`.
+**Fixed 2026-09-01, and the model is usable.** `_vlm_penalty_guard` on
+`DeviceSlot`: an image turn that hits the assertion retries once with
+`repetition_penalty = 1.0`, sets a per-slot flag, and warns once; every
+later image turn on that slot skips the penalty up front. Text turns keep
+it, because the defect is in the *prompt* ids and a text prompt carries no
+placeholders.
+
+Why this shape over the alternatives considered:
+
+- *Lower the global default* -- no. 1.05 is a deliberate compromise
+  (documented at `REPETITION_PENALTY`) and every other VLM we serve takes it
+  fine.
+- *Skip the penalty for all image turns* -- no. Punishes Qwen3-VL, Glimmer
+  and the Gemmas for one export's convention; verified 2026-09-01 that
+  Qwen2.5-VL-3B keeps 1.05 and warns zero times under the fix.
+- *Key it to the `phi3_v` architecture* -- no. The convention belongs to the
+  export, not reliably to the arch name, so the honest test is whether this
+  model actually failed. It also costs nothing on models that never fail.
+
+The retry is safe on the streaming seam too: the assertion fires in the
+sampler before any token reaches the streamer callback, so there is nothing
+already sent to un-send. Cost is one re-prefill, once per load.
 
 Worth an upstream report too: a repetition penalty over a VLM prompt should
 skip placeholder ids rather than assert.
