@@ -142,6 +142,56 @@ unload discards it until the next restart, which is why mixing
 `/health` reports `idle_unloaded` slots; the overall status stays
 `ready` because requests can still be served (with a reload).
 
+### Repetition penalty (`nollama.ini`)
+
+NoLlama applies a **repetition penalty of 1.05** to every request unless the
+client sends its own. It is the one generation setting with a non-neutral
+default, so it is worth knowing it exists.
+
+The penalty down-weights tokens that have already appeared, making the model
+less likely to pick them again. It is the main defence against degeneration
+— a phrase repeating verbatim, a list that never ends, or a thinking model
+spiralling inside `<think>` until it burns the whole token budget.
+
+The cost is that **some text is supposed to repeat.** Code is the clearest
+case: a variable named eight times must be named eight times, and `return`,
+`if` and `self` recur constantly. Penalising them nudges the model toward a
+synonym or a subtly altered identifier. JSON keys, tables and any format
+with required repetition have the same problem. That is why NoLlama uses
+1.05 rather than Ollama's 1.1, which is known to degrade code output.
+
+| Value | Effect |
+|---|---|
+| `1.0` | off — nothing discouraged, loops possible |
+| **`1.05`** | NoLlama's default: loop insurance with little distortion |
+| `1.1` | Ollama's default; noticeable, hurts code |
+| `1.2`+ | heavy; visibly avoids correct repeated words |
+
+**It scores the prompt, not just the output** [OBSERVED 2026-09-01 — the
+bounds assertion below fires on a *prompt* token before any generation].
+With a large agent system prompt, every word already in the prompt starts
+slightly disfavoured in the answer — which is the same setup where the
+answer most needs to reuse identifiers from the prompt verbatim. If you are
+driving a coding agent and the model keeps renaming things, this is the
+first knob to try at `1.0`.
+
+To change the default, copy `nollama.ini.example` to `nollama.ini` (beside
+`nollama.py`, gitignored) and edit `[generation] repetition_penalty`.
+
+Per-request overrides always win: OpenAI clients send `repetition_penalty`,
+Ollama clients `options.repeat_penalty`. Note the real OpenAI API has no
+`repetition_penalty` field — it has `frequency_penalty`/`presence_penalty` —
+so most agent tooling never sends one and quietly runs on the default.
+
+**Automatic exception on some vision models.** A few VLM exports encode
+image placeholders as token ids outside the model's vocabulary, and the
+repetition-penalty transformer asserts when it walks them
+(`input_ids token out of bounds`). NoLlama detects this on the first image
+turn, warns once, and serves that slot's image turns with the penalty off;
+text turns on the same slot keep it. The practical effect is that image
+descriptions from such a model have a slightly higher chance of repeating
+themselves. `OpenVINO/Phi-3.5-vision-instruct-int4-ov` is the known case.
+
 ## API
 
 Standard OpenAI `/v1/chat/completions`. Works with any OpenAI client.

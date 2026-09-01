@@ -3,10 +3,28 @@
 
 [generation]
 # Default repetition penalty when the client doesn't send one.
+# Down-weights tokens already seen, so the model is less likely to repeat
+# itself. The trade is that some text is SUPPOSED to repeat -- identifiers
+# in code, JSON keys, table headers.
+#
+# 1.0  = off. Try this first if a coding agent keeps renaming things.
 # 1.05 = NoLlama default (safe for code generation).
 # 1.1  = Ollama's default; breaks thinking-model loops faster but is known
 #        to degrade code output. Consider it for chat-only setups on slow
 #        devices (iGPU), where a runaway <think> loop hurts the most.
-# Per-request client values (OpenAI frequency/presence_penalty, Ollama
-# repeat_penalty) always override this.
+# 1.2+ = heavy; visibly avoids words it ought to reuse.
+#
+# It scores the PROMPT as well as the output, so a large agent system prompt
+# starts every word it contains slightly disfavoured in the answer -- which
+# is exactly where the answer most needs to quote identifiers back verbatim.
+#
+# Per-request client values (OpenAI repetition_penalty, Ollama
+# repeat_penalty) always override this. Note the real OpenAI API has no
+# repetition_penalty field, so most agent tooling never sends one and
+# quietly runs on whatever is set here.
+#
+# Some VLM exports put image placeholders outside the model's vocabulary and
+# the penalty asserts on them; NoLlama detects that on the first image turn
+# and serves that slot's image turns with the penalty off (text turns keep
+# it). Nothing to configure -- it just warns once. See docs/API.md.
 repetition_penalty = 1.05

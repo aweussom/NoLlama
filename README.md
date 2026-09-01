@@ -116,7 +116,7 @@ Setup for both: **[docs/AGENTS.md](docs/AGENTS.md)**.
 | | |
 |---|---|
 | [docs/MODELS.md](docs/MODELS.md) | Model registry, downloading, converting, `--scan`, brand-new architectures, the `-Nightly` runtime |
-| [docs/API.md](docs/API.md) | OpenAI + Ollama endpoints, all CLI flags, prefix caching, web UI |
+| [docs/API.md](docs/API.md) | OpenAI + Ollama endpoints, all CLI flags, prefix caching, the repetition penalty (`nollama.ini`), web UI |
 | [docs/DEVICES.md](docs/DEVICES.md) | Per-device support and requirements |
 | [docs/BENCHMARKS.md](docs/BENCHMARKS.md) | Methodology, all numbers, MoE offload, vs Ollama and OVMS |
 | [docs/AGENTS.md](docs/AGENTS.md) | Copilot and OpenClaw setup |
