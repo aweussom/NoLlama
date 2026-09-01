@@ -179,11 +179,30 @@ So: **record the driver with every measurement**, and check the gap before
 believing a negative result. `explain_genai_error` and the model cards name
 driver versions for this reason.
 
+Read 2026-09-01:
+
 | Box | GPU driver | NPU driver |
 |---|---|---|
-| 258V laptop | `32.0.101.8826` (2026-05-29) — **~3 months old, check for newer before trusting a GPU negative** | `32.0.100.5540` (2026-08-20) |
+| 258V laptop | `32.0.101.8826` (2026-05-29) — **~3 months behind** | `32.0.100.5540` (2026-08-20) — current |
+| 285K | `32.0.101.8860` (2026-06-25) — ~2 months behind (Xe-LPG; the RTX 5090 is on `32.0.16.1088`) | `32.0.100.4778` (2026-04-28) — **old** |
 | B60 box | not recorded — check | none (no NPU) |
-| 285K | not recorded — check | not recorded — check |
+
+Latest Intel Arc driver at that date was **`32.0.101.8991`** (2026-08-25,
+WHQL, re-certified 08-29), with `.8974` before it on 08-15 — per the driver
+trackers; intel.com 403s an automated fetch, so confirm by hand before
+acting. **Both boxes are two releases behind on the GPU**, so a GPU negative
+from either is worth re-checking against a current driver before it is
+believed — which matters right now, because the gemma-4-E4B work (issue #24)
+is a GPU story.
+
+**The two NPUs are on different drivers, and that is a live gap.** The laptop
+(NPU 4) is on 5540; the 285K (NPU 3) is still on 4778. Every NPU 3 positive
+control we have — including the one in the #37322 report — was taken on 4778.
+The controlled comparison still holds, because the NPU 4 side was measured on
+*both* drivers and did not move, so 4778-vs-4778 is a like-for-like pair. But
+we have never run NPU 3 on 5540 ourselves; the only evidence that NPU 3 stays
+correct there is a third party's token counts (issue #24). Worth closing if
+the 285K is ever updated.
 
 Read them back with:
 
