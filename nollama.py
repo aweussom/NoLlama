@@ -56,6 +56,7 @@ def _version_string():
 
 
 __version__ = _version_string()
+import faulthandler
 import threading
 import uuid
 import xml.etree.ElementTree as ET
@@ -68,6 +69,15 @@ from urllib.parse import unquote
 # + ~25 lines of NETWORK_NAME / NUM_STREAMS / INFERENCE_NUM_THREADS / ...).
 # Must be set BEFORE openvino is imported.
 os.environ.setdefault("OPENVINO_LOG_LEVEL", "0")
+
+# Make a native crash leave evidence. An access violation or abort inside a
+# plugin DLL kills the interpreter before any `except` or log line runs, so
+# the user sees a completed response and then their shell prompt -- nothing
+# else (issue #37). faulthandler installs OS-level signal handlers that dump
+# the faulting thread's stack to stderr on the way down, which costs nothing
+# until something dies. Enabled before openvino is imported so the handlers
+# are already in place while its DLLs load.
+faulthandler.enable()
 
 import numpy as np
 import openvino as ov
