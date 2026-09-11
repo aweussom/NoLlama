@@ -13,6 +13,7 @@ scripts/.watch_body.md
 # Runtime artifacts (generated at run time, not source)
 prewarm.json
 venv-2026.3/
+venv-2026.3.1/
 venv-nightly/
 venv-optimum/
 keys.ini
