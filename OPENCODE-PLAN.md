@@ -111,7 +111,7 @@ that hurts.
 | Arm | Config | Measures |
 |---|---|---|
 | 0 | Recipe A, OpenCode defaults | **Ran 2026-09-11, degenerate:** turn 1 = 46.6k chars, TTFT 217 s, then Qwen3-8B fired 27 tool calls (1 glob + 26 `read`s) and OpenCode sent 1.49 M chars back against a 40k-token window; killed after 4 min of prefill. Two lessons: declare the model's real `limit.context` (the config said 120k) so OpenCode compacts before sending, and a weak model's tool-call fan-out is the byte source, not any single result |
-| 1 | + Recipe B (12 KB / 300 lines, prune on) | same; did the answer survive the truncation? |
+| 1 | + Recipe B (12 KB / 300 lines, prune on) | **Attempted 2026-09-11, no data:** the run failed on something that did not reproduce afterwards (`NEXT-STEPS.md`); the exact request replayed later behaves normally at 216 s TTFT on the scheduler path vs 72 s plain (`docs/dev/prefix-cache.md`). Rerun with the honest 40k `limit.context`, `chunkTimeout` raised, and a 600 s patience |
 | 2 | + Recipe C plugin, compressor on the NPU | same + NPU time per block, validator reject rate |
 | 3 | Arm 2 on the B390 class (community) | does it still pay on a fast iGPU? |
 

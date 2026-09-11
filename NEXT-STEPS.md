@@ -349,6 +349,18 @@ Worth teaching the probe to print both before the next driver hunt.
   throws. Matters for the two-server recipe in `docs/AGENTS.md`: start the
   GPU server first, then the NPU one — untested; and it is another reason
   to raise this box's shared-memory override.
+
+- **OpenCode evaluation arm 1 (2026-09-11, 16:37–18:02) failed for a reason
+  that did not reproduce.** Six identical 46.6k-char build requests, each
+  retried by OpenCode ~10–15 min apart, never produced a token — no text
+  event on the client, no completion line on the server (which, before
+  `ac4fc66`, logged nothing for a disconnected client). The same body
+  replayed after a full restart gave a first token at 216 s, as did bare
+  genai, and OpenCode's 5-min chunk timer is reset by our keep-alives
+  (verified from a container). The window followed two MoE GPU-load aborts
+  and an hour of 25 GB MoE compiles on the same iGPU while an NPU server was
+  up. Unexplained; recorded so the next occurrence is measured with the
+  client-gone log line and a 600 s budget instead of guessed at.
 - **`transformers` main breaks the optimum backend's text-only path.**
   `5.16.0.dev0` calls `get_experts_implementation()` from
   `_optimize_model_for_decode()`; `OVModelForCausalLM` doesn't implement it, so

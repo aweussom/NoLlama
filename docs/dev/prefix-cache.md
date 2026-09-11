@@ -172,3 +172,25 @@ with a `--cache-size-gb` hint wherever it surfaces.
 VLM configs nest geometry under `text_config` — `_text_config` handles
 that, which is what fixed the KV half of this preflight silently
 no-op'ing on every VLM.
+
+## The scheduler path prefills cold three times slower on a no-XMX iGPU
+
+[OBSERVED 2026-09-11, Core Ultra 9 285K Xe-LPG iGPU, Qwen3-8B-int4-cw, genai
+2026.3.0] The same 11,198-token OpenCode request (25k-char system prompt +
+ten tools rendered into it, captured from OpenCode 1.18.30) reaches its first
+token in **72 s** on the plain `LLMPipeline` (`--no-prompt-cache`) and in
+**216 s** through the continuous-batching scheduler that prefix caching
+requires — identical in bare genai (217 s), so it is the runtime, not the
+server. During those 216 s one CPU core sits at 100 % and the GPU compute
+engine reads near 0 % in the samples. A 12.8k-token prose prompt takes 350 s
+the same way. So on this GPU class the cache buys nothing on a cold turn and
+costs 3× on it; it pays back only on the hit. Not measured on Xe2 (140V,
+B60) or Xe3 (B390), where the published TTFT numbers for cached paths are
+short — the CPU-bound phase may be an Xe-LPG-only artefact. Worth an
+upstream question once someone has a second GPU class measured.
+
+A process lesson from the same evening: three "stalls" chased for an hour
+were measurement cutoffs of 140 s and 330 s against a path whose real TTFT
+was 216–350 s. Set the budget from the plain-pipeline TTFT × 4 before
+declaring a hang, and sample CPU as well as GPU: 100 % on one core with the
+GPU idle is what this path looks like when it is *working*.
