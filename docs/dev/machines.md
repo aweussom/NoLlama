@@ -115,6 +115,7 @@ not load.
 | OS | Windows 11 Pro |
 | WSL | **2.9.8.0** (pre-release channel), Ubuntu, kernel 6.18.40.1 — includes the WSL Containers preview (`wslc.exe`) |
 | Docker | 29.4.1 — already installed |
+| venvs | `venv` (2026.3.0, serving), `venv-2026.3` (transformers 5.4 — the one that knows `lfm2_moe`, use it for `-Convert`), `venv-2026.3.1` (scratch, runtime-version tests only, created 2026-09-11) |
 | Ollama | 0.32.14, well stocked (gemma4, muse-glimmer, qwen3-coder-next, …) |
 
 **The only machine available for NPU-in-container work**, since the laptop is

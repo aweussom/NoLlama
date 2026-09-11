@@ -311,6 +311,37 @@ Worth teaching the probe to print both before the next driver hunt.
   `DYNAMIC_QUANTIZATION_GROUP_SIZE=0` on the GPU (his verbose log shows an
   s8 x s8 gemm with per-token src scales, i.e. quantized activations). Needs
   a small MoE int8 export to vary the last axis here.
+  **Update 2026-09-11 (evening):** the export exists now — `LFM2-8B-A1B`
+  converted to INT8 asymmetric (7.8 GB, 32 experts) with `venv-2026.3`, on
+  both boxes (`~\models\LFM2-8B-A1B-int8-asym`). Results [OBSERVED
+  2026-09-11, 60k/100k chars of docs prose, 8-token answers]:
+  - **B60 (XMX), 2026.3.0:** plain and scheduler paths pass at 60k and 100k
+    (3–7 s each). Control clean.
+  - **285K iGPU (no XMX), 2026.3.0:** scheduler path passes at 60k (657 s)
+    and 100k (475 s); plain passes at 60k (863 s) and hits the per-allocation
+    cap at 100k (11.8 GB buffer). **No `matmul primitive` error.** Prefill ran
+    at ~21 tok/s, i.e. the *unfused* expert path — TODONT's XMX gate holding.
+  - The reporter's verbose log shows the **fused grouped gemm being
+    attempted** on his equally XMX-less 140T, so on 2026.3.1 the fusion
+    engages where 2026.3.0 does not. Runtime version is the axis left; a
+    scratch `venv-2026.3.1` exists on the 285K for exactly that run.
+  - Also his own bare probe passed and NoLlama failed on the same weights
+    (#33, 2026-09-11) — so the cached (scheduler) path is implicated on his
+    box; the discriminating runs for him are `--no-prompt-cache` and a
+    120k-char probe.
+
+- **A genai GPU load of a MoE aborts while a NoLlama NPU server runs on the
+  same box** [OBSERVED 2026-09-11, 285K, 2026.3.0, three for three]:
+  `LLMPipeline(<LFM2-8B-A1B int4 or int8>, "GPU.0")` dies with "Fatal Python
+  error: Aborted" (exit 3), no exception, no event-log entry, while
+  `nollama.py --device NPU` (SmolLM3-3B) is up; with it stopped, the same
+  load compiles (212 s core, 60–69 s genai) and runs. Dense Qwen3-8B loaded
+  fine beside the NPU server all afternoon. Hypothesis, unverified: the
+  MoE compile's ~25 GB of shared-memory staging plus the NPU process
+  exceeds the 32.9 GB shared budget and the driver aborts rather than
+  throws. Matters for the two-server recipe in `docs/AGENTS.md`: start the
+  GPU server first, then the NPU one — untested; and it is another reason
+  to raise this box's shared-memory override.
 - **`transformers` main breaks the optimum backend's text-only path.**
   `5.16.0.dev0` calls `get_experts_implementation()` from
   `_optimize_model_for_decode()`; `OVModelForCausalLM` doesn't implement it, so
