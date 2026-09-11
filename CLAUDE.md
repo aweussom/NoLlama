@@ -53,6 +53,7 @@ never inside.
 | `docs/dev/machines.md` | which box to run a test on, and which one is off-limits |
 | `TODONT.md` | **anything structural** — it records approaches already rejected, with the reason |
 | `NEXT-STEPS.md` | what is currently open/unresolved |
+| `OPENCODE-PLAN.md` | anything about coding agents on weak hardware: the two-server recipe, OpenCode's knobs and hooks, the compress-at-birth plugin plan, the NPU as compressor, the evaluation arms |
 | `docs/DIAGRAMS.md` + `docs/*.mmd` | any function a diagram `covers:` — the diagram moves in the same commit, and `.\check-docs.ps1` says which |
 | `docs/` (`MODELS.md`, `API.md`, `DEVICES.md`, `BENCHMARKS.md`, `AGENTS.md`, `INTERNALS.md`) | user-facing behaviour and measured numbers |
 
