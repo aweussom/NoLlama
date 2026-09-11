@@ -1445,7 +1445,7 @@ class DeviceSlot:
         self.model_type = ""             # "vlm" or "llm"
         self.status = "not_configured"   # not_configured -> loading -> warming_up -> ready / error / idle_unloaded
         self.lock = threading.Lock()
-        self._cancel = threading.Event()  # signal to stop generation
+        self._cancel = threading.Event()  # the ACTIVE generation's cancel token (see stream_tokens)
         self._stream_error = None        # last stream_tokens backend exception (single consumer per lock)
         self.last_used = time.time()     # for idle-unload watchdog
         self.model_dir = None            # remembered so we can reload after unload
@@ -1881,10 +1881,16 @@ class DeviceSlot:
         return extract_text(result)
 
     def cancel(self):
-        """Signal the current generation to stop."""
+        """Signal the generation that currently holds the lock to stop.
+
+        Why: /v1/cancel and the web UI's stop button target "whatever is
+        generating now". self._cancel is rebound to each request's own token
+        as its worker takes the lock, so setting it here reaches only that
+        request — never one still queued behind it.
+        """
         self._cancel.set()
 
-    def stream_tokens(self, raw_messages, gen, heartbeat, tag=""):
+    def stream_tokens(self, raw_messages, gen, heartbeat, tag="", cancel=None):
         """Low-level token stream — the seam between backend and protocol.
 
         Yields str (a decoded text chunk) as soon as one exists, or None when
@@ -1892,17 +1898,32 @@ class DeviceSlot:
         still alive (the caller decides: SSE pings, ndjson aborts). Terminates
         when generation completes, was cancelled, or the worker died.
 
-        Owns: the worker thread, self.lock around generate, clearing _cancel
-        INSIDE the lock (racing the previous request's finally otherwise),
-        last_used, and recording any backend exception in self._stream_error
-        (None on success) before terminating.
+        `cancel` is THIS request's cancel token (a threading.Event); the
+        consumer creates it, reads it for was_cancelled, and sets it in its
+        finally. The worker binds self._cancel to it inside the lock so
+        slot.cancel() (/v1/cancel) reaches the active generation. A token
+        already set when the worker gets the lock skips generate entirely —
+        the client left while we were queued.
 
-        Does NOT touch last_ttft_ms, set _cancel on exit, or emit protocol
-        frames — those belong to the consumers. In particular the
-        client-disconnect safety net (finally: _cancel.set()) MUST stay in the
-        consumers: a generator's finally also runs on normal exhaustion, which
-        would make the consumer's `was_cancelled = _cancel.is_set()` read True
-        on every completed stream.
+        Why a per-request token and not one shared flag: with one flag,
+        request A's finally (`_cancel.set()`, the disconnect safety net) runs
+        AFTER A's worker has released the lock — by then queued request B's
+        worker has taken the lock and cleared the flag, so A's stale set()
+        cancels B at its first token. Deterministic whenever two requests
+        overlap, which every agent client does (OpenCode fires a title request
+        beside each turn). [OBSERVED 2026-09-11, Qwen3-8B on a 285K iGPU
+        through OpenCode 1.18.30: the 30k-char turn died "(cancelled)" with 0
+        tokens exactly one prefill after the 2k-char title request finished;
+        same shape as issue #40 on a B390.] Clearing inside the lock, the
+        previous defence, assumed the opposite ordering.
+
+        Owns: the worker thread, self.lock around generate, last_used, and
+        recording any backend exception in self._stream_error (None on
+        success) before terminating. Does NOT touch last_ttft_ms, set the
+        token on exit, or emit protocol frames — those belong to the
+        consumers. The safety net MUST stay in the consumers: a generator's
+        finally also runs on normal exhaustion, which would make
+        was_cancelled read True on every completed stream.
         """
         history = ovg.ChatHistory()
         for msg in raw_messages:
@@ -1910,9 +1931,11 @@ class DeviceSlot:
 
         token_queue = Queue()
         self._stream_error = None
+        if cancel is None:
+            cancel = threading.Event()
 
         def streamer_callback(token):
-            if self._cancel.is_set():
+            if cancel.is_set():
                 return True  # stop generation
             token_queue.put(token)
             return False
@@ -1920,7 +1943,9 @@ class DeviceSlot:
         def _generate():
             try:
                 with self.lock:
-                    self._cancel.clear()
+                    if cancel.is_set():
+                        return  # client gone while we were queued; don't prefill for nobody
+                    self._cancel = cancel
                     self.pipe.generate(history, gen, streamer_callback)
                     self.last_used = time.time()
             except Exception as e:
@@ -1945,26 +1970,30 @@ class DeviceSlot:
                 return
             yield token
 
-    def stream_vlm_tokens(self, text_prompt, images, gen, heartbeat, tag=""):
+    def stream_vlm_tokens(self, text_prompt, images, gen, heartbeat, tag="", cancel=None):
         """VLM twin of stream_tokens — same contract, over VLMPipeline.
 
         Why a separate seam: VLMPipeline.generate takes prompt+images, not a
         ChatHistory, and its decoded text has had special tokens stripped, so
         Muse Glimmer's channel routing has to be rebuilt here by
         _AtemPlainFilter before any consumer sees a chunk (the LLM seam has no
-        such step). Everything else — worker thread, lock, _cancel cleared
-        INSIDE the lock, _stream_error, None heartbeats, no finally-side
-        cancel — matches stream_tokens; the two must NOT be unified, the
-        generate call and the filter step are the genuine differences.
+        such step). Everything else — worker thread, lock, the per-request
+        `cancel` token bound to self._cancel INSIDE the lock, _stream_error,
+        None heartbeats, no finally-side cancel — matches stream_tokens (see
+        its docstring for why the token is per request); the two must NOT be
+        unified, the generate call and the filter step are the genuine
+        differences.
 
         Yields translated str chunks, or None per `heartbeat` quiet seconds.
         """
         token_queue = Queue()
         self._stream_error = None
         atem = _AtemPlainFilter() if self._atem else None
+        if cancel is None:
+            cancel = threading.Event()
 
         def streamer_callback(token):
-            if self._cancel.is_set():
+            if cancel.is_set():
                 return True  # stop generation
             token_queue.put(token)
             return False
@@ -1972,7 +2001,9 @@ class DeviceSlot:
         def _generate():
             try:
                 with self.lock:
-                    self._cancel.clear()
+                    if cancel.is_set():
+                        return  # client gone while we were queued
+                    self._cancel = cancel
                     self._vlm_penalty_guard(gen, images)
                     kwargs = dict(prompt=text_prompt, generation_config=gen,
                                   streamer=streamer_callback)
@@ -2031,17 +2062,20 @@ class DeviceSlot:
         after 180 quiet seconds with no keep-alive, which on a big prompt
         ended the stream mid-prefill; now it pings like the LLM path.
         """
+        cancel = threading.Event()
         yield from self._sse_stream(
-            self.stream_vlm_tokens(text_prompt, images, gen, heartbeat=HEARTBEAT_SECS),
-            completion_id, created, t0, tag="VLM ")
+            self.stream_vlm_tokens(text_prompt, images, gen, heartbeat=HEARTBEAT_SECS,
+                                   cancel=cancel),
+            completion_id, created, t0, cancel, tag="VLM ")
 
     def stream_llm(self, raw_messages, gen, completion_id, created, t0):
         """LLM generate — SSE streaming. Protocol layer over stream_tokens()."""
+        cancel = threading.Event()
         yield from self._sse_stream(
-            self.stream_tokens(raw_messages, gen, heartbeat=HEARTBEAT_SECS),
-            completion_id, created, t0)
+            self.stream_tokens(raw_messages, gen, heartbeat=HEARTBEAT_SECS, cancel=cancel),
+            completion_id, created, t0, cancel)
 
-    def _sse_stream(self, tokens, completion_id, created, t0, tag=""):
+    def _sse_stream(self, tokens, completion_id, created, t0, cancel, tag=""):
         """Turn a token seam into OpenAI SSE frames — shared by stream_llm/stream_vlm.
 
         Why one body: the two paths differed only in which seam fed them, and
@@ -2081,8 +2115,8 @@ class DeviceSlot:
             for kind, text in splitter.close():
                 yield frame({_DELTA_KEY[kind]: text})
 
-            # Capture state BEFORE the finally-block safety-net sets _cancel
-            was_cancelled = self._cancel.is_set()
+            # Capture state BEFORE the finally-block safety-net sets the token
+            was_cancelled = cancel.is_set()
             if self._stream_error is not None:
                 yield frame({"content": f"\n[error: {explain_genai_error(self._stream_error, self)}]"},
                             "error")
@@ -2090,8 +2124,9 @@ class DeviceSlot:
                 yield frame({}, "cancelled" if was_cancelled else "stop")
             yield "data: [DONE]\n\n"
         finally:
-            # Safety net: if client disconnects, stop generation
-            self._cancel.set()
+            # Safety net: if client disconnects, stop OUR generation (own token,
+            # never the slot flag — that cancelled the next queued request)
+            cancel.set()
 
         elapsed = time.perf_counter() - t0
         tps = token_count / elapsed if elapsed > 0 else 0
@@ -2735,8 +2770,13 @@ class OptimumSlot(DeviceSlot):
         self.status = "ready"
         self.last_used = time.time()
 
-    def stream_tokens(self, raw_messages, gen, heartbeat, tag=""):
-        """Same contract as DeviceSlot.stream_tokens, over TextIteratorStreamer."""
+    def stream_tokens(self, raw_messages, gen, heartbeat, tag="", cancel=None):
+        """Same contract as DeviceSlot.stream_tokens, over TextIteratorStreamer.
+
+        The per-request `cancel` token is bound to self._cancel inside the
+        lock exactly as in the genai seam; _stopping_criteria polls
+        self._cancel, so it sees this request's token and no other.
+        """
         from transformers import TextIteratorStreamer
 
         # ATEM models need the channel markers (special tokens) visible to the
@@ -2747,11 +2787,16 @@ class OptimumSlot(DeviceSlot):
             skip_special_tokens=atem is None,
             timeout=heartbeat)  # None → block forever (non-stream join)
         self._stream_error = None
+        if cancel is None:
+            cancel = threading.Event()
 
         def _generate():
             try:
                 with self.lock:
-                    self._cancel.clear()
+                    if cancel.is_set():
+                        streamer.end()  # client gone while queued; release the consumer
+                        return
+                    self._cancel = cancel
                     self._generate_unlocked(raw_messages, _hf_gen_kwargs(gen),
                                             streamer=streamer)
                     self.last_used = time.time()
@@ -3047,10 +3092,13 @@ def _sse_tool_stream(slot, raw_messages, gen, tools, completion_id, created, t0,
             "choices": [{"index": 0, "delta": delta, "finish_reason": finish}],
         }) + "\n\n"
 
+    cancel = threading.Event()  # this request's token — see stream_tokens
     if vlm is not None:
-        tokens = slot.stream_vlm_tokens(vlm[0], vlm[1], gen, heartbeat=HEARTBEAT_SECS)
+        tokens = slot.stream_vlm_tokens(vlm[0], vlm[1], gen, heartbeat=HEARTBEAT_SECS,
+                                        cancel=cancel)
     else:
-        tokens = slot.stream_tokens(raw_messages, gen, heartbeat=HEARTBEAT_SECS)
+        tokens = slot.stream_tokens(raw_messages, gen, heartbeat=HEARTBEAT_SECS,
+                                    cancel=cancel)
     splitter, gate = _ThinkSplitter(getattr(slot, "think_preseeded", False)), _ToolCallGate()
     token_count = 0
     was_cancelled = False
@@ -3079,8 +3127,8 @@ def _sse_tool_stream(slot, raw_messages, gen, tools, completion_id, created, t0,
             yield from route(splitter.feed(token))
         yield from route(splitter.close())
 
-        # Capture state BEFORE the finally-block safety-net sets _cancel
-        was_cancelled = slot._cancel.is_set()
+        # Capture state BEFORE the finally-block safety-net sets the token
+        was_cancelled = cancel.is_set()
         if slot._stream_error is not None:
             yield frame({"content": f"\n[error: {explain_genai_error(slot._stream_error, slot)}]"},
                         "error")
@@ -3102,8 +3150,8 @@ def _sse_tool_stream(slot, raw_messages, gen, tools, completion_id, created, t0,
             yield frame({}, "cancelled" if was_cancelled else "stop")
         yield "data: [DONE]\n\n"
     finally:
-        # Safety net: if client disconnects, stop generation
-        slot._cancel.set()
+        # Safety net: if client disconnects, stop OUR generation (own token)
+        cancel.set()
 
     elapsed = time.perf_counter() - t0
     tps = token_count / elapsed if elapsed > 0 else 0
@@ -3872,10 +3920,11 @@ def _ollama_stream_chat(slot, raw_messages, gen, t0):
     slot.stream_tokens() — a None marker after 120 s of silence aborts the
     stream, preserving this path's historical no-token timeout."""
     token_count = 0
+    cancel = threading.Event()  # this request's token — see stream_tokens
 
     try:
         for token in slot.stream_tokens(raw_messages, gen, heartbeat=120,
-                                        tag="[Ollama] "):
+                                        tag="[Ollama] ", cancel=cancel):
             if token is None:
                 break
             if token_count == 0:
@@ -3899,7 +3948,7 @@ def _ollama_stream_chat(slot, raw_messages, gen, t0):
             "eval_count": token_count,
         }) + "\n"
     finally:
-        slot._cancel.set()
+        cancel.set()  # own token — see stream_tokens
 
     ttft = (f", TTFT {slot.last_ttft_ms:.0f}ms" if token_count and
             slot.last_ttft_ms is not None else "")
@@ -4004,10 +4053,11 @@ def _ollama_stream_generate(slot, raw_messages, gen, t0):
     """Ollama /api/generate streaming. Protocol layer over slot.stream_tokens();
     None after 120 s of silence aborts (historical behavior, no TTFT here)."""
     token_count = 0
+    cancel = threading.Event()  # this request's token — see stream_tokens
 
     try:
         for token in slot.stream_tokens(raw_messages, gen, heartbeat=120,
-                                        tag="[Ollama] "):
+                                        tag="[Ollama] ", cancel=cancel):
             if token is None:
                 break
             token_count += 1
@@ -4026,7 +4076,7 @@ def _ollama_stream_generate(slot, raw_messages, gen, t0):
             "eval_count": token_count,
         }) + "\n"
     finally:
-        slot._cancel.set()
+        cancel.set()  # own token — see stream_tokens
 
 
 # Stubs — clients expect these to exist

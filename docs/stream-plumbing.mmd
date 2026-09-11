@@ -3,13 +3,14 @@
 %% Updated 2026-08-30: stream_vlm_tokens seam, shared _sse_stream, _ThinkSplitter/_ToolCallGate (issue #36).
 %% Updated 2026-09-01: _vlm_penalty_guard one-shot retry on the image path.
 %% Updated 2026-09-01: _reset_vlm_state on the VLM throw path (issue #24).
+%% Updated 2026-09-11: per-request cancel token replaces the shared slot flag (issue #40).
 %% Legend: solid = normal path, dashed = failure/timeout/cancel paths,
 %%         ALL-CAPS nodes = prose annotations.
 %% Palette: route (blue) = protocol consumers, gen (green) = backend/worker,
 %%          client (yellow) = wire frames, warn (orange) = annotations.
 %% covers: nollama.py:stream_tokens,stream_vlm_tokens,_reset_vlm_state,_vlm_penalty_guard,_is_placeholder_bounds_error,stream_llm,stream_vlm,_sse_stream,_ollama_stream_chat,_ollama_stream_generate,generate_llm,cancel,explain_genai_error,_AtemStreamFilter,_AtemPlainFilter,_ThinkSplitter,_split_think,_ToolCallGate,_prompt_preseeds_think
 flowchart TB
-  stream_tokens["DeviceSlot.stream_tokens<br/>SEAM between backend and protocol.<br/>Owns: worker thread, lock, clearing<br/>_cancel INSIDE the lock, _stream_error.<br/>Yields str chunk, or None after
+  stream_tokens["DeviceSlot.stream_tokens<br/>SEAM between backend and protocol.<br/>Owns: worker thread, lock, binding the<br/>caller's per-request cancel token to<br/>slot._cancel INSIDE the lock, _stream_error.<br/>A token already set at lock time skips<br/>generate (client left while queued).<br/>Yields str chunk, or None after
   'heartbeat' quiet seconds"]
   worker["worker thread:<br/>pipe.generate(history, gen, streamer_callback)<br/>tokens -> Queue; sentinel None in finally"]
   opt_stream_tokens["OptimumSlot.stream_tokens<br/>same contract over transformers<br/>TextIteratorStreamer; ATEM markers kept<br/>visible for _AtemStreamFilter"]
@@ -73,17 +74,24 @@ flowchart TB
   opt_stream_tokens --> atem
   atem --> splitter
 
-  cancel["cancel / client disconnect<br/>_cancel.set() -> streamer_callback<br/>returns True -> generation stops"]
+  cancel["cancel (/v1/cancel) / client disconnect<br/>sets a token -> streamer_callback<br/>returns True -> generation stops.<br/>slot.cancel() sets slot._cancel = the<br/>ACTIVE request's token; a consumer's<br/>finally sets ITS OWN token"]
   _sse_stream -.-> cancel
   tool_stream -.-> cancel
+  _ollama_stream_chat -.-> cancel
+  _ollama_stream_generate -.-> cancel
 
   FINALLY["THE CANCEL SAFETY NET LIVES IN THE CONSUMERS, NOT THE SEAM:
-  each consumer's finally does _cancel.set() so a client disconnect
+  each consumer's finally sets its own token so a client disconnect
   stops generation. It cannot move into stream_tokens - a generator's
   finally also runs on normal exhaustion, which would make the
-  consumer's was_cancelled = _cancel.is_set() read True on every
-  completed stream. Mirror rule: _cancel is CLEARED inside the lock in
-  the worker, else it races the previous request's finally."]
+  consumer's was_cancelled read True on every completed stream.
+  WHY THE TOKEN IS PER REQUEST (issue #40, observed 2026-09-11): with
+  one shared flag, request A's finally runs AFTER A's worker released
+  the lock; queued request B has already taken the lock and cleared
+  the flag, so A's stale set() cancels B at its first token. Every
+  agent client overlaps requests (OpenCode fires a title request beside
+  each turn), so this fired on every turn. 'Clear inside the lock' -
+  the previous defence - assumed the opposite ordering. See TODONT."]
   cancel -.-> FINALLY
 
   CANCELLIMIT["Cancel relies on OpenVINO invoking the streamer callback.

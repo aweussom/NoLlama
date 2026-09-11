@@ -117,5 +117,26 @@ the generation churning — another reason to keep clients connected via
 heartbeat. (Same root cause as the `/v1/cancel` caveat: cancel relies on
 OpenVINO invoking the streamer callback.)
 
+### Overlapping requests: OpenCode sends two per turn (2026-09-11)
+
+OpenCode fires a small **title** request (~2k chars, `agent=title` in its
+log) in the same second as the turn's **build** request (30k+ chars). They
+serialise on the slot lock, so the build request waits out a whole title
+generation before its cold prefill even starts — a turn on a slow iGPU can
+sit for a minute with nothing but keep-alives. That is by design of the
+client and only costs latency.
+
+What it exposed was ours [OBSERVED 2026-09-11, Qwen3-8B on the 285K iGPU,
+OpenCode 1.18.30 in Docker]: with one shared cancel flag per slot, the
+title request's `finally` set the flag *after* the build request's worker
+had taken the lock and cleared it, so the build request died at its first
+token — `0 tokens ... (cancelled)` in our log, `step_finish reason=unknown`
+with zero tokens in OpenCode's, and OpenCode immediately re-sent the turn.
+Same shape on ktecho's B390 in issue #40 (29 s there, 155 s here: the
+difference is prefill speed). Fixed by giving every request its own cancel
+token (`stream_tokens`, `tests/test_cancel_token.py`); the slot flag now
+only names the active request's token for `/v1/cancel`. TODONT has the
+post-mortem of the defence that did not work.
+
 Note the "minutes of prefill" worry does not generalize: on the B60 class,
 33k tokens prefill in ~9s on the plain pipeline.

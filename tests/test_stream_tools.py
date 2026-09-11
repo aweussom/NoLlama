@@ -55,13 +55,14 @@ class FakeSlot:
         self.last_ttft_ms = None
         self.think_preseeded = preseeded
 
-    def stream_tokens(self, raw_messages, gen, heartbeat, tag=""):
+    def stream_tokens(self, raw_messages, gen, heartbeat, tag="", cancel=None):
+        self.last_cancel = cancel  # the consumer's own token; its finally sets THIS one
         for t in self._tokens:
             yield t
         self._stream_error = self._error
 
-    def stream_vlm_tokens(self, text_prompt, images, gen, heartbeat, tag=""):
-        yield from self.stream_tokens(None, gen, heartbeat, tag)
+    def stream_vlm_tokens(self, text_prompt, images, gen, heartbeat, tag="", cancel=None):
+        yield from self.stream_tokens(None, gen, heartbeat, tag, cancel)
 
 
 def collect(frames):
@@ -165,7 +166,7 @@ def test_tool_turn_streams_reasoning_and_prose_then_tool_calls():
     tcs = [tc for d in deltas for tc in (d.get("tool_calls") or [])]
     assert len(tcs) == 1 and tcs[0]["function"]["name"] == "get_weather"
     assert json.loads(tcs[0]["function"]["arguments"]) == {"city": "Oslo"}
-    assert slot._cancel.is_set()  # consumer's safety net ran
+    assert slot.last_cancel.is_set()  # consumer's safety net ran, on its own token
     assert slot.last_ttft_ms is not None
 
 

@@ -3,6 +3,50 @@
 Things we tried that didn't work, or that work but aren't worth doing. Each
 entry explains *why not* so we don't re-litigate it in six months.
 
+## One shared cancel flag per slot, cleared inside the lock (2026-08-19 -> 2026-09-11)
+
+Idea: `slot._cancel` is a single `threading.Event`. Every streaming
+consumer's `finally` sets it (the client-disconnect safety net), every
+worker clears it inside the lock before generating, and the docstring said
+the clear being *inside the lock* is what stops it "racing the previous
+request's finally".
+
+**Verdict: the ordering is the other way round, and it cancelled the next
+request on every overlapping turn.** Request A's worker releases the lock
+at the end of `generate()`; A's consumer then drains the queue, yields its
+last frames, and only *then* runs `finally: _cancel.set()`. Queued request
+B's worker takes the lock the instant A's worker releases it and clears the
+flag — so A's set() lands after B's clear() and B's streamer callback
+returns True at its first token. Not a narrow race: whenever two requests
+overlap, B's clear *always* precedes A's finally.
+
+[OBSERVED 2026-09-11] OpenCode 1.18.30 (Docker) against Qwen3-8B-int4-cw on
+the 285K iGPU: title request (2274 chars) and build request (30795 chars)
+received in the same second; title done after 55.7 s; build request
+`0 tokens in 154.7s (cancelled)` — one cold prefill after the title
+finished — then re-sent by the client and answered with TTFT 227 ms off the
+prefix cache. OpenCode's own log shows the first stream ending with
+`reason=unknown`, zero tokens, no error. Identical shape in issue #40 on a
+B390 (cancel at ~30 s, that GPU's prefill time), twice.
+
+**Why it hid for three weeks:** the web UI is one client, one request at a
+time, so nothing ever overlapped; the cancel path was only ever exercised
+by the stop button. Agents overlap on every turn.
+
+**What replaced it:** a cancel token per request. The consumer creates a
+`threading.Event`, hands it to `stream_tokens`/`stream_vlm_tokens`, reads it
+for `was_cancelled`, and sets *it* in `finally`. The worker binds
+`slot._cancel = token` inside the lock so `/v1/cancel` still reaches
+whatever is generating, and a token already set when the worker gets the
+lock skips `generate()` altogether (the client left while queued — the old
+code prefilled for nobody). `tests/test_cancel_token.py` pins the exact
+ordering above with a fake pipe held in prefill.
+
+The rule that survives: **a flag that one party clears and another sets is
+a race whenever the two are different requests**, and "inside the lock" only
+orders it against the *same* request's worker. Give each request its own
+object.
+
 ## Waiting for WSL to expose the NPU to containers (2026-08-24)
 
 Idea: NoLlama is NPU-first, so a container path that reaches the NPU would
