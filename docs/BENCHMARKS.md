@@ -44,8 +44,13 @@ feature silently does nothing, and NoLlama warns at startup instead of
 letting you believe your model got smaller.
 
 **XMX confirmed on** (`GPU_HW_MATMUL` in `OPTIMIZATION_CAPABILITIES`): Arc 140V
-iGPU, Arc Pro B60, Arc B390 Xe3 iGPU (Panther Lake, issue #32). **Not** on
-the Xe-LPG iGPUs — desktop 285K and the laptop 140T (285H) alike. The flag only means
+iGPU, Arc Pro B60, Arc B390 Xe3 iGPU (Panther Lake, issue #32), **and the Arc
+140T** (Arrow Lake-H, 285H): the mobile Arrow Lake iGPU is Xe-LPG+, which added
+XMX/DPAS over the desktop Xe-LPG [DOCUMENTED: Intel Arrow Lake-H launch
+material; installer prints `XMX: yes` on a 140T in issue #38]. **Not** on the
+desktop 285K's Xe-LPG — the only no-XMX GPU this project has measured on. Earlier
+versions of these docs called the 140T a no-XMX part; every conclusion drawn
+from that is corrected as of 2026-09-11. The flag only means
 offload will engage — not that a model fits, and nothing at all for dense
 models, which have no experts to stream.
 
@@ -79,7 +84,7 @@ quants and sizes, so read it as *routes*, not a controlled A/B:
 | 24-core desktop CPU (64 GB RAM), model fits | NoLlama/OpenVINO | 30B-A3B int4 | 23.7 |
 | 24-core desktop CPU, model **bigger than RAM** | NoLlama/OpenVINO | Coder-Next int8, **74 GB** | 9-11.5 |
 | **Arc B390 Xe3 laptop iGPU (Panther Lake, 64 GB LPDDR5X-8533), resident** | NoLlama/OpenVINO | 30B-A3B int4, 15 GB | **52.7** |
-| Arc 140T Xe-LPG laptop iGPU (Arrow Lake-H, 64 GB shared budget), resident, **no XMX** | NoLlama/OpenVINO | Coder-Next int4, 80B-A3B, ~40 GB | 14.8 |
+| Arc 140T Xe-LPG+ laptop iGPU (Arrow Lake-H, **has XMX**, 64 GB shared budget), resident | NoLlama/OpenVINO | Coder-Next int4, 80B-A3B, ~40 GB | 14.8 |
 | 8-core laptop CPU (LPDDR5X) | NoLlama/OpenVINO | 30B-A3B int4 | 9.1 |
 | Non-XMX iGPU, model bigger than its shared-memory budget | — | any big MoE | won't load — offload needs XMX, so there is no fallback |
 
@@ -175,7 +180,7 @@ re-prefilled the whole prompt — 82k chars → 58 s TTFT, 140k → 108 s,
 the cache at 0.35 s. Fix: `--cache-size-gb 12` (or more) on a machine with
 64 GB. See [Agent tools](AGENTS.md).
 
-### Arrow Lake-H (Core Ultra 9 285H, Arc 140T Xe-LPG iGPU, no XMX) — community, Windows
+### Arrow Lake-H (Core Ultra 9 285H, Arc 140T Xe-LPG+ iGPU, XMX) — community, Windows
 
 Reported by Dmitriy Teteruk in issue #24 (2026-08-28, `benchmark.py --runs
 5`), 64 GB shared-memory budget on the iGPU, everything resident:

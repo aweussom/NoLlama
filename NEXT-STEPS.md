@@ -322,9 +322,16 @@ Worth teaching the probe to print both before the next driver hunt.
     cap at 100k (11.8 GB buffer). **No `matmul primitive` error.** Prefill ran
     at ~21 tok/s, i.e. the *unfused* expert path — TODONT's XMX gate holding.
   - The reporter's verbose log shows the **fused grouped gemm being
-    attempted** on his equally XMX-less 140T, so on 2026.3.1 the fusion
-    engages where 2026.3.0 does not. Runtime version is the axis left; a
-    scratch `venv-2026.3.1` exists on the 285K for exactly that run.
+    attempted** on his 140T — which, it turns out, **has XMX** (Xe-LPG+; the
+    docs were wrong about it until 2026-09-11), so on his box the fusion
+    engages and here it never does. The scratch `venv-2026.3.1` run on the
+    285K passed too (60k chars, scheduler path, 699 s): runtime version is
+    not the axis either. What is left is a device the project does not own:
+    an Xe-LPG+ part with XMX, where oneDNN's grouped-gemm generator has no
+    kernel for the fused u8-zero-point expert matmul ("insufficient
+    registers", then every reference fallback rejects the datatype). The B60
+    and 140V are Xe2 and have the kernels. **Cannot be reproduced on our
+    hardware**; the reporter's verbose log is the upstream report.
   - Also his own bare probe passed and NoLlama failed on the same weights
     (#33, 2026-09-11) — so the cached (scheduler) path is implicated on his
     box; the discriminating runs for him are `--no-prompt-cache` and a

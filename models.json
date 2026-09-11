@@ -71,7 +71,7 @@
             "hf_id": "OpenVINO/gemma-4-26b-a4b-it-int4-ov",
             "source": "pre-exported",
             "est_size_gb": 15,
-            "notes": "The power pick IF your GPU has XMX (Arc/Lunar Lake — install.ps1 says so above): multimodal MoE, 26.6 tok/s on Arc 140V, 21.0 on a 24-core CPU, 262k context. Best of the three Gemma 4 exports and prefix caching works (re-verified 2026-08-21 on Arc Pro B60, loads in ~40s). It also runs on a non-XMX iGPU when the memory is there: 8.4 tok/s vision / 11.1 text on an Arc 140T with a 64 GB shared budget (community, issue #24, 2026-08-31) — XMX gates disk offload, not loading. CAVEAT: its KV is 240 KB/token, so the auto-sized pool lands on its 2 GB floor — about 8k tokens. Pin --cache-size-gb before pointing an agent at it; NoLlama warns at load."
+            "notes": "The power pick IF your GPU has XMX (Arc/Lunar Lake — install.ps1 says so above): multimodal MoE, 26.6 tok/s on Arc 140V, 21.0 on a 24-core CPU, 262k context. Best of the three Gemma 4 exports and prefix caching works (re-verified 2026-08-21 on Arc Pro B60, loads in ~40s). Also runs resident on an Arc 140T (Arrow Lake-H, Xe-LPG+ WITH XMX) given a 64 GB shared budget: 8.4 tok/s vision / 11.1 text (community, issue #24, 2026-08-31). Do NOT expect it to load on a no-XMX iGPU (desktop Arrow Lake, Meteor Lake): the unfused experts blow up staging — see TODONT. CAVEAT: its KV is 240 KB/token, so the auto-sized pool lands on its 2 GB floor — about 8k tokens. Pin --cache-size-gb before pointing an agent at it; NoLlama warns at load."
         },
         {
             "name": "Gemma 4 E4B (INT8)",

@@ -8,14 +8,18 @@ slots (OpenVINO 2026.3 `OFFLOAD_RATIO`).
 so NoLlama warns at startup — full story in `TODONT.md`, which also records
 that OFFLOAD_RATIO could not be validated on the desktop iGPU.
 
-**XMX gates the offload, not the model.** This note used to say non-XMX
-iGPUs "can't load big MoE at all (USM staging OOM)". That is wrong when the
-memory is actually there: on an Arc 140T (Xe-LPG, no XMX) with a 64 GB
-shared budget, Qwen3-Coder-Next int4 (80B-A3B, ~40 GB) runs resident at 18.8
+**No XMX means no big MoE, full stop — and the datapoint that seemed to say
+otherwise was misread.** On 2026-08-28 this note was rewritten to say a
+non-XMX iGPU loads big MoE fine when the memory is there, on the strength of
+an Arc 140T running Qwen3-Coder-Next int4 (80B-A3B, ~40 GB) resident at 18.8
 tok/s and gemma-4-26b-a4b at 8–11 tok/s [OBSERVED 2026-08-28 and 2026-08-31,
-issue #24, two independent batches]. What a non-XMX GPU cannot do is *stream
-experts from disk* — so it cannot trade residency for capacity, and a model
-that does not fit simply does not load.
+issue #24]. Those numbers are real, but the 140T is **Xe-LPG+ and has XMX**
+[DOCUMENTED: Intel Arrow Lake-H; `install.ps1` prints `XMX: yes` on a 140T in
+issue #38] — it was never a no-XMX datapoint. The original claim stands and
+is now measured on a genuinely XMX-less GPU: on the desktop 285K's Xe-LPG a
+15 GB int4 MoE stages ~47 GB of shared memory and never finishes loading
+[OBSERVED 2026-09-11, `TODONT.md`]. Without XMX the MoE fusion is off,
+offload is a silent no-op, and the unfused expert constants blow up staging.
 
 Verified on Arc 140V, Qwen3-30B-A3B int4, steady state:
 
