@@ -264,7 +264,9 @@ Worth teaching the probe to print both before the next driver hunt.
   there while dedicated VRAM stays flat, then dedicated fills, then shared
   drains. So **peak host RAM during load is roughly model-sized even on a
   discrete card** — worth knowing before assuming 24 GB of VRAM makes system RAM
-  irrelevant.
+  irrelevant. [OBSERVED 2026-09-11, `scripts/load-mem-probe.ps1`, B60 box]:
+  Qwen3-30B-A3B int4 (15.2 GB) — shared peaks 12.4 GB, free RAM 16.5 → 1.8 GB,
+  then dedicated 22.0 GB steady and shared back to 0.25 GB, 43 s total.
 
 - **`hf download` stalls on large files via Xet.** It sat at 0.00 CPU with a
   `.lock` on the 14.9 GB blob. `HF_HUB_DISABLE_XET=1` resumed it and ran at

@@ -867,6 +867,31 @@ identical tok/s at ratio 0 and 90.
 Intel's demos run on XMX-capable GPUs (Lunar Lake Arc 140V, Panther Lake,
 Arc dGPUs). The release notes never mention the hardware gate.
 
+**Update 2026-09-11 — measured, and it takes the owner's machine down with it.**
+Re-tripped by accident (loaded `Qwen3.6-35B-A3B-int4-ov`, then
+`Qwen3-30B-A3B-Instruct-2507-int4-ov`, 15.2 GB, on this iGPU without
+reading this entry). Sampled every 5 s with `scripts/load-mem-probe.ps1`
+[OBSERVED 2026-09-11, driver 32.0.101.8860, genai 2026.3.0, shared budget
+32.9 GB, 44.7 GB free at start]: within 50 s the iGPU's **shared usage hit
+34.6 GB** and free RAM fell to 10 GB; by 5 min shared sat at **47 GB** (3x
+the weights), commit charge at **277 GB** against 40 GB baseline, free RAM
+**0.0 GB**, and the pagefile took the difference — the "insane IO load" the
+owner saw on his working server. Not ready after 20 min; killed. Same model
+class on the **B60 box the same hour** (discrete, XMX): ready in **43 s**,
+shared usage peaked at 12.4 GB while the weights streamed through host RAM,
+then dedicated settled at 22.0 GB (15.2 weights + 4 GB KV + ~3 GB runtime)
+and shared fell back to 0.25 GB — host RAM fully released.
+
+Two consequences. **Do not load a MoE over ~10 GB on this iGPU for any
+reason**, and machines.md now says so beside the "memory pressure" row that
+used to point here. And the mechanism behind the community iGPU reports is
+the same one: the staging footprint is roughly 3x the weights, so a 15 GB
+MoE needs ~47 GB of shared budget. Dmitriy's 140T has the override at 64 GB
+and loads a 74 GB int8 MoE; oligocene's 140T sits at the stock 32 GB and
+gets intermittent `CL_OUT_OF_RESOURCES` on a 15 GB MoE (#38). On this box
+the same override raised to ~48 GB would very likely let the 15 GB models
+load; **not tried — driver settings are ask-first here.**
+
 **Consequence:** MoE disk offload is a hardware capability, not a software
 setting, on this box. Raising the pagefile to re-export Qwen3-30B-A3B is
 pointless *for offload on this machine* (the export itself would still be

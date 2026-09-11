@@ -17,7 +17,7 @@ Where this repo lives and where most measurements are taken.
 | | |
 |---|---|
 | CPU | AMD Ryzen 9 5950X, 16C/32T (DDR4) |
-| GPU | **Intel Arc Pro B60, 24 GB, discrete** (Battlemage, XMX) |
+| GPU | **Intel Arc Pro B60, 24 GB, discrete** (Battlemage, XMX), driver `32.0.101.8805` (checked 2026-09-11) — **plus an AMD Radeon RX 580**, so it is not a single-vendor box after all |
 | NPU | **none** |
 | RAM | 32 GB |
 | OS | Windows 11 Pro 26200 |
@@ -198,7 +198,7 @@ Read 2026-09-01:
 |---|---|---|
 | 258V laptop | `32.0.101.8826` (2026-05-29) — **~3 months behind** | `32.0.100.5540` (2026-08-20) — current |
 | 285K | `32.0.101.8860` (2026-06-25) — ~2 months behind (Xe-LPG; the RTX 5090 is on `32.0.16.1088`) | `32.0.100.4778` (2026-04-28) — **old** |
-| B60 box | not recorded — check | none (no NPU) |
+| B60 box | `32.0.101.8805` (checked 2026-09-11) | none (no NPU) |
 
 Latest Intel Arc driver at that date was **`32.0.101.8991`** (2026-08-25,
 WHQL, re-certified 08-29), with `.8974` before it on 08-15 — per the driver
@@ -237,12 +237,13 @@ said 4778, and the difference was a pending reboot.
 | Question | Machine | Why |
 |---|---|---|
 | The full device matrix for a new model | all three | CPU+B60 here, iGPU+NPU4 on the laptop, NPU3+Xe-LPG on the 285K |
-| Intel GPU / OpenVINO GPU plugin | B60 box | only Intel GPU present, no vendor confusion |
+| Intel GPU / OpenVINO GPU plugin | B60 box | the only Intel GPU; an RX 580 sits beside it, but OpenVINO's GPU plugin is Intel-only so enumeration stays unambiguous |
 | iGPU behaviour | laptop (140V) or 285K (Xe-LPG) | two iGPU generations; the B60 is discrete and not a substitute |
 | NPU behaviour | **both** — 285K is NPU 3, laptop is NPU 4 | one NPU proves nothing; the generation has been the whole variable before |
 | NPU in a container | 285K only | the laptop's WSL/Docker is off-limits |
 | An allocation-cap or per-buffer-limit report | **not** the laptop | its cap is 27.2 GB, ~6x a stock iGPU |
 | NPU in a container | 285K only | ditto, and it already has WSL + Docker |
 | Ollama / llama.cpp comparison | 285K | that is where Ollama lives |
-| Big-model memory pressure | 285K (63 GB) | the B60 box has half the RAM |
+| Big-model memory pressure, **CPU loads** | 285K (63 GB) | the B60 box has half the RAM |
+| Big MoE on an iGPU | **nowhere here** | the 285K's no-XMX iGPU stages ~3x the weights in shared memory and pages the box to a standstill (TODONT, 2026-09-11); the laptop's 140V has XMX and a 25.5 GB budget — ask the owner first |
 | Anything needing a spare reboot | **not** the laptop | see above |
