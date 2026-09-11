@@ -25,3 +25,8 @@ nollama.ini
 
 # Probe reports from scripts/phi35v-repro/run.ps1 — paste into an issue, do not commit
 phi35v-report-*.txt
+
+# Personal notes and raw measurement replies that live beside the repo, not in it
+results/
+DESTILL-SMOLLM3-PLAN.md
+medium-article-*.txt

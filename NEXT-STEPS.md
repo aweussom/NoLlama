@@ -282,6 +282,13 @@ Worth teaching the probe to print both before the next driver hunt.
   - **Retire `-Nightly`?** Nothing in the registry needs it; it stays as the
     test harness for "does the next runtime fix X" (used 2026-08-30 for the
     LFM2/NPU 4 question). Decide when the next release lands.
+- **`benchmark.py` JSON records no provenance (noted 2026-08-30).** Not the
+  OpenVINO/genai version, not the server flags (`--offload-ratio`,
+  `--cache-size-gb`), not the driver, not the OS. Three community reporters
+  in one week (#24, #32), and for none of them does the JSON say which runtime
+  produced the number. Add `openvino.__version__`, the server's `/health`
+  payload (model, device, `kv_pool_gb`) and `platform.platform()` to the
+  JSON header; cheap, and it turns every future report into a citable one.
 - **`transformers` main breaks the optimum backend's text-only path.**
   `5.16.0.dev0` calls `get_experts_implementation()` from
   `_optimize_model_for_decode()`; `OVModelForCausalLM` doesn't implement it, so

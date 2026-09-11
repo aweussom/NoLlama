@@ -62,15 +62,19 @@ real run on hardware named below.
 | Model (int4) | NPU | iGPU | Arc dGPU | CPU (DDR5) | CPU (DDR4) |
 |---|---|---|---|---|---|
 | SmolLM3-3B (~2 GB) | 23.3 ᵃ | 29.7 ᵃ | **81.9** ᵈ | 37.5 ᵃ | 23.0 ᵇ |
-| Qwen3-8B (~5 GB) | 10.0 ᵃ | 21.7 ᶜ / 15.4 ᵃ | **65.9** ᵈ | 17.8 ᵃ | *wanted* |
-| Qwen3-30B-A3B MoE (~17 GB) | n/a | 25.3 ᶜ (offload 30) | **52.8** ᵈ | ~6 | — |
+| Qwen3-8B (~5 GB) | 10.0 ᵃ | 24.7 ᵉ / 21.7 ᶜ / 15.4 ᵃ | **65.9** ᵈ | 17.8 ᵃ | *wanted* |
+| Qwen3-30B-A3B MoE (~17 GB) | n/a | **52.7** ᵉ / 25.3 ᶜ (offload 30) | **52.8** ᵈ | 23.7 ᵃ / 21.1 ᵉ | — |
 
 ᵃ Core Ultra 9 **285K** desktop, DDR5-6400 · ᵇ Ryzen 9 **5950X**, DDR4 ·
-ᶜ Core Ultra 7 **258V** laptop, Arc 140V on LPDDR5X · ᵈ **Arc Pro B60** 24 GB dGPU
+ᶜ Core Ultra 7 **258V** laptop, Arc 140V on LPDDR5X · ᵈ **Arc Pro B60** 24 GB dGPU ·
+ᵉ Core Ultra X7 **358H** (Panther Lake), Arc B390 iGPU, 64 GB LPDDR5X-8533, Linux
+— community reports from a laptop and a mini-PC, issues #24 and #32
 
 Decode ≈ memory bandwidth ÷ active weight bytes, so the memory column predicts
 the table better than the device column. Treat cells as ±10%. The 30B fits
 resident on the B60 but not the 140V, which had to stream experts to run at all.
+On the B390's 64 GB of shared LPDDR5X it fits resident too — and an iGPU then
+decodes it as fast as the discrete B60, which is the bandwidth rule again.
 
 Full methodology, MoE disk offload, and the Ollama and RTX 5090 comparisons:
 **[docs/BENCHMARKS.md](docs/BENCHMARKS.md)**.
