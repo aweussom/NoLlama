@@ -28,6 +28,30 @@ Where this repo lives and where most measurements are taken.
 result here is unambiguous. Also where the Docker work happens (#31) — the
 container GPU results in `DOCKER-INSTALL.md` are all from this box.
 
+**Working on it over SSH — four rules learned the hard way** [OBSERVED
+2026-09-11]:
+
+- **A process started with `Start-Process` from an SSH session dies when the
+  session ends**, even `-WindowStyle Hidden`. Two conversions and a download
+  died silently that way before the pattern was seen. Long work runs either
+  inside an SSH session kept alive for the duration, or as a **scheduled
+  task**: `Register-ScheduledTask` with `-UserId $env:USERNAME` (the
+  `WORKGROUP\` prefix does not resolve to a SID on this box), `-LogonType
+  Interactive` (the console session is normally logged in), and the **full
+  path to the executable** — the task environment has no `pwsh` on its PATH
+  because PowerShell 7 is a Store app here (result `0x80070002`). The NoLlama
+  CPU server runs that way as task `nollama-cpu-8002`.
+- **Docker is unusable over SSH**: every pull, even anonymous, dies on
+  "error getting credentials" because Docker Desktop's credential helper
+  needs the interactive logon, and a config without a store does not stop
+  the CLI from calling it. Run the harness container on the 285K instead
+  and point it at this box.
+- **Inbound firewall**: rule "NoLlama 8000-8002 from Tailscale" allows TCP
+  8000–8002 from `100.64.0.0/10`, created 2026-09-11. Health and chat on
+  8002 verified from the 285K and from a container on the 285K.
+- The Tailscale interface is on the Private profile; the RX 580 shares the
+  box with the B60 (see the table); RAM is the constraint, not disk (630 GB
+  free).
 **An application-control policy blocks venv console-script shims here**
 [OBSERVED 2026-09-01]. `venv\Scripts\hf.exe` — a generated launcher, not a
 signed binary — is refused with *"En programkontrollpolicy har blokkert
