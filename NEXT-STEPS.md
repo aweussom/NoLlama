@@ -289,6 +289,19 @@ Worth teaching the probe to print both before the next driver hunt.
   produced the number. Add `openvino.__version__`, the server's `/health`
   payload (model, device, `kv_pool_gb`) and `platform.platform()` to the
   JSON header; cheap, and it turns every future report into a citable one.
+- **`benchmark.py --llm-only` skips text tests when the only slot is a VLM
+  slot (#40, 2026-09-07).** It assigns text tests from `/health` `type ==
+  "llm"` only, so a text-capable model that landed on the VLM slot (Qwen3.6-
+  35B-A3B) prints "No LLM model found". Workaround today: `--model
+  Qwen3.6-35B-A3B@GPU`. Fix: fall back to the VLM slot for text when no LLM
+  slot is ready.
+- **#33 `matmul primitive` on the 140T is down to the MoE axis.** Asymmetric
+  int8 dense at 60k chars passes on a non-XMX Xe-LPG (285K iGPU, 2026-09-11,
+  `docs/dev/machines.md`), and the reporter's symmetric `int8-cw` re-convert
+  fails identically — so neither zero-points nor XMX alone. Untested lever:
+  `DYNAMIC_QUANTIZATION_GROUP_SIZE=0` on the GPU (his verbose log shows an
+  s8 x s8 gemm with per-token src scales, i.e. quantized activations). Needs
+  a small MoE int8 export to vary the last axis here.
 - **`transformers` main breaks the optimum backend's text-only path.**
   `5.16.0.dev0` calls `get_experts_implementation()` from
   `_optimize_model_for_decode()`; `OVModelForCausalLM` doesn't implement it, so

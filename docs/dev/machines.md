@@ -81,6 +81,19 @@ Its NoLlama venv was on **OpenVINO 2026.1** and was upgraded to **2026.3** on
 2026-08-24 — byte-identical build strings to the B60 box, so results from the
 two are now comparable.
 
+**Its iGPU is the stock-cap, no-XMX class the community reports come from**
+[OBSERVED 2026-09-11]: `OPTIMIZATION_CAPABILITIES` has no `GPU_HW_MATMUL`, and
+a 60k-char (12,825-token) prompt through bare genai on `SmolLM3-3B-int8-cw`
+died with *Exceeded max size of memory object allocation: requested
+5,466,652,672 bytes, max 4,294,959,104* — the same ~4.29 GB cap as the 140T
+in #24, which the 140V with its 27.2 GB override cannot hit. **This is the
+repro box for allocation-cap reports.** `GPU_ENABLE_LARGE_ALLOCATIONS=True`
+got the same prompt through (80 s prefill). Same session, same device:
+`Qwen3-0.6B-int8-ov` (INT8 asymmetric, dense) prefilled the same 60k chars
+cleanly with and without `DYNAMIC_QUANTIZATION_GROUP_SIZE=0`, so the #33
+`matmul primitive` failure is not "int8 zero-points on a non-XMX GPU" — with
+the reporter's symmetric re-convert also failing, MoE is the axis left.
+
 Two failures seen there on 2026.1, and re-tested after the upgrade, because
 "old runtime" is a tempting explanation that is only sometimes the right one:
 
