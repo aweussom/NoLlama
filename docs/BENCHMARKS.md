@@ -151,6 +151,23 @@ model.** Xe3 has XMX, 8533 MT/s memory, and 64 GB to hold the whole MoE
 resident — the three things the 140V's offload route lacks. Same tester,
 same model, Qwen3.8-27B: not yet run.
 
+Same tester, same box, **Qwen3.6-35B-A3B int4** (`OpenVINO/Qwen3.6-35B-A3B-int4-ov`,
+lands on a VLM slot, `--cache-size-gb 12`), issue #40, 2026-09-11, NoLlama
+`2026-08-24-da4e19e`, `benchmark.py --llm-only --runs 5`:
+
+| Test | Xe3 iGPU decode | CPU decode |
+|---|---|---|
+| count 1-100 (steady state) | **41.1 tok/s** | 16.1 tok/s |
+| say hello (thinking) | 40.9 | 16.6 |
+| TTFT, short prompt | 0.13–0.24 s | 0.6–1.9 s |
+
+About 0.78x the 30B-A3B on the same GPU and 0.76x on the CPU — a newer,
+multimodal generation with a bit more per-token work, not a different class.
+The `no-think` rows produced *more* tokens than the thinking ones (354 vs
+322 on "say hello"): the Qwen3.5-MoE family honours neither no-think lever,
+so `benchmark.py`'s no-think system prompt is a no-op there and those rows
+measure the same thing twice.
+
 Also from that thread, the agent-session failure mode that is *not* the
 hardware: once a coding session's context outgrew the KV pool, every turn
 re-prefilled the whole prompt — 82k chars → 58 s TTFT, 140k → 108 s,
