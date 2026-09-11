@@ -168,6 +168,31 @@ def test_sse_reports_cancelled_only_for_its_own_token():
     assert _collect(frames) == ("", "cancelled")
 
 
+def test_client_disconnect_leaves_a_log_line(capsys=None):
+    """A client that hangs up mid-prefill used to vanish from the log: the
+    summary line sits after the generator's finally and GeneratorExit skips
+    it. The finally must say so itself."""
+    import contextlib
+    import io
+    pipe = FakePipe()
+    slot = _slot(pipe)
+    buf = io.StringIO()
+    saved = nollama.HEARTBEAT_SECS
+    nollama.HEARTBEAT_SECS = 0.2  # the seam starts its worker on first iteration, i.e. after the role frame
+    try:
+        gen = slot.stream_llm(MSGS, None, "d", 0, time.perf_counter())
+        next(gen)  # role frame
+        next(gen)  # first keep-alive: the worker is now in "prefill"
+    finally:
+        nollama.HEARTBEAT_SECS = saved
+    assert pipe.entered.wait(2)
+    with contextlib.redirect_stdout(buf):
+        gen.close()  # what Flask does when the socket goes away
+    pipe.release.set()
+    out = buf.getvalue()
+    assert "client gone" in out and "0 tokens sent" in out, out
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_") and callable(fn):

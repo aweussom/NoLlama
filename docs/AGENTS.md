@@ -117,6 +117,18 @@ Dual mode (`--gpu-model-dir`) gives one port instead, addressed as
 The `context` limit on the NPU model matters: the NPU prompt cap is 4096
 tokens, and OpenCode uses the limit to decide what it may send there.
 
+**Two OpenCode timeouts to know about** [DOCUMENTED:
+`packages/opencode/src/provider/provider.ts`, v1.18.30]: a **5-minute
+per-chunk timeout** on the raw SSE stream (`chunkTimeout`, default
+300 000 ms, reset by any received bytes — NoLlama's 15-second keep-alives do
+reset it) and a 5-minute **header timeout**. Both are per-provider `options`.
+A slow iGPU that can spend more than five minutes in one cold prefill wants
+them raised:
+
+```json
+"options": { "baseURL": "http://localhost:8000/v1", "chunkTimeout": 1800000, "headerTimeout": 1800000 }
+```
+
 ## Goose
 
 Goose (Block's agent, CLI and Desktop) takes an OpenAI-compatible provider:

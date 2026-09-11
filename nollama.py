@@ -2091,6 +2091,7 @@ class DeviceSlot:
         """
         token_count = 0
         was_cancelled = False
+        done = False  # set only after [DONE]; False in finally means the client left
         splitter = _ThinkSplitter(self.think_preseeded)
 
         def frame(delta, finish=None):
@@ -2123,10 +2124,18 @@ class DeviceSlot:
             else:
                 yield frame({}, "cancelled" if was_cancelled else "stop")
             yield "data: [DONE]\n\n"
+            done = True
         finally:
             # Safety net: if client disconnects, stop OUR generation (own token,
             # never the slot flag — that cancelled the next queued request)
             cancel.set()
+            if not done:
+                # GeneratorExit skips everything after this block, so a request
+                # whose client hung up would otherwise leave NO log line at all
+                # — six such requests went unrecorded for 85 min on 2026-09-11.
+                print(f"{datetime.now():%H:%M:%S} -> [{self.device_name}] {tag}client gone after "
+                      f"{time.perf_counter() - t0:.1f}s, {token_count} tokens sent "
+                      f"(generation stops at its next token)", flush=True)
 
         elapsed = time.perf_counter() - t0
         tps = token_count / elapsed if elapsed > 0 else 0
@@ -3102,6 +3111,7 @@ def _sse_tool_stream(slot, raw_messages, gen, tools, completion_id, created, t0,
     splitter, gate = _ThinkSplitter(getattr(slot, "think_preseeded", False)), _ToolCallGate()
     token_count = 0
     was_cancelled = False
+    done = False  # set only after [DONE]; False in finally means the client left
     tool_calls = []
 
     def route(pieces):
@@ -3149,9 +3159,16 @@ def _sse_tool_stream(slot, raw_messages, gen, tools, completion_id, created, t0,
                 yield frame({"content": gate.held})  # opener that never became a call
             yield frame({}, "cancelled" if was_cancelled else "stop")
         yield "data: [DONE]\n\n"
+        done = True
     finally:
         # Safety net: if client disconnects, stop OUR generation (own token)
         cancel.set()
+        if not done:
+            # See _sse_stream: GeneratorExit skips the log line below, so say
+            # something here or the request vanishes from the log entirely.
+            print(f"{datetime.now():%H:%M:%S} -> [{slot.device_name}] client gone after "
+                  f"{time.perf_counter() - t0:.1f}s, {token_count} tokens sent "
+                  f"(generation stops at its next token)", flush=True)
 
     elapsed = time.perf_counter() - t0
     tps = token_count / elapsed if elapsed > 0 else 0
