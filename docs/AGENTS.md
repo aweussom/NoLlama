@@ -1,31 +1,31 @@
-# Coding agents (VS Code Copilot, OpenClaw)
+# Coding agents (OpenCode, Goose, VS Code Copilot)
 
-NoLlama can drive tool-calling coding agents — the model emits function calls,
+NoLlama drives tool-calling coding agents: the model emits function calls,
 NoLlama parses them into OpenAI/Ollama `tool_calls`, and the agent acts on the
-results.
-
-![OpenClaw running locally against NoLlama on an Intel iGPU — start-openclaw.ps1 brings up NoLlama (GPU, Qwen2.5-Coder-7B), pre-warms the cache, and the agent replies](screenshots/openclaw-1-Skjermbilde2026-06-28_113203.png)
-*OpenClaw driving a local Qwen2.5-Coder model on an Intel iGPU via NoLlama — one command (`./start-openclaw.ps1`), no cloud, no NVIDIA.*
+results. Any client that speaks the OpenAI chat-completions API works; the
+ones people actually run against it are **OpenCode**, **Goose**, **VS Code
+Copilot Chat** and **Continue**.
 
 > **Tool calling runs on GPU/iGPU and CPU — not the NPU.** The NPU has a hard
 > prompt cap and small NPU-class models can't reliably drive agent loops, so
 > NoLlama ignores `tools` there and answers as plain chat; `/api/show` advertises
 > the `tools` capability only for GPU/CPU slots. Load a coder LLM on the GPU, or
 > on a strong desktop CPU (many-core Core Ultra) where prefill can beat a weak
-> iGPU. The Qwen2.5-Coder GPU builds in the menu work well; pick a smaller size
-> (7B) for snappier prefill on big agent prompts.
+> iGPU. The NPU still has a job in an agent session — see the two-server recipe
+> below.
 >
 > Tool turns **stream** on `/v1/chat/completions`: reasoning arrives as
 > `reasoning_content`, prose as `content`, and only the tool-call block itself
 > is held until it can be parsed into structured `tool_calls` (OpenCode and Zed
 > show the model thinking live). The server also emits SSE keep-alive pings
-> during a long prefill so agent clients (Copilot/OpenClaw) don't hit their idle
-> timeout and abort. On the Ollama API (`/api/chat`) a tool turn is still one
-> buffered reply. Big agent system prompts (~20k tokens) prefill slowly on weak iGPUs — a
-> smaller model, the CPU, or trimming the client's tool set all help. And
-> **prefix caching is on by default**, so that big system prompt is prefilled
-> once, not every turn — after the first turn, agent turns are fast (~47x on the
-> cached prefix). Disable with `--no-prompt-cache`.
+> during a long prefill so agent clients don't hit their idle timeout and
+> abort. On the Ollama API (`/api/chat`) a tool turn is still one buffered
+> reply. Big agent system prompts (OpenCode ~8k tokens, some clients ~20k)
+> prefill slowly on weak iGPUs — a smaller model, the CPU, or trimming the
+> client's tool set all help. And **prefix caching is on by default**, so that
+> big system prompt is prefilled once, not every turn — after the first turn,
+> agent turns are fast (~47x on the cached prefix). Disable with
+> `--no-prompt-cache`.
 >
 > **Size the KV pool for your sessions.** With caching on, blocks are never
 > released, so a long coding session eventually owns the whole pool and then
@@ -36,57 +36,112 @@ results.
 > context want more: `--cache-size-gb 12` (16 if you routinely exceed 200k
 > chars) on a 64 GB machine. The startup line `prefix caching on (N GB KV
 > pool …)` shows what you got; if a *repeated* prompt's TTFT stays under a
-> second as the context grows, the pool is big enough.
+> second as the context grows, the pool is big enough. OpenCode's own
+> `compaction` settings are the other half: let the client shrink its context
+> before it outgrows the pool.
 
 The tool prompt is rendered in Qwen3-Coder native format, and `parse_tool_calls`
 also understands Hermes, Mistral `[TOOL_CALLS]`, Llama `<|python_tag|>`, DeepSeek,
 and bare-JSON outputs — so most instruct/coder models work.
 
-**VS Code Copilot Chat** (0.53+) — point it at the Ollama API and start the
-server with `--vscode-compat` so VS Code accepts the version handshake:
+## OpenCode
+
+OpenCode speaks the OpenAI API and needs only a provider block in
+`opencode.json` (project root). The minimal, one-server form:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "nollama": {
+      "npm": "@ai-sdk/openai-compatible",
+      "options": { "baseURL": "http://localhost:8000/v1" },
+      "models": { "Qwen3-Coder-30B-A3B-Instruct": {} }
+    }
+  },
+  "model": "nollama/Qwen3-Coder-30B-A3B-Instruct"
+}
+```
+
+The model key is the name NoLlama prints in its banner (`/v1/models` lists
+`<name>@<DEVICE>`; either form is accepted). Start the server with
+`--idle-timeout 0` so the prefix cache survives between turns, and size the
+pool as above.
+
+### Two servers: the GPU does the turn, the NPU does the side-tasks
+
+OpenCode sends **two requests per turn**: a small one (~2k chars, its
+`title` agent — session titles and similar housekeeping) and the turn itself
+(30k+ chars). On one server they serialise on the device lock, so the turn
+waits out a whole title generation before its own prefill starts. OpenCode
+has a `small_model` setting for exactly that light work, and NoLlama can run
+a second server on the NPU — which is where a 2k-char, tool-free request
+belongs.
+
+```powershell
+# terminal 1 — the coder, on the GPU
+python nollama.py --port 8000 --device GPU --model-dir <coder-model> --idle-timeout 0
+# terminal 2 — a small chat model, on the NPU (int4-cw export, see docs/MODELS.md)
+python nollama.py --port 8002 --ollama-port 0 --device NPU --model-dir <small-npu-model> --idle-timeout 0
+```
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "nollama-gpu": {
+      "npm": "@ai-sdk/openai-compatible",
+      "options": { "baseURL": "http://localhost:8000/v1" },
+      "models": { "Qwen3-Coder-30B-A3B-Instruct": { "limit": { "context": 120000, "output": 32000 } } }
+    },
+    "nollama-npu": {
+      "npm": "@ai-sdk/openai-compatible",
+      "options": { "baseURL": "http://localhost:8002/v1" },
+      "models": { "SmolLM3-3B-int4-cw": { "limit": { "context": 4096, "output": 1024 } } }
+    }
+  },
+  "model": "nollama-gpu/Qwen3-Coder-30B-A3B-Instruct",
+  "small_model": "nollama-npu/SmolLM3-3B-int4-cw"
+}
+```
+
+Verified 2026-09-11 (OpenCode 1.18.30, Core Ultra 9 285K: Qwen3-8B on the
+iGPU, SmolLM3-3B on the NPU): the title request hit the NPU server and was
+answered in 2.8 s; the turn reached the GPU in the same second and started
+prefilling immediately instead of queueing behind it. Two processes rather
+than NoLlama's dual mode on purpose — each has its own lock, KV pool and
+crash domain, so a GPU-side failure (#37, #38) leaves the NPU server up.
+Dual mode (`--gpu-model-dir`) gives one port instead, addressed as
+`<name>@GPU` / `<name>@NPU`.
+
+The `context` limit on the NPU model matters: the NPU prompt cap is 4096
+tokens, and OpenCode uses the limit to decide what it may send there.
+
+## Goose
+
+Goose (Block's agent, CLI and Desktop) takes an OpenAI-compatible provider:
+base URL `http://localhost:8000/v1`, any API key, model name as printed in
+the banner. Its system prompt and tool schemas are large, so on an iGPU
+pin the KV pool (`--cache-size-gb`) before pointing it at a 26B-class MoE —
+gemma-4-26b-a4b has a 240 KB/token KV and lands on the 2 GB floor otherwise
+(issue #38).
+
+## VS Code Copilot Chat
+
+Copilot Chat (0.53+) uses the Ollama API. Start with `--vscode-compat` so
+VS Code accepts the version handshake:
 
 ```powershell
 python nollama.py --gpu-model-dir gpu-coder-model --vscode-compat
 ```
 
-Then in VS Code set the Ollama base URL to `http://localhost:11434` and pick the
-GPU model. (Add `--debug` while wiring it up to see exactly what Copilot sends.)
+Then set the Ollama base URL to `http://localhost:11434` and pick the GPU
+model. (Add `--debug` while wiring it up to see exactly what Copilot sends.)
 
-**OpenClaw** — speaks the OpenAI chat-completions API NoLlama already serves; it
-runs against a NoLlama GPU slot with no code changes, just config. See
-[OPENCLAW-PLAN.md](OPENCLAW-PLAN.md) for the step-by-step setup (the one gotcha:
-address the model as `<name>@GPU` so tool requests hit the GPU, not the NPU).
+## Pre-warming
 
-**Install OpenClaw** (once):
-
-```powershell
-npm install -g openclaw@latest
-openclaw onboard --install-daemon
-```
-
-Then **`start-openclaw.ps1`** is the one-command launcher (the NoLlama equivalent
-of `ollama launch openclaw`):
-
-```powershell
-./start-openclaw.ps1 -Setup -Device GPU     # -Setup writes the `nollama` provider into openclaw.json
-./start-openclaw.ps1 -Device GPU            # subsequent runs
-```
-
-It starts NoLlama with the agent flags (`--device`, `--prewarm`, keep-loaded),
-waits until ready, then runs OpenClaw. If a NoLlama is **already** on the port it
-**verifies** it (prefix caching on + a tool-capable GPU/CPU slot) and reuses it —
-or, if it's misconfigured, tells you why and offers to restart it correctly
-(`-Force` to skip the prompt). `-Warmup` fires one throwaway turn first so even
-the first real turn is fast.
-
-> **NoLlama runs OpenClaw in a deliberately constrained mode — by design.** A
-> coding-agent prompt is large (~21k tokens of system prompt + tool schemas), which
-> is a lot for a small local model on weak Intel hardware. So `-Setup` doesn't just
-> point OpenClaw at NoLlama — it also **trims OpenClaw** to fit: it selects the
-> `coding` tool profile and turns off web search, X search, memory search, and the
-> startup-context prelude. This shrinks the prompt and tool surface so a 7B coder on
-> an iGPU/CPU can actually drive the loop. It's all plain config in
-> `~/.openclaw/openclaw.json` — re-enable anything if your hardware can handle a
-> bigger prompt, and re-run `-Setup` to restore the trimmed defaults. Package
-> updates (`npm i -g openclaw@latest`) don't touch this config; only re-running
-> `openclaw onboard` might, in which case re-run `-Setup`.
+With `--idle-timeout 0` NoLlama captures the largest system prompt it sees
+into `prewarm-<port>.json` and prefills it at the next startup, so the first
+real turn of a session is a cache hit rather than a cold prefill. It is
+client-agnostic — OpenCode's ~8k-token prompt shows up in the startup log as
+`pre-warmed prompt cache from prewarm-8000.json`. Disable with `--no-prewarm`.

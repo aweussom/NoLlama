@@ -8,7 +8,7 @@
 - **VLM support** — send images via base64 or `file://` URIs for vision models
 - **Streaming** — token-by-token for text chat, with collapsible thinking blocks
 - **Dual device** — NPU for chat + GPU for vision, simultaneously
-- **Tool calling / agents** (GPU/iGPU + CPU, not NPU) — works with VS Code Copilot Chat and OpenClaw; the model drives tools on the ARC GPU or a strong CPU
+- **Tool calling / agents** (GPU/iGPU + CPU, not NPU) — works with OpenCode, Goose and VS Code Copilot Chat; the model drives tools on the ARC GPU or a strong CPU
 - **Prefix caching** (on by default) — a repeated prompt prefix (e.g. an agent's fixed system prompt) is prefilled once, not every turn — ~47× faster on cached turns
 - **MoE disk offload** (`--offload-ratio`) — run 30B-class MoE models on 16 GB-class XMX GPUs by streaming expert weights from disk (verified: 2.35 GB resident for a 15.2 GB model)
 - **Built-in web UI** — chat, image drop zone, model selector, dark theme
@@ -42,7 +42,6 @@ install.ps1             Setup wizard (cross-platform; the shims above call it)
 download-model.ps1      Download/convert any HuggingFace model
 benchmark.py            Device performance benchmark
 start.ps1               Auto-generated launcher (after install)
-start-openclaw.ps1      Launch NoLlama (caching + pre-warm) + OpenClaw together
 models.json             Curated model registry
 model/                  Primary model (NPU or GPU)
 gpu-model/              Secondary GPU model (dual mode)

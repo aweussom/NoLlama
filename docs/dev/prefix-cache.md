@@ -146,7 +146,7 @@ are visible **without instrumentation**.
 `/health` carries `prompt_cache_info` (pinned `pool_gb` or null, plus
 `auto`, plus the prewarm file) and per-slot `kv_pool_gb` (resolved size),
 `last_ttft_ms` and `prewarmed`. `prompt_cache` stays a bare bool —
-`start-openclaw.ps1` truth-tests it.
+launcher health checks truth-test it.
 
 ## Memory preflight
 

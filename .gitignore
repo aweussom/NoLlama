@@ -11,7 +11,6 @@ scripts/.watch_body.md
 .claude/
 
 # Runtime artifacts (generated at run time, not source)
-nollama-openclaw.log
 prewarm.json
 venv-2026.3/
 venv-nightly/

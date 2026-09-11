@@ -312,7 +312,7 @@ practice:
 > the plan was to drop GPU/CPU once Ollama's Intel performance caught up.
 > That hasn't happened and isn't on the horizon: Ollama's Intel path runs
 > through a non-OpenVINO shim and remains much slower, while most real
-> NoLlama users drive coding agents (OpenClaw, Copilot) on the GPU/CPU
+> NoLlama users drive coding agents (OpenCode, Copilot) on the GPU/CPU
 > path. So GPU/CPU — and with them tool calling, prefix caching, and
 > prewarm — are supported for the foreseeable future. If you outgrow a
 > single-user local server (multi-user, production serving of 30B+
@@ -347,7 +347,7 @@ python benchmark.py --backend ollama --model qwen3:8b --label rtx5090 --runs 3 -
 
 Prefill isn't the story here — all these devices hit first token in ~0.2 s on a
 short prompt. Long agent prompts are another matter: see
-[Agent tools](#agent-tools--coding-assistants-vs-code-copilot-openclaw).
+[Agent tools](AGENTS.md).
 
 **Surprises on this hardware:**
 

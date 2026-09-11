@@ -7,7 +7,7 @@ No NVIDIA required. No Ollama install. No llama.cpp. **No problem.**
 
 It detects your hardware, picks the best device, and speaks both OpenAI and
 Ollama APIs — so any client that talks to either just works. It drives coding
-agents too: VS Code Copilot Chat and OpenClaw run against it with local
+agents too: OpenCode, Goose and VS Code Copilot Chat run against it with local
 **tool-calling** on your Intel GPU or CPU.
 
 ![NoLlama in action](docs/images/nollama-demo.gif)
@@ -109,7 +109,7 @@ Ollama shim.
 
 ## Coding agents
 
-VS Code Copilot Chat and OpenClaw both work, with tool-calling on GPU or CPU
+OpenCode, Goose and VS Code Copilot Chat all work, with tool-calling on GPU or CPU
 (never the NPU — it has a hard prompt cap). Prefix caching is on by default, so
 an agent's fixed system prompt is prefilled once rather than every turn.
 
@@ -123,7 +123,7 @@ Setup for both: **[docs/AGENTS.md](docs/AGENTS.md)**.
 | [docs/API.md](docs/API.md) | OpenAI + Ollama endpoints, all CLI flags, prefix caching, the repetition penalty (`nollama.ini`), web UI |
 | [docs/DEVICES.md](docs/DEVICES.md) | Per-device support and requirements |
 | [docs/BENCHMARKS.md](docs/BENCHMARKS.md) | Methodology, all numbers, MoE offload, vs Ollama and OVMS |
-| [docs/AGENTS.md](docs/AGENTS.md) | Copilot and OpenClaw setup |
+| [docs/AGENTS.md](docs/AGENTS.md) | OpenCode, Goose and Copilot setup — including the NPU as the agent's side-task model |
 | [docs/INTERNALS.md](docs/INTERNALS.md) | Architecture, file layout, known limitations |
 | [docs/DOCKER.md](docs/DOCKER.md) | Running in a container — GPU/CPU only, no NPU; what it costs and the two defects that bite |
 | [docs/DIAGRAMS.md](docs/DIAGRAMS.md) | Logic diagrams of the core flows (request routing, slot lifecycle, token streaming, web UI rendering) — machine-checked against the code, so a diagram that's fallen behind gets flagged, not trusted |

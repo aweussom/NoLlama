@@ -62,7 +62,7 @@ flowchart TB
   a structured tool_calls delta needs it parsed whole. Agent clients
   send tools on EVERY request, so the old whole-turn buffering meant
   they never saw a live token. Keep-alive pings every HEARTBEAT_SECS
-  still cover a minutes-long prefill (Copilot/OpenClaw abort ~120s) -
+  still cover a minutes-long prefill (Copilot aborts ~120s) -
   and an aborted client leaves OpenVINO churning: prefill cannot be
   cancelled. The Ollama surface keeps its buffered tool turn."]
   _sse_tool_stream -.-> GATED

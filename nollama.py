@@ -2139,8 +2139,8 @@ class DeviceSlot:
 
     @property
     def info(self):
-        """This slot's block in /health — keys are read by start-openclaw.ps1
-        and the web UI, so they are API surface, not just logging."""
+        """This slot's block in /health — keys are read by the web UI status dot
+        and by external launchers, so they are API surface, not just logging."""
         return {
             "status": self.status,
             "model": self.model_name,
@@ -3338,14 +3338,14 @@ def gui():
 @app.route("/health", methods=["GET"])
 def health():
     """Liveness + per-slot state. Contract notes are inline below; the
-    field set is consumed by start-openclaw.ps1 and the web UI status dot."""
+    field set is consumed by the web UI status dot and external launchers."""
     devices = {}
     if primary and primary.status != "not_configured":
         devices[primary.device_name.lower()] = primary.info
     if secondary and secondary.status != "not_configured":
         devices[secondary.device_name.lower()] = secondary.info
-    # prompt_cache stays a bare bool — start-openclaw.ps1's health check
-    # truth-tests it; the details live in prompt_cache_info (per-slot TTFT
+    # prompt_cache stays a bare bool — launcher health checks truth-test
+    # it; the details live in prompt_cache_info (per-slot TTFT
     # and prewarm state are in each device's info block).
     result = {"status": overall_status(), "version": __version__,
               "devices": devices,
@@ -4132,8 +4132,8 @@ class _ExclusiveThreadedWSGIServer(ThreadedWSGIServer):
             # [OBSERVED 2026-08-18] Windows 11 + Python urllib (Arc B60 box):
             # 2.05 s per request via localhost vs 0.015 s via 127.0.0.1 — a
             # fixed ~2 s tax that looks exactly like slow prefill and hides in
-            # TTFT. start-openclaw.ps1 and the startup banner both hand out
-            # localhost URLs, so the agent path paid it on every turn.
+            # TTFT. The startup banner hands out localhost URLs (and the old
+            # agent launcher did too), so the agent path paid it on every turn.
             self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
         super().server_bind()
 

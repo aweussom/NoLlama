@@ -100,14 +100,14 @@ legacy flag) — no model needed.
 ## Heartbeat — why it exists
 
 A slow prefill on a big agent prompt trips client idle watchdogs
-(Copilot/OpenClaw abort with no output after ~120s). So:
+(Copilot aborts with no output after ~120s). So:
 
 - every SSE consumer (`_sse_stream` behind `stream_llm`/`stream_vlm`, and
   `_sse_tool_stream`) turns the seam's `None` marker — `HEARTBEAT_SECS` of
   silence — into an empty-content delta, which resets content- and
   byte-based client watchdogs alike and is a no-op for message assembly.
 
-Big agent prompts (OpenClaw ships ~21k-token system prompts) prefill slowly
+Big agent prompts (some agent clients ship ~21k-token system prompts; OpenCode ~8k) prefill slowly
 on weak iGPUs — ~6 min TTFT on the desktop 285K Xe-LPG. Mitigations: a
 smaller coder model, CPU on strong desktops, trimming the client's tool
 set, and the keep-alive above so turns complete instead of aborting.

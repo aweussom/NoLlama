@@ -3,6 +3,29 @@
 Things we tried that didn't work, or that work but aren't worth doing. Each
 entry explains *why not* so we don't re-litigate it in six months.
 
+## OpenClaw as the flagship agent client (2026-06-28 -> 2026-09-11)
+
+Idea: make OpenClaw the showcase for agent use — `start-openclaw.ps1` as the
+one-command launcher, `OPENCLAW-PLAN.md`, a dev.to draft, the installer
+hint and `docs/AGENTS.md` all built around it, including a "constrained
+mode" that trimmed its tool profile to fit a 7B coder on an iGPU.
+
+**Verdict: retired. Not one OpenClaw user in ten weeks.** Every agent
+user who turned up in the issues ran something else: OpenCode (ktecho #32,
+#40; dmitriyteteruk #33, #36, #37), Goose Desktop (oligocene #38), VS Code
+Copilot Chat, Continue (mikestahili #24). Meanwhile the OpenClaw framing
+cost us: the agent doc's title, three top-level files, and an installer
+closing line pointed newcomers at a client nobody used. Removed 2026-09-11;
+`docs/AGENTS.md` is now written around OpenCode, Goose and Copilot, and the
+two-server recipe that puts OpenCode's `small_model` traffic on the NPU.
+
+What survives from the OpenClaw work, because it was never OpenClaw-specific:
+the SSE heartbeat (its ~120 s abort is what forced it), pre-warming (it
+captures any large system prompt; OpenCode's ~8k-token prompt is what it
+warms today), CPU tool calling, and the parser's tolerance for several
+tool-call syntaxes. The "trim the client's tool set to fit weak hardware"
+idea is also still right — it just belongs in each client's own config.
+
 ## One shared cancel flag per slot, cleared inside the lock (2026-08-19 -> 2026-09-11)
 
 Idea: `slot._cancel` is a single `threading.Event`. Every streaming
