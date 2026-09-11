@@ -264,6 +264,11 @@ later image turn on that slot skips the penalty up front. Text turns keep
 it, because the defect is in the *prompt* ids and a text prompt carries no
 placeholders.
 
+**Confirmed by a user on the other GPU class** [OBSERVED 2026-09-02,
+dmitriyteteruk, Arc 140T, issue #24]: the same model that threw the bounds
+assertion on his box on 2026-09-01 passed both `benchmark.py` image tests on
+`main` -- 14.1 and 15.7 tok/s, TTFT 1.6 / 3.2 s. Two GPU classes, two people.
+
 Why this shape over the alternatives considered:
 
 - *Lower the global default* -- no. 1.05 is a deliberate compromise
