@@ -361,6 +361,18 @@ Worth teaching the probe to print both before the next driver hunt.
   and an hour of 25 GB MoE compiles on the same iGPU while an NPU server was
   up. Unexplained; recorded so the next occurrence is measured with the
   client-gone log line and a 600 s budget instead of guessed at.
+
+- **Memory preflight false alarm on a discrete card** [OBSERVED 2026-09-12,
+  B60]: "model (~15.2 GB) + KV pool (6 GB) needs ~23.3 GB but the device
+  budget is 23.3 GB — this will likely NOT work (raise the iGPU budget …)".
+  It loaded and ran. Two fixes: treat equality as fits, and word the hint
+  by device type — "Shared GPU Memory Override" means nothing on a dGPU.
+
+- **The B60 rig is left running** as scheduled tasks `nollama-gpu-8000`
+  (Qwen3-Coder-30B-A3B int4, 6 GB pool) and `nollama-cpu-8002` (SmolLM3-3B),
+  logs in `C:\Users\wossn\b60-eval\`, ports open from Tailscale. Stop with
+  `Stop-ScheduledTask`. It is the arm 2 test bed; the next task must produce
+  tool results over 12 KB or the caps and the distiller have nothing to do.
 - **`transformers` main breaks the optimum backend's text-only path.**
   `5.16.0.dev0` calls `get_experts_implementation()` from
   `_optimize_model_for_decode()`; `OVModelForCausalLM` doesn't implement it, so

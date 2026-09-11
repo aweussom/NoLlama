@@ -111,7 +111,7 @@ that hurts.
 | Arm | Config | Measures |
 |---|---|---|
 | 0 | Recipe A, OpenCode defaults | **Ran 2026-09-11, degenerate:** turn 1 = 46.6k chars, TTFT 217 s, then Qwen3-8B fired 27 tool calls (1 glob + 26 `read`s) and OpenCode sent 1.49 M chars back against a 40k-token window; killed after 4 min of prefill. Two lessons: declare the model's real `limit.context` (the config said 120k) so OpenCode compacts before sending, and a weak model's tool-call fan-out is the byte source, not any single result |
-| 1 | + Recipe B (12 KB / 300 lines, prune on) | **Attempted 2026-09-11, no data:** the run failed on something that did not reproduce afterwards (`NEXT-STEPS.md`); the exact request replayed later behaves normally at 216 s TTFT on the scheduler path vs 72 s plain (`docs/dev/prefix-cache.md`). Rerun with the honest 40k `limit.context`, `chunkTimeout` raised, and a 600 s patience |
+| 1 | + Recipe B (12 KB / 300 lines, prune on) | **B60 result below (2026-09-12).** 285K attempt 2026-09-11, no data: the run failed on something that did not reproduce afterwards (`NEXT-STEPS.md`); the exact request replayed later behaves normally at 216 s TTFT on the scheduler path vs 72 s plain (`docs/dev/prefix-cache.md`). Rerun with the honest 40k `limit.context`, `chunkTimeout` raised, and a 600 s patience |
 | 2 | + Recipe C plugin, compressor on the NPU | same + NPU time per block, validator reject rate |
 | 3 | Arm 2 on the B390 class (community) | does it still pay on a fast iGPU? |
 
@@ -121,6 +121,43 @@ Instruments: NoLlama's request log (`<- [GPU] N chars`, `-> … TTFT`),
 accounting — how much of a turn's prompt is tool output, and how much is
 repeat.
 
+### First results: the B60 rig, 2026-09-12
+
+Rig: `Qwen3-Coder-30B-A3B-Instruct-int4` on the Arc Pro B60 (port 8000,
+6 GB pool, resident), `SmolLM3-3B-int4-cw` on the 5950X CPU as the NPU
+stand-in (port 8002), both as scheduled tasks on the B60 box; OpenCode
+1.18.30 in Docker on the 285K, reaching the B60 over Tailscale. Task: the
+read-heavy cancel-mechanism question over NoLlama's own tree, fresh session
+each. [OBSERVED 2026-09-12]
+
+| Arm | Wall clock | Turns | Cold first token (46.6k chars, ~11k tok) | Later turns' TTFT | Tool results | Answer |
+|---|---|---|---|---|---|---|
+| 0, OpenCode defaults | **52 s** | 7 (grep, 4× read, write, summary) | 19.7 s | 1.1–4.4 s | 1.3–8.1 KB each | correct |
+| 1, 12 KB / 300-line caps + prune | **56 s** | 8 (2× grep, 4× read, write, summary) | 13.2 s | 1.2–4.4 s | 0.9–7.9 KB each | correct, 70 lines |
+
+Both answers are right: they name the per-request token, its binding inside
+the lock, the consumer's finally, `/v1/cancel`, and the reason (issue #40).
+The 30B coder issued targeted `read`s with offsets and limits — six of them
+against a 4,700-line file — where the 8B on the 285K fired 26 whole-file
+reads. Model quality, not the harness, decided the byte count.
+
+What this does and does not show:
+
+- **Recipe A holds on real hardware.** The title request went to the CPU
+  server (15 tokens, 6–8 s) and the turn started on the B60 at the same
+  second. Decode on the long generation: 41–44 tok/s.
+- **Arms 0 and 1 are equal within noise on this task** because no tool
+  result exceeded 8 KB — the 12 KB cap never bound. Recipe B's test needs a
+  task that produces big blocks: a full-file read, a failing test run, a
+  noisy build log. Same for Recipe C, which distils only above a threshold.
+- **The scheduler path's cold prefill is fine on Xe2**: 13–20 s for ~11k
+  tokens here against 216 s on the 285K's Xe-LPG for the same request. The
+  3× penalty recorded in `docs/dev/prefix-cache.md` is Xe-LPG's, not the
+  path's.
+- NoLlama's memory preflight warned "needs ~23.3 GB, budget 23.3 GB — will
+  likely NOT work" on a load that worked; the wording is the iGPU's
+  (shared-memory override) and the equality case is a false alarm on a
+  discrete card. Noted in `NEXT-STEPS.md`.
 ## Gates
 
 - Arm 1 gates Recipe C: if caps + prune already cut the cold suffix by most

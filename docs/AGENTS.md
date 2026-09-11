@@ -108,7 +108,12 @@ python nollama.py --port 8002 --ollama-port 0 --device NPU --model-dir <small-np
 Verified 2026-09-11 (OpenCode 1.18.30, Core Ultra 9 285K: Qwen3-8B on the
 iGPU, SmolLM3-3B on the NPU): the title request hit the NPU server and was
 answered in 2.8 s; the turn reached the GPU in the same second and started
-prefilling immediately instead of queueing behind it. Two processes rather
+prefilling immediately instead of queueing behind it. And 2026-09-12 on real
+coder hardware: `Qwen3-Coder-30B-A3B-Instruct-int4` on an Arc Pro B60 with
+SmolLM3-3B on the box's CPU standing in for the NPU — a read-and-write
+task over a 4,700-line file completed in **52–56 s wall clock**, seven to
+eight turns, 13–20 s cold first token and 1–4 s after that, correct answer
+(`OPENCODE-PLAN.md`, "First results"). Two processes rather
 than NoLlama's dual mode on purpose — each has its own lock, KV pool and
 crash domain, so a GPU-side failure (#37, #38) leaves the NPU server up.
 Dual mode (`--gpu-model-dir`) gives one port instead, addressed as
