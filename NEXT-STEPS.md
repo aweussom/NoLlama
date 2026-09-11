@@ -173,6 +173,13 @@ Worth teaching the probe to print both before the next driver hunt.
   nightly fails identically, so the report leads with an 18-line CPU-only
   script against their own published model.
 
+  **Upstream status (2026-09-09):** first triage tested `LLMPipeline` on a
+  text model and missed the path; answered 2026-09-06 with the divergence
+  shown (penalty honoured on text, asserts on image). Then an Intel engineer
+  posted `Ref. 194483` — their internal tracker id, which is how Intel marks
+  an issue accepted into engineering triage. Nothing to do but wait; quote
+  that number if anyone asks upstream about it.
+
   Also learned, and it constrains planning: the B60 box **cannot run
   `venv-nightly` at all** — its application-control policy blocks the
   unsigned `py_openvino_genai` DLL, and elevation does not lift it. Any
