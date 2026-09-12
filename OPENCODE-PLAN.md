@@ -112,7 +112,7 @@ that hurts.
 |---|---|---|
 | 0 | Recipe A, OpenCode defaults | **Ran 2026-09-11, degenerate:** turn 1 = 46.6k chars, TTFT 217 s, then Qwen3-8B fired 27 tool calls (1 glob + 26 `read`s) and OpenCode sent 1.49 M chars back against a 40k-token window; killed after 4 min of prefill. Two lessons: declare the model's real `limit.context` (the config said 120k) so OpenCode compacts before sending, and a weak model's tool-call fan-out is the byte source, not any single result |
 | 1 | + Recipe B (12 KB / 300 lines, prune on) | **B60 result below (2026-09-12).** 285K attempt 2026-09-11, no data: the run failed on something that did not reproduce afterwards (`NEXT-STEPS.md`); the exact request replayed later behaves normally at 216 s TTFT on the scheduler path vs 72 s plain (`docs/dev/prefix-cache.md`). Rerun with the honest 40k `limit.context`, `chunkTimeout` raised, and a 600 s patience |
-| 2 | + Recipe C plugin, compressor on the NPU | same + NPU time per block, validator reject rate |
+| 2 | + Recipe C plugin, compressor on the NPU | **Ran 2026-09-12 with the CPU as compressor: failed the gate** (5× slower, 4 of 5 rejected, answer quality halved). Below |
 | 3 | Arm 2 on the B390 class (community) | does it still pay on a fast iGPU? |
 
 Instruments: NoLlama's request log (`<- [GPU] N chars`, `-> … TTFT`),
@@ -158,6 +158,45 @@ What this does and does not show:
   likely NOT work" on a load that worked; the wording is the iGPU's
   (shared-memory override) and the equality case is a false alarm on a
   discrete card. Noted in `NEXT-STEPS.md`.
+### Arm 2: the compress-at-birth plugin, first build, 2026-09-12
+
+Built as `.opencode/plugins/nollama-distill.ts` (a `tool.execute.after`
+hook: mechanical pre-pass, one chat call to the small-model server,
+contract validator, 70 % size rule, never blocks; source and log in the
+aikomp repo). Distiller: SmolLM3-3B on the 5950X CPU. Task 3: four bash
+commands producing 6.2–9.1 KB each (`grep -n 'def '`, `grep -n 'print('`,
+`grep -n -i error`, `sed -n 1,200p` over `nollama.py`), then an INDEX.md
+from their content. Same rig, fresh sessions. [OBSERVED 2026-09-12]
+
+| | Arm 1 (caps, no plugin) | Arm 2 (caps + plugin) |
+|---|---|---|
+| wall clock | **49 s** | **260 s** |
+| distiller calls | — | 5, at 35–50 s each |
+| verdicts | — | 1 replace (6.2 → 2.5 KB), 4 keep (not smaller / contract missing 16 of 16 / empty / contract missing 1 of 1) |
+| functions counted (truth: 150 `def ` lines) | 114 | **57** — from the one distilled block |
+| print sites (truth: 120) | 104 | 104 |
+| extra turns | — | 1 (the coder re-ran a `^def` grep after seeing the distillate) |
+
+**Gate failed on every axis.** Time: on the B60 a turn's first token is
+0.5–1.4 s, so a 35–50 s distillation per block is a 5× slower session, and
+the CPU stand-in is not the slow part of the story — NPU 3 would be slower
+still. Quality: the one block the validator let through was a *listing*,
+not noise, and the 3B distiller kept the first half of it and dropped the
+rest; the coder's answer halved with it. The contract validator did its
+job on error-shaped text (it rejected the `error` grep for dropping 16 of
+16 contract lines) and has nothing to say about listings, which is exactly
+the byte source in a coding session. Reject rate 4 of 5, against a gate of
+~20 %.
+
+What would change the verdict, in order of plausibility: (1) apply it only
+to genuinely noisy output — test runs, build logs, stack-trace floods —
+where aikomp's contract is the right test and listings never enter;
+(2) a distiller that is both faster and stronger than a 3B on a CPU or
+NPU, which today means the GPU itself, which is busy; (3) a GPU class
+where prefill is the bottleneck — on the 285K's Xe-LPG a 9 KB block costs
+~40 s of cold prefill, so 45 s of distillation is break-even there and a
+loss everywhere faster. None of these is the B60, and the B60 is the
+target. Recipe C is parked; see `TODONT.md`.
 ## Gates
 
 - Arm 1 gates Recipe C: if caps + prune already cut the cold suffix by most

@@ -3,6 +3,39 @@
 Things we tried that didn't work, or that work but aren't worth doing. Each
 entry explains *why not* so we don't re-litigate it in six months.
 
+## Compress-at-birth: a small model distilling tool results for the coder (2026-09-12)
+
+Idea (from aikomp, moved into an OpenCode `tool.execute.after` plugin): when a
+tool result is large, have the small model on the second NoLlama server
+(NPU, or the CPU standing in) condense it once before OpenCode stores it, so
+the coder prefills fewer bytes every turn and the KV pool lasts longer.
+Mechanical pre-pass, conservative prompt, contract validator (every
+error/fail/traceback line, file:line and exit code must survive), 70 % size
+rule, never block.
+
+**Verdict: parked. It failed its own gate on the target hardware.**
+[OBSERVED 2026-09-12, B60 + 5950X, SmolLM3-3B as distiller, OpenCode
+1.18.30] Four 6–9 KB tool outputs: five distiller calls at 35–50 s each
+against a session whose turns otherwise take 1–3 s — 260 s wall clock vs
+49 s without. One block replaced, four kept (validator rejections and
+"not smaller"). The replaced block was a `grep -n 'def '` listing; the
+distiller kept its first half, and the coder's function count fell from
+114 to 57 (truth 150). Reject rate 4 of 5 against the ~20 % gate in
+`OPENCODE-PLAN.md`.
+
+**Why not, precisely:** the byte source in a coding session is listings and
+code — grep results, file reads — which are signal, not noise; a validator
+built for error-shaped text cannot tell that a listing lost half its lines.
+And on a fast GPU the compressor's latency dwarfs the prefill it saves. Both
+were predictable from aikomp's own design notes ("bevar signal konservativt")
+and the plan's economics section; the run made them numbers.
+
+**What survives:** the plugin skeleton and the two-server routing it rides
+on (recipe A is unaffected and verified); the case for distillation narrows
+to genuinely noisy output (test runs, build logs) on GPUs where prefill is
+the bottleneck (Xe-LPG class), with a stronger distiller than a 3B. Reopen
+when a task with that shape shows up on that hardware.
+
 ## OpenClaw as the flagship agent client (2026-06-28 -> 2026-09-11)
 
 Idea: make OpenClaw the showcase for agent use — `start-openclaw.ps1` as the
