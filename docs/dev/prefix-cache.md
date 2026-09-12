@@ -169,6 +169,16 @@ A too-small pool **hard-fails** generation with `Got unfinished
 GenerationStatus` (issue #21); `explain_genai_error` annotates that error
 with a `--cache-size-gb` hint wherever it surfaces.
 
+The verdict has three words, not two (`_preflight_verdict`): **fits** is
+silent, **tight** is an info line when the estimate overshoots the budget by
+at most 5 % — the estimate's own 10 % margin is doing that, not the
+hardware — and **over** is the warning. [OBSERVED 2026-09-12] The Arc Pro
+B60 was told "needs ~23.3 GB but the device budget is 23.3 GB — this will
+likely NOT work" for 15.2 GB of weights and a 6 GB pool, then served a 30B
+coder through two OpenCode sessions; that case is now "tight". The hint on
+"over" is typed by device: only an integrated GPU has a driver budget to
+raise, so a discrete card is told to shrink the quant or the pool instead.
+
 VLM configs nest geometry under `text_config` — `_text_config` handles
 that, which is what fixed the KV half of this preflight silently
 no-op'ing on every VLM.

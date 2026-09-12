@@ -5,7 +5,7 @@
 %%         ALL-CAPS nodes = prose annotations.
 %% Palette: route (blue) = decisions, gen (green) = live pipeline states,
 %%          client (yellow) = external effects, warn (orange) = annotations.
-%% covers: nollama.py:main,needs_optimum,is_vlm,_verify_weights_integrity,_resolve_kv_pool,_preflight_memory,_largest_weight_tensor_bytes,_gpu_large_alloc_props,load,warmup,_prewarm_slot,_idle_watchdog,ensure_loaded,unload,_load_in_background
+%% covers: nollama.py:main,needs_optimum,is_vlm,_verify_weights_integrity,_resolve_kv_pool,_preflight_memory,_preflight_verdict,_largest_weight_tensor_bytes,_gpu_large_alloc_props,load,warmup,_prewarm_slot,_idle_watchdog,ensure_loaded,unload,_load_in_background
 %% (_slot_class is nested inside main and invisible to the checker's AST scan
 %%  — its box below is covered via main.)
 flowchart TB
@@ -24,7 +24,7 @@ flowchart TB
   _verify_weights_integrity --> _resolve_kv_pool
 
   _resolve_kv_pool["_resolve_kv_pool<br/>pin via --cache-size-gb, else auto:<br/>(budget - weights*1.1)/3, floor 2 GB,<br/>cap 64k tokens of KV geometry"]
-  _resolve_kv_pool --> _preflight_memory["_preflight_memory<br/>WARNS, never blocks; logs pool
+  _resolve_kv_pool --> _preflight_memory["_preflight_memory<br/>never blocks: _preflight_verdict says<br/>fits (silent) / tight (info, within the<br/>estimate's own 5% slack) / over (WARNING,<br/>hint typed iGPU vs dGPU); logs pool
   token capacity"]
   _preflight_memory --> alloc_gate
 

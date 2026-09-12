@@ -398,6 +398,28 @@ def _system_ram_bytes():
     return None
 
 
+def _preflight_verdict(need, mem, slack=0.05):
+    """Classify an estimated memory need against a device budget.
+
+    Why: the estimate carries a flat 10 % overhead margin, so a need that
+    lands within a few percent above the budget is the margin talking, not
+    the hardware. On 2026-09-12 the Arc Pro B60 was told "needs ~23.3 GB but
+    the device budget is 23.3 GB — this will likely NOT work" and then
+    served a 30B coder for an hour. A discrete card reports its VRAM
+    exactly, so the band between 'fits' and 'over' is real and needs a
+    third word.
+
+    In: byte counts (any unit, only the ratio matters) and the slack as a
+    fraction. Out: 'fits' when need <= mem, 'tight' when need is over by at
+    most `slack`, 'over' beyond that. Equality is 'fits'.
+    """
+    if need <= mem:
+        return "fits"
+    if need <= mem * (1 + slack):
+        return "tight"
+    return "over"
+
+
 def _device_mem_bytes(device_name, device_id):
     """Memory budget for a device, in bytes. None if unknown.
 
@@ -1639,6 +1661,13 @@ class DeviceSlot:
         estimates, and on 16 GB cards OpenVINO's silent CPU fallback (or a
         'Got unfinished GenerationStatus' abort mid-request) is far worse
         than a false-positive warning here.
+
+        Three verdicts, from _preflight_verdict: fits (silent), tight (an
+        info line — the estimate overshoots the budget by less than its own
+        slack, and the load has been seen to work), over (the warning). The
+        hint on 'over' is typed by device: an integrated GPU can raise its
+        shared budget in the driver; a discrete card cannot, so it is told
+        to shrink the model or the pool instead.
         """
         gib = 2 ** 30
         mem = _device_mem_bytes(self.device_name, self.device_id)
@@ -1647,7 +1676,13 @@ class DeviceSlot:
             return  # can't estimate — stay quiet rather than guess
         kv_pool = self.kv_pool_gb * gib  # 0 when this slot can't prefix-cache
         need = (weights + kv_pool) * 1.1  # ~10% runtime/activation overhead
-        if need > mem:
+        verdict = _preflight_verdict(need, mem)
+        if verdict == "tight":
+            print(f"  [{self.device_name}] memory is tight: model (~{weights / gib:.1f} GB)"
+                  f"{f' + KV pool ({kv_pool // gib} GB)' if kv_pool else ''} estimates to "
+                  f"~{need / gib:.1f} GB against a {mem / gib:.1f} GB budget — loading anyway; "
+                  f"if it fails, lower --cache-size-gb", flush=True)
+        elif verdict == "over":
             if OFFLOAD_RATIO and self.device_name == "GPU":
                 # MoE disk offload keeps only part of the expert weights
                 # resident; the estimate above ignores that (expert share
@@ -1661,10 +1696,13 @@ class DeviceSlot:
                       f"resident — MoE models will likely fit; dense models "
                       f"will not (offload only covers MoE experts)", flush=True)
             else:
-                hint = ("use a smaller quant or lower --cache-size-gb"
-                        if self.device_name == "CPU" else
-                        "raise the iGPU budget (Intel Graphics Software -> Shared GPU "
-                        "Memory Override), use a smaller quant, or lower --cache-size-gb")
+                # OpenVINO's FULL_DEVICE_NAME ends in "(iGPU)" / "(dGPU)"; only
+                # the integrated kind has a driver-side budget to raise.
+                if self.device_name == "GPU" and "(iGPU)" in (self.device_full or ""):
+                    hint = ("raise the iGPU budget (Intel Graphics Software -> Shared GPU "
+                            "Memory Override), use a smaller quant, or lower --cache-size-gb")
+                else:
+                    hint = "use a smaller quant or lower --cache-size-gb"
                 print(f"  [{self.device_name}] WARNING: model (~{weights / gib:.1f} GB)"
                       f"{f' + KV pool ({kv_pool // gib} GB)' if kv_pool else ''} needs "
                       f"~{need / gib:.1f} GB but the device budget is {mem / gib:.1f} GB "
