@@ -971,6 +971,21 @@ def extract_perf(result):
         return None, None
 
 
+def _is_poisoned_context_error(e):
+    """Is this the GPU error after which the driver context cannot be trusted?
+
+    Why: `CL_OUT_OF_RESOURCES` is not an ordinary throw. OpenVINO's message
+    says a driver bug may hang any subsequent OpenCL call, and the field
+    confirms it [OBSERVED 2026-09-12, issue #38: the slot never recovered
+    without a process restart, and once needed a reboot]. Every other
+    generate error leaves the slot usable; this one must take it out of
+    service, so the check lives in one place.
+
+    In: any exception. Out: True only for that OpenCL error text.
+    """
+    return "CL_OUT_OF_RESOURCES" in str(e)
+
+
 def explain_genai_error(e, slot=None):
     """Map opaque OpenVINO GenAI runtime errors to actionable messages.
     Pass the serving slot when available — some hints cite its config."""
@@ -1014,6 +1029,17 @@ def explain_genai_error(e, slot=None):
                 f"model is beyond the NPU envelope (proven NPU models are "
                 f"INT4-CW, 8B params or less). Try an NPU model from the "
                 f"install menu, or run this model on GPU/CPU instead.")
+    if _is_poisoned_context_error(e):
+        # OpenVINO's own text under this error says the driver bug leaves any
+        # later OpenCL call liable to hang. A user confirmed it [OBSERVED
+        # 2026-09-12, Arc 140T, issue #38]: after this the slot never
+        # recovers, a NoLlama restart is needed, sometimes a reboot. No
+        # pipeline-level reset can help, so say the true remedy up front.
+        return (f"{msg} — the GPU driver's OpenCL context is poisoned and this slot "
+                f"is out of service: restart NoLlama; if it recurs, reboot (Windows + "
+                f"Intel driver uptime is a known factor). Before restarting, lower "
+                f"--cache-size-gb or raise the iGPU's Shared GPU Memory Override so "
+                f"the pool and the weights fit with headroom")
     if "Exceeded max size of memory object allocation" in msg:
         # One buffer over the device's PER-ALLOCATION cap — not "out of
         # memory": the device can hold it, no single object may be that big.
@@ -1469,6 +1495,7 @@ class DeviceSlot:
         self.lock = threading.Lock()
         self._cancel = threading.Event()  # the ACTIVE generation's cancel token (see stream_tokens)
         self._stream_error = None        # last stream_tokens backend exception (single consumer per lock)
+        self.error_reason = None         # why status is "error", for /health and the log (see _note_poisoned)
         self.last_used = time.time()     # for idle-unload watchdog
         self.model_dir = None            # remembered so we can reload after unload
         self.last_ttft_ms = None         # last request's time-to-first-token (prefix-cache hit ≈ low)
@@ -1860,6 +1887,13 @@ class DeviceSlot:
         what IS established is that calling it on a healthy pipe costs
         nothing [OBSERVED 2026-09-01, same probe].
 
+        What it can NOT do [OBSERVED 2026-09-12, Arc 140T, issue #38]: rescue
+        a slot after `CL_OUT_OF_RESOURCES`. The reporter provoked that error
+        and the slot stayed dead until NoLlama was restarted, once until a
+        reboot — the driver context itself is gone, as OpenVINO's own error
+        text warns. That class is handled by _note_poisoned, which takes the
+        slot out of service instead.
+
         `finish_chat()` is deprecated as of genai 2026.3 — "will be removed
         in the next major release, use generate() with a ChatHistory
         argument" — so this needs rewriting before that lands.
@@ -1917,6 +1951,28 @@ class DeviceSlot:
         if ttft_ms is not None:
             self.last_ttft_ms = ttft_ms
         return extract_text(result)
+
+    def _note_poisoned(self, e):
+        """Take the slot out of service after a GPU error the driver cannot
+        recover from, so clients get one clear refusal instead of a failure
+        per request.
+
+        Why: after `CL_OUT_OF_RESOURCES` every later request on the slot
+        fails or hangs until the process restarts [OBSERVED 2026-09-12,
+        issue #38]. Marking status "error" makes _slot_serviceable route
+        around it, /health show the reason, and the operator restart once
+        rather than watch a stream of `!!` lines.
+
+        In: the exception from a generate. Out: nothing; sets status and
+        error_reason only for the poisoned-context class, no-op otherwise.
+        """
+        if not _is_poisoned_context_error(e):
+            return
+        self.status = "error"
+        self.error_reason = ("GPU driver context poisoned (CL_OUT_OF_RESOURCES); "
+                             "restart NoLlama — if it recurs, reboot")
+        print(f"{datetime.now():%H:%M:%S} !! [{self.device_name}] slot taken out of "
+              f"service: {self.error_reason}", flush=True)
 
     def cancel(self):
         """Signal the generation that currently holds the lock to stop.
@@ -1990,6 +2046,7 @@ class DeviceSlot:
                 self._stream_error = e
                 print(f"{datetime.now():%H:%M:%S} !! [{self.device_name}] "
                       f"{tag}generate error: {explain_genai_error(e, self)}", flush=True)
+                self._note_poisoned(e)
             finally:
                 token_queue.put(None)
 
@@ -2067,6 +2124,7 @@ class DeviceSlot:
                 self._stream_error = e
                 print(f"{datetime.now():%H:%M:%S} !! [{self.device_name}] "
                       f"{tag}VLM generate error: {explain_genai_error(e, self)}", flush=True)
+                self._note_poisoned(e)
             finally:
                 token_queue.put(None)
 
@@ -2200,6 +2258,7 @@ class DeviceSlot:
             "kv_pool_gb": self.kv_pool_gb or None,  # resolved KV pool (null: no prefix cache)
             "last_ttft_ms": (round(self.last_ttft_ms)
                              if self.last_ttft_ms is not None else None),
+            "reason": self.error_reason,        # set when status is "error" (poisoned GPU context)
         }
 
 

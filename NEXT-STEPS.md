@@ -373,6 +373,17 @@ Worth teaching the probe to print both before the next driver hunt.
   logs in `C:\Users\wossn\b60-eval\`, ports open from Tailscale. Stop with
   `Stop-ScheduledTask`. It is the arm 2 test bed; the next task must produce
   tool results over 12 KB or the caps and the distiller have nothing to do.
+
+- **The VLM slot reset is now known NOT to cover `CL_OUT_OF_RESOURCES`**
+  [OBSERVED 2026-09-12, oligocene, Arc 140T, #38]: the slot stays dead until
+  NoLlama restarts, once until a reboot — a poisoned driver context, as
+  OpenVINO's own error text warns. NoLlama now takes the slot out of service
+  (`_note_poisoned`: status "error", reason in `/health`) and the explainer
+  names the remedy. Still open: the *allocation-cap* throw from #24 (a
+  different class) — whether `_reset_vlm_state` rescues that one remains
+  unverified. Also noted by the reporter and seen here the same day: GPU
+  misbehaviour that clears with a reboot after long uptime under heavy load;
+  keep asking for driver versions.
 - **`transformers` main breaks the optimum backend's text-only path.**
   `5.16.0.dev0` calls `get_experts_implementation()` from
   `_optimize_model_for_decode()`; `OVModelForCausalLM` doesn't implement it, so

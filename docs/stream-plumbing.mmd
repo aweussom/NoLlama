@@ -8,7 +8,7 @@
 %%         ALL-CAPS nodes = prose annotations.
 %% Palette: route (blue) = protocol consumers, gen (green) = backend/worker,
 %%          client (yellow) = wire frames, warn (orange) = annotations.
-%% covers: nollama.py:stream_tokens,stream_vlm_tokens,_reset_vlm_state,_vlm_penalty_guard,_is_placeholder_bounds_error,stream_llm,stream_vlm,_sse_stream,_ollama_stream_chat,_ollama_stream_generate,generate_llm,cancel,explain_genai_error,_AtemStreamFilter,_AtemPlainFilter,_ThinkSplitter,_split_think,_ToolCallGate,_prompt_preseeds_think
+%% covers: nollama.py:stream_tokens,stream_vlm_tokens,_reset_vlm_state,_vlm_penalty_guard,_is_placeholder_bounds_error,_note_poisoned,_is_poisoned_context_error,stream_llm,stream_vlm,_sse_stream,_ollama_stream_chat,_ollama_stream_generate,generate_llm,cancel,explain_genai_error,_AtemStreamFilter,_AtemPlainFilter,_ThinkSplitter,_split_think,_ToolCallGate,_prompt_preseeds_think
 flowchart TB
   stream_tokens["DeviceSlot.stream_tokens<br/>SEAM between backend and protocol.<br/>Owns: worker thread, lock, binding the<br/>caller's per-request cancel token to<br/>slot._cancel INSIDE the lock, _stream_error.<br/>A token already set at lock time skips<br/>generate (client left while queued).<br/>Yields str chunk, or None after
   'heartbeat' quiet seconds"]
@@ -43,8 +43,14 @@ flowchart TB
   inside it, and a 27.2 GB per-allocation cap puts the real repro out of
   reach without a ~165k-token prompt. What IS observed: calling it on a
   healthy pipe costs nothing. Note finish_chat() is deprecated in genai
-  2026.3 and needs rewriting before it is removed."]
+  2026.3 and needs rewriting before it is removed.
+  WHAT IT CANNOT DO (observed 2026-09-12, issue #38): rescue a slot after
+  CL_OUT_OF_RESOURCES - the driver context is gone; the reporter needed a
+  process restart, once a reboot. _note_poisoned takes that slot out of
+  service (status error, reason in /health) instead of pretending."]
   reset_state -.-> WEDGEUNPROVEN
+  poisoned["_note_poisoned<br/>CL_OUT_OF_RESOURCES only:<br/>status = error, reason set,<br/>_slot_serviceable routes around it"]
+  _stream_error -.->|"_is_poisoned_context_error"| poisoned
   worker -.->|"backend exception"| _stream_error["_stream_error set;<br/>explain_genai_error names the fix<br/>(KV pool too small, NPU compiler,<br/>AUTO_DETECT -> --npu-platform, and the<br/>per-allocation cap: a perfect-square<br/>'requested N bytes' is named as an S-squared<br/>attention mask, i.e. a prompt-length limit).<br/>Order matters: the specific matchers run<br/>before the broad 'Compilation failed' one,<br/>and the NPU hints are gated on the slot's<br/>device — see tests/test_npu_pin.py"]
 
   _sse_stream["_sse_stream (OpenAI SSE, shared body)<br/>None -> empty-content delta keepalive;<br/>first token stamps wall-clock TTFT;<br/>finish stop / cancelled / error, [DONE]"]
@@ -113,5 +119,5 @@ flowchart TB
   classDef warn fill:#fec,stroke:#a60,color:#000
   class _sse_stream,stream_llm,tool_stream,_ollama_stream_chat,_ollama_stream_generate,generate_llm route
   class stream_tokens,stream_vlm_tokens,opt_stream_tokens,worker,atem,splitter,gate,penalty_guard,reset_state gen
-  class cancel,_stream_error client
+  class cancel,_stream_error,poisoned client
   class FINALLY,CANCELLIMIT,ORDER,RETRYSAFE,WEDGEUNPROVEN warn
