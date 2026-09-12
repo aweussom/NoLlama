@@ -111,7 +111,10 @@ Ollama shim.
 
 OpenCode, Goose and VS Code Copilot Chat all work, with tool-calling on GPU or CPU
 (never the NPU — it has a hard prompt cap). Prefix caching is on by default, so
-an agent's fixed system prompt is prefilled once rather than every turn.
+an agent's fixed system prompt is prefilled once rather than every turn. The
+installer's "Coding agent" use-case writes an `opencode.json` for you and puts
+OpenCode's small side-requests on a second server (NPU, or CPU) so they never
+queue in front of your turn — see [docs/AGENTS.md](docs/AGENTS.md).
 
 Setup for both: **[docs/AGENTS.md](docs/AGENTS.md)**.
 

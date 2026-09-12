@@ -46,6 +46,16 @@ and bare-JSON outputs — so most instruct/coder models work.
 
 ## OpenCode
 
+**`install.ps1` writes this file for you.** Pick the "Coding agent" use-case
+and it offers a small model for OpenCode's side-tasks (NPU if present, CPU
+otherwise), generates `start-small.ps1` for that second server, and writes
+`opencode.json` with the model ids NoLlama will actually advertise, an honest
+context limit, the raised timeouts and the tool-output caps. Copy it into
+your project root. The "Chat + Coding agent" combo writes the dual-mode form
+instead (one process, `<name>@GPU` / `<name>@NPU`). Manual installs can run
+`scripts/New-OpenCodeConfig.ps1` with the same arguments. What follows is
+what that file contains and why.
+
 OpenCode speaks the OpenAI API and needs only a provider block in
 `opencode.json` (project root). The minimal, one-server form:
 
