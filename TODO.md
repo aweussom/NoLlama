@@ -1,5 +1,110 @@
 # TODO
 
+## A better dGPU keepalive than pinging the model (2026-09-13)
+
+`_gpu_keepalive` works and should stay until something better is proven, but
+it is a workaround wearing the shape of a fix: we defeat an idle timer by
+manufacturing non-idleness, once a minute, forever. It burns a little power,
+it takes the slot lock, it costs a 1-token prefill, and — as
+`TODONT.md` now records — it needed its own `CL_OUT_OF_RESOURCES` handling
+because a ping that poisons the context, swallowed, feeds a dead slot to the
+idle watchdog. **There is almost certainly a residency control to ask for
+instead.** Find it.
+
+### What we already know
+
+- The eviction is **not memory pressure**: 20.34 GB → 0 at 80s, 80s and 79s
+  after the last request on an Arc Pro B60, with 21.5 GB of host RAM free
+  [OBSERVED 2026-09-13, `docs/slot-lifecycle.mmd`]. Three for three, at a
+  consistent threshold. That is an **idle timer**, and an idle timer is the
+  kind of thing that has a setting.
+- **iGPUs are immune** — their VRAM is host RAM, nothing to evict to. So
+  whatever we find only ever applies to the discrete path, same as today's
+  gate.
+- NoLlama is not involved: status stays `ready`, the allocation is never
+  released from our side, committed memory does not change.
+
+### Ruled out already: the OpenVINO GPU plugin has no such property
+
+[OBSERVED 2026-09-13, enumerated `SUPPORTED_PROPERTIES` on the 285K box,
+OpenVINO 2026.3.0.] The complete RW set is `PERF_COUNT`, `MODEL_PRIORITY`,
+`GPU_HOST_TASK_PRIORITY`, `GPU_QUEUE_PRIORITY`, `GPU_QUEUE_THROTTLE`,
+`GPU_ENABLE_SDPA_OPTIMIZATION`, `GPU_ENABLE_LORA_OPERATION`,
+`GPU_ENABLE_LARGE_ALLOCATIONS`, `GPU_ENABLE_LOOP_UNROLLING`,
+`GPU_DISABLE_WINOGRAD_CONVOLUTION`, `CACHE_DIR`, `CACHE_MODE`,
+`PERFORMANCE_HINT`, `EXECUTION_MODE_HINT`, `COMPILATION_NUM_THREADS`,
+`NUM_STREAMS`, `PERFORMANCE_HINT_NUM_REQUESTS`, `INFERENCE_PRECISION_HINT`,
+`ENABLE_CPU_PINNING`, `ENABLE_CPU_RESERVATION`, `DEVICE_ID`,
+`DYNAMIC_QUANTIZATION_GROUP_SIZE`, `ACTIVATIONS_SCALE_FACTOR`,
+`WEIGHTS_PATH`, `KV_CACHE_PRECISION`, `OFFLOAD_RATIO`, `CONFIG_FILE`.
+
+Nothing resembling residency, eviction, reservation or keep-alive. So the
+lever, if it exists, is **below** OpenVINO — which also means asking Intel
+for one at the plugin layer is a legitimate second outcome of this hunt.
+
+Caveat on that enumeration: taken on a Xe-LPG iGPU + an RTX 5090, not on the
+B60. The list is plugin-level rather than per-device so it should hold, but
+re-run it on the B60 before treating the negative as final.
+
+### Leads, in the order worth trying
+
+1. **`MODEL_PRIORITY` (`ov::hint::model_priority`).** One property, ten
+   minutes, already exposed. `HIGH` may map onto something the driver
+   consults when deciding what to page out. Weak prior — the trigger is an
+   idle timer, not contention — but it is the cheapest test we have and it
+   is a real RW property, not a guess.
+2. **DXGI residency, which is the actual WDDM-level lever.**
+   `IDXGIAdapter3::SetVideoMemoryReservation` tells Windows how much video
+   memory this process wants kept resident, and
+   `QueryVideoMemoryInfo` reports `CurrentReservation` /
+   `CurrentUsage` / `Budget` so the effect is **directly measurable** rather
+   than inferred from TTFT. Reachable from Python by `ctypes` against
+   `dxgi.dll` with no OpenVINO involvement, which makes it testable as a
+   standalone probe beside a running server. Best candidate.
+3. **Level Zero residency.** `zeContextMakeMemoryResident()` /
+   `zeContextEvictMemory()` are the documented L0 API for exactly this. The
+   obstacle: OpenVINO's GPU plugin on Windows is on **OpenCL**, not L0 — the
+   issue #38 traceback names `ocl_common.hpp` — so we would be making a
+   residency call against allocations we do not own. Worth understanding
+   before dismissing; may be the thing to ask Intel to wire up.
+4. **Intel USM extensions.** `GPU_USM_MEMORY` is in the iGPU's
+   `OPTIMIZATION_CAPABILITIES`, so `cl_intel_unified_shared_memory` is
+   present. It carries `clEnqueueMigrateMemINTEL` and
+   `clEnqueueMemAdviseINTEL` — check whether any advice value expresses
+   "keep resident". Same ownership problem as (3).
+5. **Driver-side and Windows-side settings.** An 80-second idle threshold
+   that fires with memory to spare smells like driver power management, not
+   the Windows memory manager. Check Intel Graphics Software's power
+   settings on the B60, the Windows power mode, and whether any documented
+   Intel registry value governs idle VRAM release. **Do not change a driver
+   setting on the B60 without asking** — `docs/dev/machines.md` rules apply,
+   and a setting silently changed is a measurement quietly invalidated.
+
+### How it would land
+
+If a lever exists: set it once at load on eligible slots, keep
+`_keepalive_eligible` as the gate, and retire `_gpu_keepalive` to a fallback
+behind a flag rather than deleting it — the eviction threshold is a driver
+behaviour and can change under us. Keep the poisoned-context handling
+whichever way this goes.
+
+If no lever exists: that is a finding, and it is Intel-shaped. File it with
+the B60 numbers (three evictions, consistent ~80s, ample free host RAM,
+~10s TTFT against ~0.5s warm) and ask for a residency hint on the GPU
+plugin. Either way the measurement is already done — that is the expensive
+part and it is behind us.
+
+### Smaller thing, same function
+
+`_keepalive_eligible` gates on `"(dGPU)" in FULL_DEVICE_NAME`, which is
+"discrete", not "Intel discrete". On the 285K box `GPU.1` is an RTX 5090 and
+reports `(dGPU)` [OBSERVED 2026-09-13]. Unreachable today because an NVIDIA
+slot never reaches `ready` (NVIDIA is a settled non-goal, below), so this is
+tidiness rather than a bug — but the day something changes there, the gate
+says yes to a card whose driver has none of this behaviour.
+
+---
+
 ## Test the available Norwegian translation models — the NPU's real workload (2026-09-04)
 
 The NPU is not primarily meant for coding LLMs. The intended workload is
