@@ -50,11 +50,27 @@ and bare-JSON outputs — so most instruct/coder models work.
 and it offers a small model for OpenCode's side-tasks (NPU if present, CPU
 otherwise), generates `start-small.ps1` for that second server, and writes
 `opencode.json` with the model ids NoLlama will actually advertise, an honest
-context limit, the raised timeouts and the tool-output caps. Copy it into
-your project root. The "Chat + Coding agent" combo writes the dual-mode form
-instead (one process, `<name>@GPU` / `<name>@NPU`). Manual installs can run
+context limit, the raised timeouts and the tool-output caps. The "Chat +
+Coding agent" combo writes the dual-mode form instead (one process,
+`<name>@GPU` / `<name>@NPU`). Manual installs can run
 `scripts/New-OpenCodeConfig.ps1` with the same arguments. What follows is
 what that file contains and why.
+
+**You do not have to copy it anywhere.** `.\launch-agent.ps1 -Path <project>`
+starts the server if it is down, waits for every slot to finish loading, and
+opens OpenCode with `OPENCODE_CONFIG` pointed at the generated file.
+
+That env var **layers** on top of the user's own config rather than replacing
+it [OBSERVED 2026-09-13, opencode 1.18.30: with a project `opencode.json`
+defining provider `testmarker` and `OPENCODE_CONFIG` pointing at ours,
+`opencode models` listed both `testmarker/*` and `nollama/*`], so nothing is
+written to the machine and existing providers, agents and keybinds survive.
+Copying the file into a project root still works if you prefer it.
+
+It waits for **every** slot, not `/health`'s top-level status, which reports
+ready as soon as any one slot is. That is right for a liveness probe and wrong
+here: `small_model` traffic is routed to the NPU/CPU slot, so handing over
+early sends the first title request at a model that is still loading.
 
 OpenCode speaks the OpenAI API and needs only a provider block in
 `opencode.json` (project root). The minimal, one-server form:

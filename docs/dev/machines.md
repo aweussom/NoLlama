@@ -244,7 +244,7 @@ allocation is never released (committed memory is unchanged), and at
 |---|---|---|
 | idle eviction | **20.34 GB → 0 at 80s, 80s, 79s** (3/3) | none — 15.90 → 15.82 GB over 4 min |
 | where it goes | +20.1 GB into host RAM, 1:1 | nowhere; its VRAM *is* host RAM |
-| next request | ~10s TTFT (full PCIe reload) | **0.1s** after 300s idle |
+| next request | ~10s TTFT (copied back over PCIe) | **0.1s** after 300s idle |
 
 **It is not memory pressure.** The first eviction fired with **21.5 GB of
 host RAM free**. Two separate explanations built on pressure were proposed and
@@ -252,9 +252,35 @@ both were wrong; what settled it was logging residency against wall clock and
 finding a flat ~80s timer.
 
 The tell in Task Manager is a **1:1 swap**: dedicated VRAM falls, host memory
-rises by the same amount, disk stays at 0% (nothing pages), and GPU
-utilisation spikes to ~100% on the way back in — that spike is the copy, not
-inference.
+rises by the same amount, **disk stays at 0%**, and GPU utilisation spikes to
+~100% on the way back in — that spike is the copy, not inference.
+
+**It never touches the M.2, and the wording matters.** The weights are copied
+between host RAM and VRAM, not re-read from storage: measured 10.46 -> 30.59
+GB of host memory at one eviction, +20.1 GB against the 20.34 GB that left the
+card. So the cost scales with PCIe bandwidth and WDDM overhead, not with
+storage speed — a faster SSD would not help. Call it "evicted to host RAM and
+copied back", never "reloaded", which implies a disk read and sends the next
+reader looking in the wrong place. (Disk DOES appear if the host is
+over-committed, because then the host-side copy is itself paged: that is what
+a 97% disk reading during the 24 GB CPU-pool era was, and it is a different
+problem.)
+
+**How often this actually bites: almost always.** [OBSERVED 2026-09-13,
+passive 5s sampling, two comparable windows of ~2h15m each on the same box and
+model]
+
+| | evictions | time the model was resident |
+|---|---|---|
+| before `--gpu-keepalive` | **5** | **5%** (903 of 955 samples at ~0 GB) |
+| after | **0** | **100%** (3 of 909, all pre-first-ping) |
+
+Read the second column twice. Un-mitigated, the model spent **95% of an
+interactive session evicted**, so essentially every turn paid the copy-back
+and the occasional fast one was luck — the user happened to ask again inside
+the 80s window. Any timing taken on a discrete GPU before `e17c291` is a
+mixture of warm and copied-back turns with no way to separate them from the
+wall clock, and should be re-measured rather than trusted.
 
 **Mitigation:** `--gpu-keepalive` (default 60s) pings an idle dGPU slot with a
 one-token generate. It never arms on an iGPU or CPU — `_keepalive_eligible`

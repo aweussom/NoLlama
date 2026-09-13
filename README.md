@@ -111,12 +111,30 @@ Ollama shim.
 
 OpenCode, Goose and VS Code Copilot Chat all work, with tool-calling on GPU or CPU
 (never the NPU — it has a hard prompt cap). Prefix caching is on by default, so
-an agent's fixed system prompt is prefilled once rather than every turn. The
-installer's "Coding agent" use-case writes an `opencode.json` for you and puts
-OpenCode's small side-requests on a second server (NPU, or CPU) so they never
-queue in front of your turn — see [docs/AGENTS.md](docs/AGENTS.md).
+an agent's fixed system prompt is prefilled once rather than every turn.
 
-Setup for both: **[docs/AGENTS.md](docs/AGENTS.md)**.
+The installer writes an `opencode.json` for you and keeps OpenCode's small
+side-requests (session titles, summaries) off the coder's queue. Two shapes,
+depending on the use-case you pick:
+
+- **"Coding agent"** → *two servers*: the coder on one port, the small model on
+  a second (`start.ps1` + `start-small.ps1`).
+- **"Chat + Coding agent"** → *dual mode*: **one** server, one port, two
+  devices — the coder on the GPU and the small model on the NPU or CPU,
+  addressed as `<model>@GPU` and `<model>@NPU`. One process, one prefix cache,
+  no second terminal.
+
+Either way: `.\launch-agent.ps1 -Path <your project>` starts the server if it
+is down, waits for the model to load, and opens OpenCode against it. Nothing is
+written to your machine — the config reaches OpenCode through `OPENCODE_CONFIG`,
+which layers on top of your own settings instead of replacing them.
+
+**On a discrete Intel GPU, leave `--gpu-keepalive` on** (the default). Windows
+evicts an idle dGPU's VRAM to host RAM after ~80 seconds and copies it back on
+the next request; measured on an Arc Pro B60, that left the model evicted 95% of
+an interactive session. See [docs/dev/machines.md](docs/dev/machines.md).
+
+Setup for all of them: **[docs/AGENTS.md](docs/AGENTS.md)**.
 
 ## Documentation
 
