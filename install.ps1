@@ -717,7 +717,15 @@ switch ($useKey) {
             Write-Host ""
             Write-Host "  OpenCode sends a small side request with every turn. A second, small model on the $smallDev" -ForegroundColor Cyan
             Write-Host "  keeps it off the coder's queue (Enter to skip; docs/AGENTS.md explains)." -ForegroundColor DarkGray
-            $smallSel = Show-ModelMenu -Title "Small model for OpenCode side-tasks ($smallDev)" -RegistryModels $Registry.npu -LocalModels (Get-ChatLocal $smallDev -Exclude $sel.Name) -AllowSkip $true
+            # Models flagged small_model come first. A side-request slot wants a
+            # model that ANSWERS, not the best reasoner: a thinking model spends
+            # the whole side-request budget in <think> and can return empty
+            # content (SmolLM3-3B on NPU 4 did exactly that, 3/3 — models.json
+            # carries the measurement). Menu order is the recommendation, so the
+            # non-thinking ones have to be at the top.
+            $smallModels = @($Registry.npu | Where-Object { $_.small_model }) +
+                           @($Registry.npu | Where-Object { -not $_.small_model })
+            $smallSel = Show-ModelMenu -Title "Small model for OpenCode side-tasks ($smallDev)" -RegistryModels $smallModels -LocalModels (Get-ChatLocal $smallDev -Exclude $sel.Name) -AllowSkip $true
             if ($smallSel -and (Install-Model -Selected $smallSel -TargetDir $SmallModelDir)) {
                 $OpenCodeArgs = @{ CoderDir = (Get-InstalledDirName $sel); CoderDevice = $dev; SmallDir = (Get-InstalledDirName $smallSel); SmallDevice = $smallDev; Mode = "two-servers" }
             } else {

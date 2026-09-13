@@ -12,7 +12,7 @@
             "hf_id": "aweussom/SmolLM3-3B-int4-cw-ov",
             "source": "pre-exported",
             "est_size_gb": 2,
-            "notes": "Tested on 285K NPU: 23.3 tok/s. New in OpenVINO 2026.3; also runs GPU/CPU."
+            "notes": "Tested on 285K NPU: 23.3 tok/s. New in OpenVINO 2026.3; also runs GPU/CPU. NOT for a small_model/side-request slot: it is a thinking model and on NPU 4 it spent a 300-token budget reasoning without ever closing </think>, returning EMPTY content 3/3 (verified 2026-09-13, bare genai, NoLlama absent). With enable_thinking=false it closes the block but answers the task instead of the instruction — asked for a title it emitted the code in a ```python fence. Fine as a chat model; use Phi-3.5-mini for side-requests."
         },
         {
             "name": "SmolLM3 3B (INT8-CW)",
@@ -33,7 +33,8 @@
             "hf_id": "OpenVINO/Phi-3.5-mini-instruct-int4-cw-ov",
             "source": "pre-exported",
             "est_size_gb": 2,
-            "notes": "Proven. Smaller and faster than Qwen3 8B, lower quality."
+            "small_model": true,
+            "notes": "Proven. Smaller and faster than Qwen3 8B, lower quality. BEST CHOICE for OpenCode's small_model slot on the NPU: no thinking channel at all, so it cannot spend a side-request's budget reasoning. Verified 2026-09-13 on NPU 4 (140V laptop), bare genai: a correct session title 3/3, deterministic, 3.2-3.6s; loads in 41s against SmolLM3-3B's 84-101s."
         },
         {
             "name": "DeepSeek R1 Distill 1.5B (INT4-CW)",

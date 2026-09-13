@@ -750,6 +750,66 @@ class _LoadProgress:
         self._stop.set()
 
 
+# The web UI's "No-think" checkbox prepends this as a system message
+# (static/js/app.js NO_THINK_PROMPT). Matched on a distinctive fragment rather
+# than the whole string so a reworded prompt does not silently stop matching.
+NO_THINK_MARKER = "Reasoning strength: minimal"
+
+
+def _no_think_requested(raw_messages):
+    """True when the caller asked for no reasoning preamble.
+
+    Why a prose sniff and not a flag: the request arrives as an OpenAI-shaped
+    body with no field for this, and the web UI has been sending the prose
+    since before the native switch was reachable. Detecting it server-side is
+    what lets the prose keep working for clients while the real switch does
+    the work.
+
+    In: the raw message list. Out: bool; only `system` messages are examined,
+    so a user quoting the phrase cannot disable thinking by accident.
+    """
+    for msg in raw_messages:
+        if msg.get("role") != "system":
+            continue
+        if NO_THINK_MARKER in (msg.get("content") or ""):
+            return True
+    return False
+
+
+def _apply_thinking_switch(history, raw_messages):
+    """Set enable_thinking=false on the history when no-think was asked for.
+
+    Why: prose cannot turn thinking off. A chat template that has already
+    emitted '<think>' has opened the channel before the model writes a token,
+    so the best a polite instruction achieves is a shorter ramble — Qwen3.8
+    was observed answering "Constraint 3: Reasoning strength: minimal" from
+    *inside* its reasoning. `enable_thinking=false` forecloses the channel
+    structurally ('<think>\\n\\n</think>' pre-closed), and SmolLM3, Qwen3 and
+    Qwen3.8 templates all honour it.
+
+    This matters most on a side-request: a thinking model given a small budget
+    can spend all of it reasoning and return EMPTY content — SmolLM3-3B on
+    NPU 4 did exactly that for OpenCode's title request, 3/3 deterministic.
+
+    The prose is deliberately left in the history as well, because for Muse
+    Glimmer it IS the native control and works; removing it would regress that
+    model to fix the others.
+
+    In: an ovg.ChatHistory already populated, and the raw messages. Out:
+    nothing; the history is mutated. A runtime without set_extra_context (pre
+    2026.3) is left alone rather than raising — the prose still reaches the
+    model, which is the old behaviour.
+    """
+    if not _no_think_requested(raw_messages):
+        return
+    if not hasattr(history, "set_extra_context"):
+        return
+    try:
+        history.set_extra_context({"enable_thinking": False})
+    except Exception:
+        pass   # a template that rejects the kwarg must not fail the request
+
+
 def _kv_bytes_per_token(model_dir):
     """KV-cache bytes per token from config.json geometry (K+V, fp16).
 
@@ -2127,6 +2187,7 @@ class DeviceSlot:
         history = ovg.ChatHistory()
         for msg in raw_messages:
             history.append({"role": msg["role"], "content": msg["content"]})
+        _apply_thinking_switch(history, raw_messages)
         with self.lock:
             result = self.pipe.generate(history, gen)
             self.last_used = time.time()
@@ -2205,6 +2266,7 @@ class DeviceSlot:
         history = ovg.ChatHistory()
         for msg in raw_messages:
             history.append({"role": msg["role"], "content": msg["content"]})
+        _apply_thinking_switch(history, raw_messages)
 
         token_queue = Queue()
         self._stream_error = None

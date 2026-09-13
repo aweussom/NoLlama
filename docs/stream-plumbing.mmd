@@ -8,7 +8,7 @@
 %%         ALL-CAPS nodes = prose annotations.
 %% Palette: route (blue) = protocol consumers, gen (green) = backend/worker,
 %%          client (yellow) = wire frames, warn (orange) = annotations.
-%% covers: nollama.py:stream_tokens,stream_vlm_tokens,_reset_vlm_state,_vlm_penalty_guard,_is_placeholder_bounds_error,_note_poisoned,_is_poisoned_context_error,stream_llm,stream_vlm,_sse_stream,_ollama_stream_chat,_ollama_stream_generate,generate_llm,cancel,explain_genai_error,_AtemStreamFilter,_AtemPlainFilter,_ThinkSplitter,_split_think,_ToolCallGate,_prompt_preseeds_think
+%% covers: nollama.py:_apply_thinking_switch,_no_think_requested,stream_tokens,stream_vlm_tokens,_reset_vlm_state,_vlm_penalty_guard,_is_placeholder_bounds_error,_note_poisoned,_is_poisoned_context_error,stream_llm,stream_vlm,_sse_stream,_ollama_stream_chat,_ollama_stream_generate,generate_llm,cancel,explain_genai_error,_AtemStreamFilter,_AtemPlainFilter,_ThinkSplitter,_split_think,_ToolCallGate,_prompt_preseeds_think
 flowchart TB
   stream_tokens["DeviceSlot.stream_tokens<br/>SEAM between backend and protocol.<br/>Owns: worker thread, lock, binding the<br/>caller's per-request cancel token to<br/>slot._cancel INSIDE the lock, _stream_error.<br/>A token already set at lock time skips<br/>generate (client left while queued).<br/>Yields str chunk, or None after
   'heartbeat' quiet seconds"]
@@ -16,7 +16,9 @@ flowchart TB
   opt_stream_tokens["OptimumSlot.stream_tokens<br/>same contract over transformers<br/>TextIteratorStreamer; ATEM markers kept<br/>visible for _AtemStreamFilter"]
   stream_vlm_tokens["DeviceSlot.stream_vlm_tokens<br/>VLM twin of the seam: VLMPipeline takes<br/>prompt+images, not ChatHistory; runs<br/>_AtemPlainFilter before yielding; same<br/>None heartbeats (the old 180s silent<br/>abort in stream_vlm is gone)"]
 
-  stream_tokens --> worker
+  stream_tokens --> think_switch
+  think_switch["_apply_thinking_switch<br/>ChatHistory.set_extra_context(<br/>enable_thinking=false) when the UI's<br/>no-think prose is in a SYSTEM message"]
+  think_switch --> worker
   stream_vlm_tokens --> worker
 
   penalty_guard["_vlm_penalty_guard (image turns only)<br/>Some VLM exports put image placeholders<br/>outside 0..vocab_size. genai's repetition<br/>-penalty transformer walks the PROMPT ids<br/>and asserts on them, so every image turn died<br/>while text turns worked. First failure sets a<br/>per-slot flag, warns once, and retries with<br/>repetition_penalty = 1.0; later image turns<br/>skip the penalty up front. Text turns keep it"]
@@ -113,11 +115,23 @@ flowchart TB
   inside a think span are reasoning, not calls."]
   splitter -.-> ORDER
 
+  NOTHINK["PROSE CANNOT TURN THINKING OFF. A template that already emitted
+  '&lt;think&gt;' opened the channel before the model wrote a token, so an
+  instruction only buys a shorter ramble - Qwen3.8 was seen answering
+  'Constraint 3: Reasoning strength: minimal' from INSIDE its reasoning.
+  enable_thinking=false forecloses it structurally. Worst on a SIDE-REQUEST:
+  a thinking model on a small budget returns EMPTY content - SmolLM3-3B on
+  NPU 4 did that for OpenCode's title, 3/3 deterministic (TODO.md).
+  The prose is left in the history anyway: for Muse Glimmer it IS the
+  native control. THE VLM PATH IS NOT COVERED - VLMPipeline takes a
+  flattened prompt string, which has no extra_context hook."]
+  think_switch -.-> NOTHINK
+
   classDef route fill:#e6f0ff,stroke:#0066cc,color:#000
   classDef gen fill:#e6ffe6,stroke:#00b300,color:#000
   classDef client fill:#ffffcc,stroke:#b3b300,color:#000
   classDef warn fill:#fec,stroke:#a60,color:#000
   class _sse_stream,stream_llm,tool_stream,_ollama_stream_chat,_ollama_stream_generate,generate_llm route
-  class stream_tokens,stream_vlm_tokens,opt_stream_tokens,worker,atem,splitter,gate,penalty_guard,reset_state gen
+  class stream_tokens,stream_vlm_tokens,opt_stream_tokens,worker,atem,splitter,gate,penalty_guard,reset_state,think_switch gen
   class cancel,_stream_error,poisoned client
-  class FINALLY,CANCELLIMIT,ORDER,RETRYSAFE,WEDGEUNPROVEN warn
+  class FINALLY,CANCELLIMIT,ORDER,RETRYSAFE,WEDGEUNPROVEN,NOTHINK warn

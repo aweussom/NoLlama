@@ -1,5 +1,166 @@
 # TODO
 
+## Test the available Norwegian translation models — the NPU's real workload (2026-09-04)
+
+The NPU is not primarily meant for coding LLMs. The intended workload is
+**translating internal documents on-device**, so company material never leaves
+the laptop. Privacy is the point; throughput is secondary.
+
+This workload is a better fit for the NPU than anything we currently route
+there, because every documented NPU limitation stops mattering:
+
+- `MAX_PROMPT_LEN=4096` is a hard ceiling for agent prompts. Translation is
+  chunked per paragraph, so it never approaches it.
+- The NPU keeps the plain pipeline with **no prefix cache**. Translation would
+  miss that cache on every chunk anyway — each chunk is different text. The one
+  feature the NPU lacks is the one this workload does not want.
+- Tool calling never works on the NPU. Translation needs no tools.
+- Sustained low-power throughput over a long document is the NPU's design
+  point, and it leaves the GPU free.
+
+**Hard requirement: Bokmål and Nynorsk.** This is what disqualifies the
+otherwise ideal candidate. Tencent's `HY-MT1.5-1.8B` is exactly the right
+shape — 1.8B, translation-specific, and claimed to beat Tower-Plus-72B and
+Qwen3-32B — but its 33 languages contain **no Nordic language at all**, not
+Norwegian, Danish, Swedish or Finnish (checked 2026-09-04 against the HF tag
+list on `tencent/HY-MT1.5-1.8B`). Worth recording that the *export* path is
+fine: `model_type` is `hunyuan_v1_dense`, and optimum-intel already registers
+`HunyuanV1DenseOpenVINOConfig` as a `LlamaOpenVINOConfig` subclass for
+text-generation-with-past (`optimum/exporters/openvino/model_configs.py:6219`,
+verified in our venv). A future Nordic-capable HY-MT converts with no work.
+
+### Candidates to probe
+
+| Model | Size | Licence | Note |
+|---|---|---|---|
+| `NbAiLab/borealis-1b` | 1B | NB-licence (Apache-derived) | Gemma 3 based; smallest sane NPU target |
+| `NbAiLab/borealis-4b` | 4B | NB-licence | the one to beat |
+| `norallm/normistral-7b-warm` | 7B | Apache-2.0 | NB's own writeup calls NorMistral stronger *on translation* |
+
+Borealis is Nasjonalbiblioteket's AI-lab family, released 2026-05-26, covering
+Bokmål + Nynorsk + English, commercial use permitted, sizes 270m/1b/4b/12b/27b.
+`gemma3_text` is already registered for OpenVINO text-generation, so the export
+path exists. Skip `normistral-11b-thinking` — reasoning tokens are pure waste
+on a translation turn, and we already know thinking models can burn the whole
+budget before answering.
+
+Caveat on Borealis: the instruct variants are still `-instruct-preview` and
+carry the **Gemma licence** rather than NB's own. Check the terms before an
+installer entry, not after.
+
+### How to run it — the standing orders apply in full
+
+1. **Bare `openvino_genai` first**, no NoLlama:
+   `.\venv\Scripts\python scripts\bare-probe.py <model-dir>`
+2. Then under the server.
+3. Then **every device** — CPU, iGPU, B60, and the NPU — each bare *and*
+   served. A device that refuses the model is a result, not a skip; record the
+   error in the verified list. → `docs/dev/machines.md`, `docs/dev/models.md`.
+
+NPU export must be channel-wise (`-Weight int4-cw` or `int8-cw`); default
+group-quantised int4 IRs crash the NPU driver compiler.
+
+**What "tested" means for this one.** Translation quality is not a tok/s
+number, and our existing benchmarks will not catch a model that is fluent and
+wrong. Fix a small held-out set of real internal-doc paragraphs, both
+directions, and compare candidates on the same set. Record the driver with
+every measurement as usual.
+
+Background on why this direction and not another: `docs/dev/machines.md` for
+the boxes, and the trend read is that narrow small models now beat broad large
+ones on their one job — a 1.8B translator outscoring a 32B generalist is the
+datapoint, not an outlier.
+
+---
+## SmolLM3-3B returns EMPTY content on the NPU after thinking — CPU is fine (2026-09-13)
+
+**This started as "strip markdown fences from small-model titles" and the
+device axis turned it into something else.** Recorded that way deliberately:
+the fence was the symptom that got noticed, and it was the wrong thing to fix.
+
+OpenCode's `small_model` writes the session title. On the 140V laptop the tab
+read ``OC | ```python `` where an earlier turn had correctly produced *"Hello
+World Example in Python"*. The obvious reading — a 3B being sloppy — is wrong.
+
+[OBSERVED 2026-09-13] Identical request to both slots: same model files
+(`SmolLM3-3B-int4-cw-ov`), same runtime (OpenVINO 2026.3.1-22476, genai
+2026.3.1.0-3290), `max_tokens=300`, prompt *"Generate a short title for this
+conversation: … Reply with the title only."*
+
+| slot | `content` | `reasoning_content` | finish |
+|---|---|---|---|
+| B60, **CPU** (5950X) | `"Python Main Calls Hello World"` | 1296 chars | stop |
+| laptop, **NPU 4** | **`''`** | 1430 chars | stop |
+
+The NPU result is **deterministic: 3/3 runs byte-identical**, same 1430-char
+reasoning, same empty content, `finish_reason: stop` every time. So it is not
+sampling variance — the NPU path emits its `<think>` span and then stops
+without ever producing an answer, while the CPU emits the same kind of
+reasoning and then the title.
+
+Note `usage` came back `{completion_tokens: -1, prompt_tokens: -1,
+total_tokens: -1}` on that path too — probably unrelated, but check it while
+you are in there.
+
+**Why it matters beyond a wrong tab name:** an empty `small_model` response is
+a silent failure. The client gets a 200 with no content and renders whatever
+it falls back to. Anything else routed to the NPU that is a thinking model has
+the same exposure.
+
+**Do NOT write the fence stripper.** It would paper over an empty-content bug
+with a cosmetic scrub and make the real fault harder to see.
+
+### RESOLVED the same day — and it was not a bug at all
+
+**Bare openvino_genai on the NPU reproduced it with NoLlama absent**, so the
+server was never implicated:
+
+```
+total chars: 1323      has </think>: False
+tail: '...Alternatively, "Call hello_world in Python" is also possible'
+```
+
+It hit `max_new_tokens=300` mid-thought, never closed the block, never
+answered. Then, with `extra_context={"enable_thinking": False}`:
+
+```
+closed_think=True   answer='```python\ndef hello_world():\n    print("Hello, World!")...'
+```
+
+So the fence was never a formatting quirk. **Both symptoms are one cause:
+SmolLM3-3B cannot follow this instruction.** Thinking on, it reasons past its
+budget and returns nothing; thinking off, it writes the program it sees
+described instead of the title it was asked for. The B60's CPU producing a
+correct title was it scraping through, not a device advantage — which is why
+the CPU-vs-NPU table above reads like a device divergence and is not one.
+
+**Fixed two ways, both landed:**
+
+1. **`Phi-3.5-mini-instruct-int4-cw` is now the recommended small model.** No
+   thinking channel at all (its chat template has zero think markers), so the
+   failure is structurally impossible. Verified on NPU 4, bare genai: a correct
+   title 3/3, deterministic, 3.2-3.6s — and it loads in **41s** against
+   SmolLM3-3B's 84-101s. `models.json` carries a `small_model: true` flag and
+   `install.ps1` sorts flagged entries to the top of the side-task menu, since
+   menu order is the recommendation.
+2. **`enable_thinking` is wired** (`_apply_thinking_switch`), closing the
+   "No-think toggle is prose" item below for the LLM path.
+
+**Still open from this:** the VLM path still passes a flattened string with no
+`extra_context` hook, so no-think there is still prose only — see the entry
+below. And `usage` came back `{completion_tokens: -1, prompt_tokens: -1,
+total_tokens: -1}` on the NPU path; unrelated, but nobody has looked.
+
+**The lesson worth keeping:** the fence was the symptom that got noticed and
+the wrong thing to fix. Four steps got to the real answer — device axis (CPU
+worked), bare genai (never closed `</think>`), the thinking switch (answered
+the wrong question), and only then "this model is not good enough". A fence
+stripper would have hidden every one of them.
+
+Related: CLAUDE.md's "never emits EOS" entry, also an NPU-only claim that CPU
+reframed — except there the device *was* the variable, and here it was not.
+Which is the point of running both.
+
 ## Shim fixes from the fresh-Ryzen first-contact test (2026-08-11, still open)
 
 Live test of install-windows.bat on a fresh Win11 box (Ryzen 5950X/RX580):
@@ -28,6 +189,13 @@ so it's a minor-version project, not a patch.
 ---
 
 ## No-think toggle is prose, not the native switch (2026-08-15)
+
+> **LLM path DONE 2026-09-13** — `_apply_thinking_switch` sets
+> `enable_thinking=false` via `ChatHistory.set_extra_context` in both
+> `generate_llm` and `stream_llm` when the UI's prose marker is present. The
+> prose is left in the history deliberately: for Muse Glimmer it IS the native
+> control. **The VLM path is still prose-only** (it passes a flattened string,
+> which has no extra_context hook) — that is what remains of this entry.
 
 The web UI's "No-think" checkbox sends a **system prompt in English**:
 
