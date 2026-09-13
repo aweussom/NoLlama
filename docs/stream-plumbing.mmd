@@ -8,7 +8,7 @@
 %%         ALL-CAPS nodes = prose annotations.
 %% Palette: route (blue) = protocol consumers, gen (green) = backend/worker,
 %%          client (yellow) = wire frames, warn (orange) = annotations.
-%% covers: nollama.py:_apply_thinking_switch,_no_think_requested,stream_tokens,stream_vlm_tokens,_reset_vlm_state,_vlm_penalty_guard,_is_placeholder_bounds_error,_note_poisoned,_is_poisoned_context_error,stream_llm,stream_vlm,_sse_stream,_ollama_stream_chat,_ollama_stream_generate,generate_llm,cancel,explain_genai_error,_AtemStreamFilter,_AtemPlainFilter,_ThinkSplitter,_split_think,_ToolCallGate,_prompt_preseeds_think
+%% covers: nollama.py:_apply_tuning,_tuning_for,_model_family,_apply_thinking_switch,_no_think_requested,stream_tokens,stream_vlm_tokens,_reset_vlm_state,_vlm_penalty_guard,_is_placeholder_bounds_error,_note_poisoned,_is_poisoned_context_error,stream_llm,stream_vlm,_sse_stream,_ollama_stream_chat,_ollama_stream_generate,generate_llm,cancel,explain_genai_error,_AtemStreamFilter,_AtemPlainFilter,_ThinkSplitter,_split_think,_ToolCallGate,_prompt_preseeds_think
 flowchart TB
   stream_tokens["DeviceSlot.stream_tokens<br/>SEAM between backend and protocol.<br/>Owns: worker thread, lock, binding the<br/>caller's per-request cancel token to<br/>slot._cancel INSIDE the lock, _stream_error.<br/>A token already set at lock time skips<br/>generate (client left while queued).<br/>Yields str chunk, or None after
   'heartbeat' quiet seconds"]
@@ -18,7 +18,9 @@ flowchart TB
 
   stream_tokens --> think_switch
   think_switch["_apply_thinking_switch<br/>ChatHistory.set_extra_context(<br/>enable_thinking=false) when the UI's<br/>no-think prose is in a SYSTEM message"]
-  think_switch --> worker
+  think_switch --> apply_tuning
+  apply_tuning["_apply_tuning<br/>clamp to the FAMILY's measured limits<br/>(model-tuning.json, keyed on config.json<br/>model_type). Only ever LOWERS."]
+  apply_tuning --> worker
   stream_vlm_tokens --> worker
 
   penalty_guard["_vlm_penalty_guard (image turns only)<br/>Some VLM exports put image placeholders<br/>outside 0..vocab_size. genai's repetition<br/>-penalty transformer walks the PROMPT ids<br/>and asserts on them, so every image turn died<br/>while text turns worked. First failure sets a<br/>per-slot flag, warns once, and retries with<br/>repetition_penalty = 1.0; later image turns<br/>skip the penalty up front. Text turns keep it"]
@@ -127,11 +129,21 @@ flowchart TB
   flattened prompt string, which has no extra_context hook."]
   think_switch -.-> NOTHINK
 
+  TUNING["THE CALLER IS OFTEN US. The web UI sent repetition_penalty 1.1 to
+  every model for three months to break thinking-loops on one of them, and it
+  silently destroyed the Phi-3 family on long output - bad text raises
+  nothing, so nobody found it until a human read the output. A ceiling
+  enforced at the SERVER holds whichever surface asks. Keyed on model_type
+  from config.json: intrinsic, so renaming a model cannot change its tuning,
+  and family-level, which is how these failures cluster. phi3 and phi3_v are
+  DIFFERENT families and both have entries."]
+  apply_tuning -.-> TUNING
+
   classDef route fill:#e6f0ff,stroke:#0066cc,color:#000
   classDef gen fill:#e6ffe6,stroke:#00b300,color:#000
   classDef client fill:#ffffcc,stroke:#b3b300,color:#000
   classDef warn fill:#fec,stroke:#a60,color:#000
   class _sse_stream,stream_llm,tool_stream,_ollama_stream_chat,_ollama_stream_generate,generate_llm route
-  class stream_tokens,stream_vlm_tokens,opt_stream_tokens,worker,atem,splitter,gate,penalty_guard,reset_state,think_switch gen
+  class stream_tokens,stream_vlm_tokens,opt_stream_tokens,worker,atem,splitter,gate,penalty_guard,reset_state,think_switch,apply_tuning gen
   class cancel,_stream_error,poisoned client
-  class FINALLY,CANCELLIMIT,ORDER,RETRYSAFE,WEDGEUNPROVEN,NOTHINK warn
+  class FINALLY,CANCELLIMIT,ORDER,RETRYSAFE,WEDGEUNPROVEN,NOTHINK,TUNING warn

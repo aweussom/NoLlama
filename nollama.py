@@ -810,6 +810,89 @@ def _apply_thinking_switch(history, raw_messages):
         pass   # a template that rejects the kwarg must not fail the request
 
 
+TUNING_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           "model-tuning.json")
+_TUNING_CACHE = {}
+
+
+def _model_family(model_dir):
+    """The model_type from config.json — the key model-tuning.json is written on.
+
+    Why model_type and not the directory name: it is intrinsic to the export, so
+    renaming a model cannot silently change which tuning applies, and it is
+    family-level, which is how these failures actually cluster (every phi3 has
+    the repetition-penalty ceiling, not just the one we measured).
+
+    In: a model directory. Out: the string, or None when config.json is absent
+    or unreadable — a model with no family gets no tuning, which is the safe
+    default. A VLM's language model is read through text_config, matching
+    _kv_bytes_per_token; note phi3 and phi3_v are DIFFERENT families.
+    """
+    try:
+        cfg = _text_config(model_dir)
+        return cfg.get("model_type")
+    except Exception:
+        return None
+
+
+def _tuning_for(model_dir):
+    """Measured generation limits for this model's family, or {}.
+
+    Why a file and not code: these are empirical facts — a run produced them —
+    and they have to be editable without a release. Why not per-model: the
+    failures are family traits, and a per-model table would need a row for every
+    export of the same architecture.
+
+    In: a model directory. Out: the family's dict from model-tuning.json, or an
+    empty dict when the file is missing, malformed, or has no entry. Every
+    failure path returns {} on purpose: a tuning file that cannot be read must
+    degrade to "no limits", never to a startup error.
+    """
+    fam = _model_family(model_dir)
+    if not fam:
+        return {}
+    if TUNING_FILE not in _TUNING_CACHE:
+        try:
+            with open(TUNING_FILE, encoding="utf-8") as f:
+                _TUNING_CACHE[TUNING_FILE] = json.load(f).get("families", {})
+        except Exception:
+            _TUNING_CACHE[TUNING_FILE] = {}
+    return _TUNING_CACHE[TUNING_FILE].get(fam, {})
+
+
+def _apply_tuning(gen, slot):
+    """Clamp a request's generation config to what this model family tolerates.
+
+    Why clamp rather than trust the caller: the caller is often us. The web UI
+    sent repetition_penalty 1.1 to every model for three months because it broke
+    thinking-loops on one, and it silently destroyed the Phi-3 family on long
+    output — bad text raises nothing, so nobody found it until someone read the
+    output. A ceiling enforced at the server holds no matter which surface or
+    client asks.
+
+    Only ever LOWERS a value. A caller asking for less than the ceiling gets
+    what they asked for.
+
+    In: a GenerationConfig about to be used, and the slot it will run on. Out:
+    nothing; gen is mutated in place. Logs once per slot per knob so a clamp is
+    visible without spamming a per-token path.
+    """
+    t = _tuning_for(getattr(slot, "model_dir", "") or "")
+    if not t:
+        return
+    cap = t.get("repetition_penalty_max")
+    if cap is not None and getattr(gen, "repetition_penalty", 1.0) > cap:
+        asked = gen.repetition_penalty
+        gen.repetition_penalty = cap
+        seen = getattr(slot, "_tuning_logged", set())
+        if "repetition_penalty" not in seen:
+            seen.add("repetition_penalty")
+            slot._tuning_logged = seen
+            print(f"  [{slot.device_name}] repetition_penalty {asked} -> {cap} "
+                  f"({_model_family(slot.model_dir)}: {t.get('note', 'model-tuning.json')})",
+                  flush=True)
+
+
 def _kv_bytes_per_token(model_dir):
     """KV-cache bytes per token from config.json geometry (K+V, fp16).
 
@@ -2209,6 +2292,7 @@ class DeviceSlot:
         for msg in raw_messages:
             history.append({"role": msg["role"], "content": msg["content"]})
         _apply_thinking_switch(history, raw_messages)
+        _apply_tuning(gen, self)
         with self.lock:
             result = self.pipe.generate(history, gen)
             self.last_used = time.time()
@@ -2288,6 +2372,7 @@ class DeviceSlot:
         for msg in raw_messages:
             history.append({"role": msg["role"], "content": msg["content"]})
         _apply_thinking_switch(history, raw_messages)
+        _apply_tuning(gen, self)
 
         token_queue = Queue()
         self._stream_error = None

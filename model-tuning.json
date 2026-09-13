@@ -1,0 +1,50 @@
+{
+  "_README": [
+    "Per-family generation limits that CANNOT be derived from the model files.",
+    "",
+    "Keyed on `model_type` from the model's own config.json (a VLM's is read",
+    "through text_config), because that is intrinsic, always present, and",
+    "family-level - which is how these failures actually cluster. It does not",
+    "depend on the directory name, so renaming a model cannot silently change",
+    "its tuning.",
+    "",
+    "ONLY record what has been MEASURED, and cite the measurement. Anything",
+    "derivable from the files belongs in code, not here: `--scan` already reports",
+    "quantisation, geometry and SDPA-op counts as facts. A hand-typed value is an",
+    "opportunity to be wrong, so the bar for adding a line is a run that produced",
+    "a number.",
+    "",
+    "Fields, all optional:",
+    "  repetition_penalty_max  clamp ceiling; a request above it is lowered",
+    "  enable_thinking         default for this family when the caller says nothing",
+    "  note                    why, in one line",
+    "  evidence                [OBSERVED <date>] and enough detail to re-run"
+  ],
+
+  "families": {
+    "phi3": {
+      "repetition_penalty_max": 1.05,
+      "note": "Above ~1.05 it degenerates on long output and never emits EOS.",
+      "evidence": "[OBSERVED 2026-09-13, bare openvino_genai on CPU, Phi-3.5-mini-int4-cw, greedy, max_new_tokens=1024, one prompt] none -> 1989 chars stops cleanly; 1.05 -> 3118 chars stops cleanly; 1.1 -> 4722 chars ending '...urbane verdancy wrath workmanship Xanadu Yggdrasil Zamians' and still going. The penalty down-weights every token already used, EOS included, so a long answer is pushed into ever rarer vocabulary and cannot stop."
+    },
+
+    "phi3_v": {
+      "repetition_penalty_max": 1.0,
+      "note": "Image turns only: any penalty > 1.0 asserts on out-of-vocab image placeholders. _vlm_penalty_guard already learns this at runtime from the exception; this entry makes it a fact rather than a first-request failure.",
+      "evidence": "TODONT.md, 'Phi-3.5-vision as a GPU VLM entry' - our own default 1.05 collided with placeholders outside 0..vocab_size, which genai's repetition-penalty transformer walks over the PROMPT ids. Found by driving VLMPipeline directly after a day of server-mediated tests."
+    },
+
+    "smollm3": {
+      "enable_thinking": false,
+      "note": "Thinking model. On a short budget it spends the whole allowance in <think> and returns EMPTY content - fatal for a small_model/side-request slot, where the caller sees a 200 with nothing in it.",
+      "evidence": "[OBSERVED 2026-09-13, NPU 4 and CPU, SmolLM3-3B-int4-cw, max_tokens=300, title prompt] NPU returned '' 3/3 byte-identical with 1430 chars of reasoning; bare genai reproduced it with NoLlama absent, never emitting </think> before the cap. With enable_thinking=false it closes the block but then answers the task instead of the instruction - which is a model-capability limit, not a tuning one, and is why Phi-3.5-mini is the recommended side-request model."
+    }
+  },
+
+  "_not_recorded_here": [
+    "LFM2.5 on NPU 4 (Lunar Lake) produces word salad at full speed. That is a",
+    "DEVICE constraint rather than a generation knob - no parameter fixes it -",
+    "so it lives in models.json notes and TODONT. If this file ever grows a",
+    "device-denial field, move it."
+  ]
+}
