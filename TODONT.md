@@ -36,6 +36,56 @@ to genuinely noisy output (test runs, build logs) on GPUs where prefill is
 the bottleneck (Xe-LPG class), with a stronger distiller than a 3B. Reopen
 when a task with that shape shows up on that hardware.
 
+## repetition_penalty 1.1 in the web UI (2026-06 -> 2026-09-13)
+
+Idea: the web UI is the "does it work" surface, so give it a stronger
+repetition penalty than the server default — Ollama's 1.1 — to break a
+thinking-loop fast on a slow iGPU, while the server stayed mild at 1.05 for
+coding agents.
+
+**Verdict: reverted to 1.05. 1.1 destroys the Phi-3 family on long output.**
+
+[OBSERVED 2026-09-13, bare openvino_genai on CPU, Phi-3.5-mini-int4-cw,
+greedy, max_new_tokens=1024, same prompt each time]
+
+| repetition_penalty | output | ends |
+|---|---|---|
+| none (1.0) | 1989 chars | cleanly |
+| **1.05** (server default) | 3118 chars | cleanly |
+| **1.1** (web UI) | **4722 chars** | never — cut off at the token cap |
+
+The 1.1 tail: *"...supremacy tumultuous undertow urbane verdancy wrath
+workmanship Xanadu Yggdrasil Zamians"*. The mechanism is the penalty's own:
+every token already used is down-weighted, so a long answer is pushed toward
+progressively rarer vocabulary — and **EOS is penalised along with
+everything else**, so the model cannot stop. It marches into the alphabet and
+runs until something kills it.
+
+**Why not just keep 1.1 and cap the length:** the degeneration starts well
+before the cap. A user watching a 3B ramble for 4,722 characters has already
+concluded the model is broken, which is exactly what the 1.1 was meant to
+prevent.
+
+**What replaces it:** `enable_thinking=false` via
+`ChatHistory.set_extra_context` (`_apply_thinking_switch`, same day).
+Thinking-loops are now foreclosed structurally — the template never opens the
+channel — instead of being penalised into submission after the fact. That is
+the sharp tool the blunt one was standing in for.
+
+**This is the SECOND time the Phi-3 family has been broken by our own
+repetition penalty**, and the first entry did not prevent the second because
+it was filed as a *vision* problem: Phi-3.5-vision died on `1.05` colliding
+with out-of-vocab image placeholders (see its entry). Different threshold,
+different surface, same knob and same family. Treat "Phi-3 + repetition
+penalty" as the standing suspicion, not "Phi-3 vision + penalty".
+
+**Not established:** whether 1.05 is safe for Phi-3 at outputs much longer
+than 1024 tokens, and whether any model actually needed 1.1. Both were
+single-model, single-prompt, single-device tests. Also untested: whether
+dropping to 1.05 makes loops visible again on a model where enable_thinking
+is not honoured — Muse Glimmer is the documented case, since there the prose
+instruction IS the native control.
+
 ## OpenClaw as the flagship agent client (2026-06-28 -> 2026-09-11)
 
 Idea: make OpenClaw the showcase for agent use — `start-openclaw.ps1` as the

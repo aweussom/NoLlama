@@ -290,10 +290,18 @@ function buildRequestBody(overrides) {
         messages: messages,
         stream: true,
         max_tokens: 16384,
-        // The web UI is the "does it work" surface, and a thinking-loop on a
-        // slow iGPU reads as "it doesn't". Ollama's 1.1 breaks loops faster
-        // than the server default (1.05, kept mild for coding agents).
-        repetition_penalty: 1.1,
+        // Matches the server default. This was 1.1 (Ollama's value) to break
+        // thinking-loops faster on a slow iGPU, but 1.1 DEGENERATES the Phi-3
+        // family: the penalty pushes an already-used vocabulary toward ever
+        // rarer tokens and penalises EOS along with them, so the model can
+        // never stop. [OBSERVED 2026-09-13, bare openvino_genai on CPU,
+        // Phi-3.5-mini-int4-cw, greedy, max_new_tokens=1024] no penalty ->
+        // 1989 chars, clean stop; 1.05 -> 3118 chars, clean stop; 1.1 -> 4722
+        // chars ending "...urbane verdancy wrath workmanship Xanadu Yggdrasil
+        // Zamians" and still going. The loop-breaking this bought is now done
+        // properly by enable_thinking=false (_apply_thinking_switch), which
+        // forecloses the channel instead of penalising a way out of it.
+        repetition_penalty: 1.05,
     };
 
     if (temp > 0) {
