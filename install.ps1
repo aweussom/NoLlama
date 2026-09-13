@@ -114,33 +114,80 @@ if ($Nightly) {
     }
 }
 
-# Validate existing venv. Script launchers (pip.exe, hf.exe, ...) bake the
-# absolute path to python.exe into themselves at install time. If the venv
-# folder is moved or renamed, every launcher fails with "Unable to create
-# process". Catch that here and recreate, rather than failing mid-install.
+# Validate existing venv. A venv that was moved or renamed is genuinely dead:
+# every script launcher bakes the absolute path to python.exe into itself at
+# install time, so they all fail with "Unable to create process". Catch that
+# here and recreate, rather than failing mid-install. The probe itself must
+# not use one of those launchers — see the comment on the check below.
+function Remove-VenvOrExplain {
+    <#
+    Delete a venv directory, naming the process that prevents it.
+
+    Why: Windows refuses to delete a file a running process has open, so a
+    NoLlama server still serving from this venv makes Remove-Item throw
+    mid-install. With $ErrorActionPreference = "Stop" that aborts the whole
+    installer on an error that says "access denied" and not "your server is
+    still running" — which is the one thing the user needs to be told.
+    Observed 2026-09-13 on the B60 (a server left running over SSH).
+
+    In: the venv directory. Out: nothing on success; on failure it prints the
+    holding process ids and exits 1, because continuing would build on top of
+    a venv that is half-deleted.
+    #>
+    param([string] $Dir)
+
+    try {
+        Remove-Item -Recurse -Force $Dir -ErrorAction Stop
+    } catch {
+        Write-Host ""
+        Write-Host "ERROR: could not delete $Dir" -ForegroundColor Red
+        $holders = @(Get-Process python, pythonw -ErrorAction SilentlyContinue |
+                     Where-Object { $_.Path -and $_.Path.StartsWith($Dir, [StringComparison]::OrdinalIgnoreCase) })
+        if ($holders) {
+            Write-Host "  A process is still using it - almost certainly a running NoLlama:" -ForegroundColor Yellow
+            foreach ($h in $holders) { Write-Host "    PID $($h.Id)  $($h.Path)" -ForegroundColor Yellow }
+            Write-Host "  Stop it and re-run:" -ForegroundColor Yellow
+            Write-Host "    Stop-Process -Id $($holders[0].Id) -Force" -ForegroundColor Yellow
+        } else {
+            Write-Host "  $($_.Exception.Message)" -ForegroundColor Yellow
+            Write-Host "  Nothing obvious is holding it; close anything using the venv and re-run." -ForegroundColor Yellow
+        }
+        exit 1
+    }
+}
+
 if (Test-Path $VenvDir) {
-    $venvPip = Join-Path $VenvDir $VenvBinDir "pip$ExeExt"
+    # Probe with python.exe -m pip, NEVER pip.exe. pip.exe is a generated
+    # console-script shim, and an application-control policy can refuse to run
+    # one while python.exe from the same venv is fine — that is the B60 box
+    # (docs/dev/machines.md: venv\Scripts\hf.exe is blocked the same way).
+    # Probing the shim made a HEALTHY venv look broken there, and the broken
+    # branch below deletes without asking, so this mis-probe was one stray
+    # process away from destroying a working install on a machine where pip
+    # cannot easily rebuild one (its PyPI downloads die on an SSL record-MAC
+    # error). Verified 2026-09-13 on the B60: pip.exe --version produces
+    # nothing, python.exe -m pip --version prints pip 26.2.1.
+    $venvPython = Join-Path $VenvDir $VenvBinDir "python$ExeExt"
     $venvOk = $false
-    if (Test-Path $venvPip) {
-        & $venvPip --version 2>&1 | Out-Null
+    if (Test-Path $venvPython) {
+        & $venvPython -m pip --version 2>&1 | Out-Null
         $venvOk = ($LASTEXITCODE -eq 0)
     }
     if ($venvOk) {
         # Show what's actually installed: "venv exists" hid that the runtime
         # could be releases behind (requirements.txt floors are >=, so a
         # fresh venv always gets the newest OpenVINO).
-        $venvPython = Join-Path $VenvDir $VenvBinDir "python$ExeExt"
         $genaiVer = & $venvPython -c "import openvino_genai as og; print(og.__version__)" 2>$null
         if (-not $genaiVer) { $genaiVer = "openvino-genai not installed?" }
         Write-Host "[OK] $VenvName already exists (openvino-genai $genaiVer)"
         Write-Host "     Recreating it pulls the newest OpenVINO runtime." -ForegroundColor DarkGray
         $reply = Read-Host "     Delete and recreate venv for a fresh install? [y/N]"
         if ($reply -in @("y", "Y", "yes")) {
-            Remove-Item -Recurse -Force $VenvDir
+            Remove-VenvOrExplain -Dir $VenvDir
         }
     } else {
         Write-Host "[!] $VenvName at $VenvDir is broken (likely moved from another path). Recreating..." -ForegroundColor Yellow
-        Remove-Item -Recurse -Force $VenvDir
+        Remove-VenvOrExplain -Dir $VenvDir
     }
 }
 
