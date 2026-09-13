@@ -65,6 +65,7 @@ flowchart TB
   ready --> _gpu_keepalive{"_gpu_keepalive<br/>dGPU ONLY, every 15s:<br/>idle &gt; --gpu-keepalive (60s)?"}
   _gpu_keepalive -->|"yes: 1-token generate,<br/>non-blocking lock"| ready
   _gpu_keepalive -.->|"iGPU / CPU / NPU:<br/>never arms"| ready
+  _gpu_keepalive -.->|"the ping itself threw<br/>CL_OUT_OF_RESOURCES"| poisoned_slot
 
   ready --> _idle_watchdog{"_idle_watchdog<br/>every 30s, non-blocking<br/>lock acquire; status ready ONLY"}
   _idle_watchdog -.->|"idle > timeout"| unload["unload<br/>pipe=None, gc"]
@@ -79,7 +80,12 @@ flowchart TB
   issue #38: 'Fatal Python error: Aborted', current thread
   _idle_watchdog inside unload()). _note_poisoned marks such a slot
   'error' on every generate path precisely so it never arrives here.
-  Do not relax this to 'unload whatever is loaded'."]
+  Do not relax this to 'unload whatever is loaded'.
+  THE KEEPALIVE IS A GENERATE PATH TOO, and the likeliest one to meet
+  this unattended - a dGPU, every 60s, no client watching. It swallows
+  failures by design; CL_OUT_OF_RESOURCES is the one exception, recorded
+  before it is swallowed. Swallowing it silently would feed a poisoned
+  slot straight to the unload above."]
   _idle_watchdog -.-> WATCHDOGGUARD
   unload -.-> ensure_loaded["ensure_loaded<br/>reload + warmup on next request,<br/>double-checked under lock"]
   ensure_loaded -.-> ready

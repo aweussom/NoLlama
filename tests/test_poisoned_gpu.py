@@ -165,6 +165,60 @@ def test_ordinary_vlm_throw_still_resets_state():
     assert slot.status == "ready" and slot.error_reason is None
 
 
+def _run_one_tick(fn, *args):
+    """Run one iteration of a `while True: time.sleep(...)` daemon body."""
+    class _Stop(Exception):
+        pass
+
+    calls = []
+    real_sleep = nollama.time.sleep
+
+    def _sleep(_):
+        calls.append(1)
+        if len(calls) > 1:
+            raise _Stop()
+
+    nollama.time.sleep = _sleep
+    try:
+        fn(*args)
+    except _Stop:
+        pass
+    finally:
+        nollama.time.sleep = real_sleep
+
+
+def test_keepalive_does_not_swallow_a_poisoned_context():
+    """The keepalive pings a dGPU every 60s with nobody watching, and swallows
+    every exception. If the ping is what poisons the context, swallowing it
+    leaves the slot "ready" for the idle watchdog — which aborts the process."""
+    class Pipe:
+        def generate(self, history, gen):
+            raise RuntimeError(REAL)
+    slot = _slot(Pipe())
+    slot.device_full = "Intel(R) Arc(TM) Pro B60 Graphics (dGPU)"
+    slot.last_used = 0
+    slot._last_keepalive = 0
+
+    _run_one_tick(nollama._gpu_keepalive, [slot], 60, 0)
+
+    assert slot.status == "error", "a keepalive that poisons the GPU must say so"
+    assert not nollama._slot_serviceable(slot)
+
+
+def test_keepalive_still_swallows_ordinary_failures():
+    class Pipe:
+        def generate(self, history, gen):
+            raise RuntimeError("something transient")
+    slot = _slot(Pipe())
+    slot.device_full = "Intel(R) Arc(TM) Pro B60 Graphics (dGPU)"
+    slot.last_used = 0
+    slot._last_keepalive = 0
+
+    _run_one_tick(nollama._gpu_keepalive, [slot], 60, 0)
+
+    assert slot.status == "ready" and slot.error_reason is None
+
+
 def test_idle_watchdog_never_unloads_a_poisoned_slot():
     """Unloading one killed the reporter's process; status "error" is what
     keeps it away from here, so the guard is asserted rather than assumed."""

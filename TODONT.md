@@ -38,6 +38,19 @@ background threads. When a flag exists to keep requests away from a slot,
 check what *else* touches that slot on a timer before deciding one catch site
 is enough.
 
+**Update 2026-09-13, and it proves the point faster than expected:**
+`_gpu_keepalive` landed the same day from separate work and reproduced the
+pattern immediately. It pings an idle dGPU with a 1-token generate every 60s
+and swallows every exception by design — sound, except that this generate can
+itself be the one that poisons the context, and a swallowed
+`CL_OUT_OF_RESOURCES` leaves the slot `ready` for the watchdog to unload. It
+is the *worst* place for it: a discrete GPU, unattended, with no client to see
+the failure, and the swallow was behind `if debug:` so nothing was printed
+either. Now `_note_poisoned` runs before the swallow; everything else stays
+swallowed. Two independent instances in one day is the argument for treating
+"what else touches this slot on a timer" as a checklist item rather than a
+lesson.
+
 ## Compress-at-birth: a small model distilling tool results for the coder (2026-09-12)
 
 Idea (from aikomp, moved into an OpenCode `tool.execute.after` plugin): when a

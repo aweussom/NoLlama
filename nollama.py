@@ -4830,7 +4830,11 @@ def _gpu_keepalive(slots, interval, check_interval=15):
     under the platform's eviction threshold — 80s measured on the B60), and
     how often to look. Out: never returns; runs as a daemon. Failures are
     swallowed per slot: a keepalive that kills the server is worse than
-    eviction.
+    eviction — with one exception, `CL_OUT_OF_RESOURCES`, which is recorded
+    via _note_poisoned before being swallowed. Swallowing that one leaves the
+    slot "ready" for _idle_watchdog, and unloading a poisoned slot aborts the
+    process (issue #38). This thread is the likeliest place to meet it
+    unattended.
     """
     while True:
         time.sleep(check_interval)
@@ -4861,6 +4865,13 @@ def _gpu_keepalive(slots, interval, check_interval=15):
                 # forever against an explicit --idle-timeout.
                 slot._last_keepalive = now
             except Exception as e:
+                # One class is not swallowable. A keepalive generate can be
+                # what poisons the OpenCL context, and this thread is the
+                # likeliest place for it to happen unattended: a dGPU, every
+                # 60s, with no client watching. Left "ready", the slot then
+                # reaches _idle_watchdog, whose unload() aborts the process
+                # (issue #38). Everything else stays swallowed as designed.
+                slot._note_poisoned(e)
                 if debug:
                     print(f"  [{slot.device_name}] keepalive failed: {e}", flush=True)
             finally:
