@@ -68,10 +68,17 @@ KNOBS = [
     ("sampled t=0.7", {"do_sample": True, "temperature": 0.7, "top_p": 0.9}),
 ]
 
-# Weak signal, reported but never condemning on its own. Real Python hits 50
-# characters with a format string; the degenerate run measured 62. Too close
-# to separate, which an earlier draft of this file got wrong.
-RUN_LEN_LIMIT = 45
+# Two thresholds, because one number cannot do both jobs. Calibrated against
+# 27 judged cases on Phi-3.5-mini (NPU 3 and NPU 4), grouped by the judge's
+# verdict:
+#     ok          n=11   longest run 10 - 35
+#     truncated   n=5                12 - 43
+#     off_topic   n=1                47
+#     runaway     n=4                28 - 582
+# So the ranges OVERLAP below ~50 and separate cleanly at the top: the two
+# real runaways measured 454 and 582 while healthy output never passed 35.
+RUN_LEN_LIMIT = 45     # report only — useless as a verdict, see the overlap
+RUN_LEN_DAMNING = 150  # nothing healthy came close; condemns on its own
 UNIQUE_RATIO_MIN = 0.30   # below this the output is looping
 
 
@@ -88,10 +95,12 @@ def looks_degenerate(text, hit_cap, budget):
     does not transfer to a longer one, and a too-small cap makes this check
     condemn every healthy long answer (got that wrong twice, 2026-09-13).
 
-    Word-run length is REPORTED but never condemns alone: measured 2026-09-13,
-    healthy Python reached 50 characters (a format string) against the
-    degenerate run's 62 — too close to separate. An earlier draft of this file
-    treated it as decisive and flagged a known-good completion.
+    Word-run length carries TWO thresholds. Below RUN_LEN_DAMNING it is
+    reported but never condemns: healthy Python reaches 50 characters with a
+    format string, and one real degenerate run measured 62 — too close to
+    separate, which an earlier draft got wrong by treating it as decisive.
+    Above RUN_LEN_DAMNING it condemns alone: across 27 judged cases nothing
+    healthy exceeded 35 while the two clear runaways hit 454 and 582.
 
     In: the completion and whether generation stopped because it ran out of
     budget. Out: (verdict, reasons) where verdict is 'ok', 'empty' or
@@ -115,6 +124,8 @@ def looks_degenerate(text, hit_cap, budget):
     # Condemning signals, evaluated after the weak ones are collected so they
     # still appear in `reasons` for a human reading the report.
     condemning = []
+    if longest > RUN_LEN_DAMNING:
+        condemning.append(f"whitespace-free run of {longest} chars")
     if hit_cap:
         condemning.append(f"hit the {budget}-token cap without emitting EOS")
     if len(words) > 60:
@@ -172,8 +183,12 @@ def run_case(pipe, tok, turns, budget, knob, results, judge_fn=None):
             rec["judge_why"] = j.get("why", "")[:160]
             rec["judge_by"] = j.get("judged_by")
             if j.get("verdict") not in (None, "unavailable"):
-                agree = (j["verdict"] == "ok") == (verdict == "ok")
-                rec["agree"] = agree
+                # "truncated" is NOT a fault — the rubric says so explicitly
+                # (coherent text that ran out of budget). Treating it as one
+                # made 5 of 6 "disagreements" in the first judged sweep bogus
+                # and buried the 4 real ones.
+                HEALTHY = ("ok", "truncated")
+                rec["agree"] = (j["verdict"] in HEALTHY) == (verdict == "ok")
         results.append(rec)
         history.append({"role": "assistant", "content": out})
         if verdict != "ok":
