@@ -103,31 +103,49 @@ turn two; one-shot prompts pay more once.**
 ## KV pool sizing
 
 **Auto-sized per slot** (`_resolve_kv_pool`), from what the weights leave
-free in the device budget. Takes the **larger** of two shapes, then floors
-at 2 GB (`AUTO_KV_MIN_GB`) and caps at ~64k tokens of the model's KV
-geometry (`AUTO_KV_TOKENS`):
+free in the device budget — `headroom = budget - weights*1.1`. Floored at
+2 GB (`AUTO_KV_MIN_GB`), capped at ~64k tokens of the model's KV geometry
+(`AUTO_KV_TOKENS`). Sized from the *total* budget, not free RAM, so it's
+stable across restarts and reloads.
 
-- everything above a fixed 2 GB working margin (`AUTO_KV_RESERVE_GB`), or
-- a flat third (`AUTO_KV_HEADROOM_SHARE`).
+**The shape differs by device**, and that distinction is load-bearing:
 
-Sized from the *total* budget, not free RAM, so it's stable across restarts
-and reloads. The CB backend grows into the pool rather than allocating
-upfront, but prefix-cached blocks are never released — hence the reserve.
+| device | rule |
+|---|---|
+| GPU (discrete or iGPU) | larger of `headroom - 2 GB` (`AUTO_KV_RESERVE_GB`) and `headroom / 3` (`AUTO_KV_HEADROOM_SHARE`) |
+| CPU | `headroom / 3` only |
 
-**Why two shapes** (changed 2026-09-13): the flat third alone under-spends a
-large budget badly. On the 140V laptop — 25.3 GB budget, 15.2 GB of weights,
-8.6 GB free — it sized **2.87 GB**, truncated by `int()` to 2, which looked
-like the floor had been hit when it had not. That is ~22k tokens against the
-60k context OpenCode declares, and a pool that cannot hold prompt +
-max_tokens lets a single request evict its own prefix mid-generation
-(TODONT.md). The fixed reserve wins on a large budget; the third still wins
-on a small one, where subtracting 2 GB would leave nothing. The rule now
-rounds instead of truncating.
+A GPU budget is dedicated, or on an iGPU a carve-out the driver already
+sized against the OS, so a fixed reserve is safe. **On CPU the budget is the
+machine's entire RAM**, shared with the OS and everything else running —
+there a 2 GB reserve is not a margin, it is a claim on the whole box.
 
-[OBSERVED 2026-09-13, 140V + Qwen3-Coder-30B-A3B int4] The new rule resolves
-to **6 GB** here — independently the same value the B60 rig was pinned to by
-hand for this model (`NEXT-STEPS.md`, task `nollama-gpu-8000`). 6 GB is
-65,536 tokens at this model's 96 KB/token.
+**Why the reserve exists on GPU** (changed 2026-09-13): the flat third alone
+under-spends a large budget badly. On the 140V — 25.3 GB budget, 15.2 GB of
+weights, 8.6 GB free — it sized **2.87 GB**, truncated by `int()` to 2, which
+looked like the floor had been hit when it had not. That is ~22k tokens
+against the 60k context OpenCode declares, and a pool that cannot hold prompt
++ max_tokens lets a single request evict its own prefix mid-generation
+(TODONT.md). The rule now rounds instead of truncating.
+
+[OBSERVED 2026-09-13] Resolved values, all with the same runtime:
+
+| box | device | model | pool |
+|---|---|---|---|
+| 140V laptop | iGPU, 25.3 GB budget | Qwen3-Coder-30B int4 | **6 GB** |
+| B60 | dGPU, 24 GB | Qwen3-Coder-30B int4 | **5 GB** |
+| B60 | CPU, 32 GB RAM | Phi-3.5-mini int4 | **10 GB** |
+
+The laptop's 6 GB is independently the value the B60 rig had been pinned to by
+hand for that model (`NEXT-STEPS.md`, task `nollama-gpu-8000`); 6 GB is 65,536
+tokens at the coder's 96 KB/token.
+
+**Watch the cap on a model without GQA.** Phi-3.5-mini has `kv_heads ==
+heads == 32`, so **384 KB/token** against the 30B coder's 96 KB — four times
+the KV for an eighth of the weights. `AUTO_KV_TOKENS` alone then works out to
+24 GB, and on the CPU path that was briefly what got asked for (the reserve
+rule, before it was made GPU-only). A small model is not automatically a small
+pool.
 
 `--cache-size-gb N` pins it and skips auto.
 

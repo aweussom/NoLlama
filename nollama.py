@@ -1870,23 +1870,34 @@ class DeviceSlot:
         """Set self.kv_pool_gb — the KV-cache pool for this slot's CB backend.
 
         An explicit --cache-size-gb pins it. Otherwise auto-size from what
-        the weights leave free in the device budget, taking the LARGER of
-        two shapes: everything above a fixed AUTO_KV_RESERVE_GB working
-        margin, or a flat 1/AUTO_KV_HEADROOM_SHARE. Floored at
-        AUTO_KV_MIN_GB, capped at AUTO_KV_TOKENS of this model's KV
+        the weights leave free in the device budget, floored at
+        AUTO_KV_MIN_GB and capped at AUTO_KV_TOKENS of this model's KV
         geometry. Sized from the *total* budget, not free memory, so the
         result is stable across restarts and idle-unload reloads.
 
-        Why two shapes: the flat share alone under-spends a large budget
-        badly — 25.3 GiB with 15.2 GiB of weights gave a 2.87 GiB pool,
-        ~22k tokens, against an agent client declaring 60k of context, and
-        a pool that cannot hold prompt + max_tokens lets a single request
-        evict its own prefix mid-generation (TODONT.md). The fixed reserve
-        wins there; the share still wins on a small budget, where
-        subtracting 2 GiB would leave nothing. The reserve exists because
-        the CB backend grows into the pool and prefix-cached blocks are
-        never released, so a long agent session really does end up owning
-        all of it.
+        **GPU** takes the larger of (headroom - AUTO_KV_RESERVE_GB) and a
+        flat 1/AUTO_KV_HEADROOM_SHARE. The flat share alone under-spends a
+        large budget badly — 25.3 GiB with 15.2 GiB of weights gave 2.87
+        GiB, ~22k tokens, against an agent declaring 60k of context, and a
+        pool that cannot hold prompt + max_tokens lets one request evict
+        its own prefix mid-generation (TODONT.md).
+
+        **CPU keeps the flat share only.** There the "budget" is the whole
+        machine's RAM, shared with the OS and whatever else is running, so
+        a 2 GiB reserve is not a margin, it is a claim on everything: it
+        asked for 27.8 GiB of a 32 GB box and only the token cap stopped it
+        [OBSERVED 2026-09-13, B60 + Phi-3.5-mini]. A GPU budget is
+        dedicated, or on an iGPU a carve-out the driver already sized
+        against the OS — which is what makes the reserve safe there and not
+        here.
+
+        Either way the reserve/fraction exists because the CB backend grows
+        into the pool and prefix-cached blocks are never released, so a long
+        agent session really does end up owning all of it.
+
+        Watch the cap on a model without GQA: Phi-3.5-mini has kv_heads ==
+        heads, so 384 KB/token against the 30B coder's 96 KB, and
+        AUTO_KV_TOKENS alone works out to 24 GiB.
         """
         # VLM slots size a pool too: openvino_genai honors scheduler_config
         # on VLMPipeline (verified on 2026.3 release and the 2026.4 nightly;
@@ -1916,8 +1927,18 @@ class DeviceSlot:
         # max_tokens"). Reserving a fixed working margin instead lands on
         # 6 GiB, which is what the B60 rig was pinned to by hand for this
         # same model (NEXT-STEPS.md, task nollama-gpu-8000).
-        pool = max(headroom / gib - AUTO_KV_RESERVE_GB,
-                   headroom / AUTO_KV_HEADROOM_SHARE / gib)
+        # GPU only. On the CPU path "budget" is the machine's whole RAM, shared
+        # with the OS and everything else the user is running, so "take all but
+        # 2 GB" is not a reserve, it is a claim on the entire machine — it
+        # wanted 27.8 GiB of a 32 GB box (B60, Phi-3.5-mini, 2026-09-13) and
+        # only the token cap stopped it. A GPU budget is dedicated (or, on an
+        # iGPU, a carve-out the driver already sized against the OS), so there
+        # the fixed reserve is the right shape. CPU keeps the fraction.
+        if self.device_name == "GPU":
+            pool = max(headroom / gib - AUTO_KV_RESERVE_GB,
+                       headroom / AUTO_KV_HEADROOM_SHARE / gib)
+        else:
+            pool = headroom / AUTO_KV_HEADROOM_SHARE / gib
         per_tok = _kv_bytes_per_token(self.model_dir)
         if per_tok:
             pool = min(pool, AUTO_KV_TOKENS * per_tok / gib)

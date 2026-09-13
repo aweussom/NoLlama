@@ -1,8 +1,9 @@
 %% Slot lifecycle: backend pick, load, prefix cache, prewarm, idle unload.
 %% Drawn 2026-08-19 from nollama.py @ 85e796f.
 %% Updated 2026-09-01: --gpu-large-alloc manual override of the alloc gate (issue #24).
-%% Updated 2026-09-13: KV pool auto-size takes the larger of (headroom - reserve)
-%%   and headroom/3 and rounds; load progress heartbeat added around the build.
+%% Updated 2026-09-13: KV pool auto-size is device-typed (GPU takes the larger of
+%%   headroom-reserve and headroom/3; CPU keeps the fraction) and rounds; load
+%%   progress heartbeat added around the build.
 %% Legend: solid = normal path, dashed = failure/fallback/degraded,
 %%         ALL-CAPS nodes = prose annotations.
 %% Palette: route (blue) = decisions, gen (green) = live pipeline states,
@@ -25,7 +26,7 @@ flowchart TB
   _verify_weights_integrity -.->|"truncated / missing .bin"| loaderr["RuntimeError, plain-English;<br/>'another process using the NPU?'<br/>hint SUPPRESSED for this class"]
   _verify_weights_integrity --> _resolve_kv_pool
 
-  _resolve_kv_pool["_resolve_kv_pool<br/>pin via --cache-size-gb, else auto from<br/>headroom = budget - weights*1.1:<br/>max(headroom - 2 GB, headroom/3), ROUNDED,<br/>floor 2 GB, cap 64k tokens of KV geometry"]
+  _resolve_kv_pool["_resolve_kv_pool<br/>pin via --cache-size-gb, else auto from<br/>headroom = budget - weights*1.1.<br/>GPU: max(headroom - 2 GB, headroom/3)<br/>CPU: headroom/3 ONLY<br/>ROUNDED, floor 2 GB, cap 64k tokens"]
   _resolve_kv_pool --> _preflight_memory["_preflight_memory<br/>never blocks: _preflight_verdict says<br/>fits (silent) / tight (info, within the<br/>estimate's own 5% slack) / over (WARNING,<br/>hint typed iGPU vs dGPU); logs pool
   token capacity"]
   _preflight_memory --> _LoadProgress
@@ -97,17 +98,23 @@ flowchart TB
   POOLSTABLE["Pool auto-size uses the TOTAL device budget, not free RAM:
   stable across restarts/reloads. CB grows into the pool rather than
   allocating upfront, but prefix-cached blocks are never released - hence
-  leaving a reserve at all. TWO SHAPES, take the larger: everything above a
-  fixed 2 GB working margin (AUTO_KV_RESERVE_GB), or a flat third
-  (AUTO_KV_HEADROOM_SHARE). The third alone under-spends a big budget badly
-  - 25.3 GB with 15.2 GB of weights sized 2.87 GB, int()-truncated to 2,
-  which looked like the floor when it was not. That is ~22k tokens against
-  an agent declaring 60k of context, and a pool that cannot hold prompt +
-  max_tokens lets ONE request evict its own prefix mid-generation. The
-  reserve wins on a large budget, the third on a small one where
-  subtracting 2 GB would leave nothing.
+  leaving anything back at all.
+  GPU takes the larger of (headroom - AUTO_KV_RESERVE_GB) and headroom/3.
+  The third alone under-spends a big budget: 25.3 GB with 15.2 GB of
+  weights sized 2.87 GB, int()-truncated to 2, which looked like the floor
+  when it was not - ~22k tokens against an agent declaring 60k of context,
+  and a pool that cannot hold prompt + max_tokens lets ONE request evict
+  its own prefix mid-generation.
+  CPU KEEPS THE FRACTION ONLY. There the budget is the machine's whole RAM,
+  shared with the OS, so a 2 GB reserve is not a margin - it is a claim on
+  the box. It asked for 27.8 GB of a 32 GB machine and only the token cap
+  stopped it (B60 + Phi-3.5-mini, 2026-09-13). A GPU budget is dedicated,
+  or on an iGPU a carve-out the driver already sized against the OS.
   On CPU the budget is min(MemTotal, cgroup limit) - /proc/meminfo alone
-  reports the HOST total inside a container and oversizes the pool."]
+  reports the HOST total inside a container and oversizes the pool.
+  WATCH A MODEL WITHOUT GQA: Phi-3.5-mini has kv_heads == heads, 384 KB per
+  token against the 30B coder's 96 KB, so the 64k cap alone is 24 GB. A
+  small model is not automatically a small pool."]
   _resolve_kv_pool -.-> POOLSTABLE
 
   classDef route fill:#e6f0ff,stroke:#0066cc,color:#000
