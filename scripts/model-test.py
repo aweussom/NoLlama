@@ -127,7 +127,7 @@ def looks_degenerate(text, hit_cap, budget):
     return "ok", reasons
 
 
-def run_case(pipe, tok, turns, budget, knob, results):
+def run_case(pipe, tok, turns, budget, knob, results, judge_fn=None):
     """Run one prompt (or follow-up chain) under one knob setting.
 
     Why the whole chain shares a config: an agent does not change sampling
@@ -157,9 +157,24 @@ def run_case(pipe, tok, turns, budget, knob, results):
         n_tok = len(tok.encode(out).input_ids.data[0]) if out else 0
         hit_cap = n_tok >= budget - 2
         verdict, reasons = looks_degenerate(out, hit_cap, budget)
-        results.append(dict(knob=knob[0], turn=i, verdict=verdict, reasons=reasons,
-                            chars=len(out), secs=round(dt, 1),
-                            tail=out.strip()[-90:]))
+        rec = dict(knob=knob[0], turn=i, verdict=verdict, reasons=reasons,
+                   chars=len(out), secs=round(dt, 1),
+                   tail=out.strip()[-90:], prompt=user, output=out)
+        # Second opinion. The heuristics cannot tell repetitive CODE from
+        # looping, and have no expression at all for "fluent answer to the
+        # wrong question" - both of which a reader spots instantly. Recording
+        # BOTH verdicts is the point: a disagreement is either a heuristic gap
+        # or a false positive, and that is what calibrates the thresholds from
+        # data instead of from someone's guess.
+        if judge_fn:
+            j = judge_fn(user, out)
+            rec["judge"] = j.get("verdict")
+            rec["judge_why"] = j.get("why", "")[:160]
+            rec["judge_by"] = j.get("judged_by")
+            if j.get("verdict") not in (None, "unavailable"):
+                agree = (j["verdict"] == "ok") == (verdict == "ok")
+                rec["agree"] = agree
+        results.append(rec)
         history.append({"role": "assistant", "content": out})
         if verdict != "ok":
             return          # the chain is already compromised; stop burning time
@@ -170,7 +185,20 @@ def main():
     ap.add_argument("model_dir")
     ap.add_argument("--device", default="GPU")
     ap.add_argument("--json", help="write the full report here")
+    ap.add_argument("--judge", action="store_true",
+                    help="also grade each completion with a capable cloud model "
+                         "(needs OLLAMA_API_KEY). The heuristics stay the local "
+                         "pass; this is the deep one, and disagreements between "
+                         "them are the interesting result.")
     a = ap.parse_args()
+
+    judge_fn = None
+    if a.judge:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from judge import judge as judge_fn      # noqa: F401
+        if not os.environ.get("OLLAMA_API_KEY"):
+            print("ERROR: --judge needs OLLAMA_API_KEY in the environment.")
+            return 2
 
     print(f"model  : {os.path.basename(os.path.normpath(a.model_dir))}")
     print(f"device : {a.device}")
@@ -185,13 +213,18 @@ def main():
     for name, budget, turns in PROMPTS:
         for knob in KNOBS:
             results = []
-            run_case(pipe, tok, turns, budget, knob, results)
+            run_case(pipe, tok, turns, budget, knob, results, judge_fn)
             for r in results:
                 key = f"{name}/{knob[0]}/turn{r['turn']}"
                 report[key] = r
-                flag = "    " if r["verdict"] == "ok" else ">>> "
+                jv = r.get("judge")
+                disagree = r.get("agree") is False
+                flag = "!!! " if disagree else ("    " if r["verdict"] == "ok" else ">>> ")
+                jtxt = f" judge={jv}" if jv else ""
                 print(f"{flag}{key:<42} {r['verdict']:<8} "
-                      f"{r['chars']:>6}ch {r['secs']:>6}s")
+                      f"{r['chars']:>6}ch {r['secs']:>6}s{jtxt}")
+                if disagree:
+                    print(f"        DISAGREE - judge says {jv}: {r.get('judge_why','')[:90]}")
                 if r["reasons"]:
                     for why in r["reasons"]:
                         print(f"        - {why}")
