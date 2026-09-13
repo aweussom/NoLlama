@@ -3382,6 +3382,11 @@ app.config["MAX_CONTENT_LENGTH"] = MAX_REQUEST_BYTES
 # Device slots — filled in main()
 primary = None        # main model (NPU, GPU, or CPU)
 secondary = None      # optional second model (GPU, for vision or bigger LLM)
+# Which slot --prewarm's saved prompt belongs to; set from topology in main().
+# NOTE the names read the opposite way round from intuition in an agent setup:
+# the big coder is `secondary` (it is the --gpu-model-dir slot) and the small
+# side-request model is `primary` (whatever --device names, NPU or CPU).
+PREWARM_SLOT = None
 whisper_slot = None   # optional Whisper STT model
 max_dim = 768
 debug = False
@@ -3646,6 +3651,21 @@ def _prewarm_slot(slot):
         # prefill at startup for nothing (OptimumSlot; slots whose runtime
         # rejected the scheduler config and fell back to the plain pipeline,
         # which zero kv_pool_gb at load).
+        return
+    # Only the slot plain text routes to. In dual mode the OTHER slot exists
+    # for an agent's SIDE requests — OpenCode's small_model, which sends short
+    # titles and never the big system prompt the prewarm file holds. Warming
+    # it there is worse than useless: it caches a prefix that can never hit,
+    # and the prefill BLOCKS that slot's queue while it runs. [OBSERVED
+    # 2026-09-13, B60 dual mode] Phi-3.5-mini on CPU spent 233.1s prewarming
+    # the coder's 8k-token prompt, and a title request that arrived 5s after
+    # startup was answered 157s later, having sat behind it the whole time.
+    #
+    # PREWARM_SLOT is resolved from topology in main(), NOT from
+    # _route_request: routing consults _slot_serviceable, and slots finish
+    # loading at wildly different times (B60: CPU 2s, GPU 44s), so asking mid
+    # startup returns whichever happens to be ready and re-introduces the bug.
+    if PREWARM_SLOT is not None and slot is not PREWARM_SLOT:
         return
     if not os.path.isfile(PREWARM_FILE):
         return
@@ -4831,6 +4851,7 @@ def main():
     docs/slot-lifecycle.mmd maps this; numbered comments below mark the steps.
     """
     global primary, secondary, whisper_slot, max_dim, debug, vscode_compat
+    global PREWARM_SLOT
     global PROMPT_CACHE, PROMPT_CACHE_GB, PREWARM_FILE, OFFLOAD_RATIO, THINK_IN_CONTENT
     global GPU_LARGE_ALLOC
     global VSCODE_OLLAMA_VERSION
@@ -5008,6 +5029,17 @@ def main():
         else:
             secondary = secondary_cls("GPU", _id_of("GPU"), npu_platform=npu_plat)
             all_slots.append(secondary)
+
+    # Resolve the prewarm target now, from the topology, while nothing has
+    # loaded yet — see _prewarm_slot for why this cannot be asked of
+    # _route_request at load time. Plain text goes to the GPU slot when that
+    # slot holds an LLM (the dual-mode agent shape: big coder on GPU, small
+    # side-request model on NPU/CPU), and to the primary otherwise — a GPU VLM
+    # takes images only, so text stays on the primary. is_vlm reads the
+    # directory, so it needs no loaded pipeline.
+    PREWARM_SLOT = primary
+    if secondary is not None and not is_vlm(args.gpu_model_dir):
+        PREWARM_SLOT = secondary
 
     if args.whisper_dir:
         whisper_device = args.whisper_device.upper()

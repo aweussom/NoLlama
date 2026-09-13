@@ -169,6 +169,18 @@ paths) — so the workflow is: run once → restart with `--prewarm`.
   the startup prefill replays through `parse_messages`' flattening so the
   cached token prefix matches real requests. Measured, Glimmer/B60: first
   turn after restart 12.4s → 0.65s TTFT.
+- **Only one slot is prewarmed** (2026-09-13), resolved from topology in
+  `main()` as `PREWARM_SLOT`: the GPU slot when it holds an LLM, else the
+  primary. In an agent setup the other slot serves **side requests** —
+  OpenCode's `small_model`, which sends short titles and never the big system
+  prompt the file holds. Warming it caches a prefix that can never hit *and*
+  blocks that slot's queue while it runs. [OBSERVED 2026-09-13, B60 dual
+  mode] Phi-3.5-mini on CPU spent **233.1s** prewarming the coder's 8k-token
+  prompt, and a title request that arrived 5s after startup was answered
+  **157s** later, having sat behind it. Resolved in `main()` rather than via
+  `_route_request`, which consults `_slot_serviceable` — slots finish loading
+  at very different times (B60: CPU 2s, GPU 44s), so asking mid-startup
+  returns whichever is ready first and re-introduces the bug.
 - Slots whose runtime fell back to the plain pipeline report a **null**
   `kv_pool_gb` at
   load, so prewarm skips them instead of burning a 30B-scale prefill for

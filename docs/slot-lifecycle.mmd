@@ -56,9 +56,9 @@ flowchart TB
   cb_fallback --> _LoadDone
   optimum_load --> warmup
 
-  warmup --> _prewarm_slot{"_prewarm_slot<br/>PREWARM_FILE + live kv pool?"}
+  warmup --> _prewarm_slot{"_prewarm_slot<br/>PREWARM_FILE + live kv pool<br/>AND slot is PREWARM_SLOT?"}
   _prewarm_slot -->|"yes: prefill saved prompt<br/>(VLM replays via parse_messages<br/>so the token prefix matches)"| ready["ready<br/>(first real turn = cache hit)"]
-  _prewarm_slot -.->|"no pool / no file"| ready
+  _prewarm_slot -.->|"no pool / no file /<br/>not the prewarm slot"| ready
 
   ready --> _idle_watchdog{"_idle_watchdog<br/>every 30s, non-blocking<br/>lock acquire"}
   _idle_watchdog -.->|"idle > timeout"| unload["unload<br/>pipe=None, gc"]
@@ -72,6 +72,22 @@ flowchart TB
   timeout is REFUSED at startup; --idle-timeout 0 auto-enables prewarm
   as prewarm-(port).json unless --no-prewarm."]
   ensure_loaded -.-> NOREWARM
+
+  WRONGSLOT["PREWARM GOES TO ONE SLOT ONLY, resolved from topology in main()
+  (PREWARM_SLOT): the GPU slot when it holds an LLM, else the primary. In an
+  agent setup the OTHER slot serves SIDE requests - OpenCode's small_model -
+  which send short titles and never the big system prompt the file holds, so
+  warming it caches a prefix that can never hit AND blocks that slot's queue
+  while it runs. [OBSERVED 2026-09-13, B60 dual mode] Phi-3.5-mini on CPU
+  spent 233.1s prewarming the coder's 8k-token prompt; a title request that
+  arrived 5s after startup was answered 157s later, queued behind it.
+  Resolved in main() and NOT via _route_request, which consults
+  _slot_serviceable - slots finish loading at very different times (B60: CPU
+  2s, GPU 44s), so asking mid-startup returns whichever is ready first and
+  re-introduces the bug.
+  NOTE the names invert intuition: the big coder is `secondary` (the
+  --gpu-model-dir slot); the small side model is `primary` (--device)."]
+  _prewarm_slot -.-> WRONGSLOT
 
   DXGCAP["The trigger is the MODEL vs the DEVICE CAP, never the cap alone: a
   cap below total memory is normal (OpenCL guarantees only a quarter; a
@@ -125,4 +141,4 @@ flowchart TB
   class load,optimum_load,npu_pipe,cb_pipe,plain_pipe,cb_fallback,warmup,ready,ensure_loaded gen
   class _LoadProgress,_LoadDone client
   class loaderr,unload client
-  class NOREWARM,POOLSTABLE,DXGCAP,RUNTIMEALLOC warn
+  class NOREWARM,POOLSTABLE,DXGCAP,RUNTIMEALLOC,WRONGSLOT warn
