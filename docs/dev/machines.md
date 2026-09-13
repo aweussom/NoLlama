@@ -28,6 +28,10 @@ Where this repo lives and where most measurements are taken.
 result here is unambiguous. Also where the Docker work happens (#31) — the
 container GPU results in `DOCKER-INSTALL.md` are all from this box.
 
+Reachable over SSH at **`wossn@100.81.4.88`** (Tailscale range; hostname
+`r9-5950x`). Not to be confused with `wossn@100.98.33.88`, which is the 285K
+— same username, different box, and the addresses differ by two digits.
+
 **Working on it over SSH — four rules learned the hard way** [OBSERVED
 2026-09-11]:
 
@@ -183,6 +187,42 @@ this machine are not comparable to the desktops unless it is otherwise idle.
 **It is the only NPU 4 we have**, so every NPU-generation comparison needs it
 and the 285K together.
 
+### The override is lost easily, and restoring it needs elevation
+
+[OBSERVED 2026-09-13] The budget collapsed from 25.34 GB to **16.5 GB** — the
+stock ~50%-of-RAM default — and Intel Graphics Software crashed when used
+normally. **The fix was running Intel Graphics Software as Administrator**;
+the split could then be changed, and `GPU_DEVICE_TOTAL_MEM_SIZE` came back to
+**27,208,896,512**, byte-identical to the 2026-09-01 reading.
+
+Three hypotheses died on the way, and each is worth not re-running:
+
+- **Not HVCI.** Memory Integrity was on before and is still on after
+  (`Enabled = 1`, VBS status 2, services {1,2,3,4}). It never mattered.
+- **Not the BIOS.** A flash from 1.14 (N4IET28W) to 1.16 (N4IET30W) happened
+  in the same session and looked causal for a while. It was not — the
+  elevation is what changed the outcome. Do not spend a reflash on this.
+- **Not the registry.** `SharedSystemMemorySize`, `DedicatedSegmentSize` and
+  `AllowSharedMemoryOverride` under the adapter key are **absent in both
+  states**, at 16.5 GB and at 25.3 GB. Reading them tells you nothing; they
+  are not the mechanism.
+
+**The only trustworthy check** is the runtime's own view:
+
+```powershell
+.\venv\Scripts\python.exe -c "import openvino as ov; c=ov.Core(); print('%.1f GB' % (c.get_property('GPU','GPU_DEVICE_TOTAL_MEM_SIZE')/2**30))"
+```
+
+Note the adapter's *name* is literally `Intel(R) Arc(TM) 140V GPU (16GB)` — a
+driver INF label that appears in Task Manager, the registry `DriverDesc` and
+OpenVINO's `FULL_DEVICE_NAME`. It is not a measurement and does not change
+with the override. `Win32_VideoController.AdapterRAM` reports 4.00 GB, the
+int32 overflow. Both are traps.
+
+Shared GPU memory is a **ceiling, not a carve-out**: with the override active
+and nothing loaded, Windows still reported 25.26 GB of 31.52 GB free. A drop
+in available RAM means a model is resident, not that the iGPU reserved it.
+
 **The memory override also moved the per-allocation cap, and that costs repro
 ability** [OBSERVED 2026-09-01]: `GPU_DEVICE_MAX_ALLOC_MEM_SIZE` reads
 **27,208,896,512** here against the ~4.29 GB (`4,294,959,104`) a stock iGPU
@@ -221,9 +261,15 @@ Read 2026-09-01:
 
 | Box | GPU driver | NPU driver |
 |---|---|---|
-| 258V laptop | `32.0.101.8826` (2026-05-29) — **~3 months behind** | `32.0.100.5540` (2026-08-20) — current |
+| 258V laptop | `32.0.101.8991` (driver date 2026-08-24, **checked 2026-09-13**) — current | `32.0.100.5540` (2026-08-20) — current |
 | 285K | `32.0.101.8860` (2026-06-25) — ~2 months behind (Xe-LPG; the RTX 5090 is on `32.0.16.1088`) | `32.0.100.4778` (2026-04-28) — **old** |
-| B60 box | `32.0.101.8805` (checked 2026-09-11) | none (no NPU) |
+| B60 box | `32.0.101.8805` (re-checked 2026-09-13, unchanged) — **now the stale box** | none (no NPU) |
+
+**The laptop is no longer behind (2026-09-13)** — it is on `.8991`, the
+release named as latest below. That inverts the warning in the paragraph
+that follows: cross-box GPU comparisons now carry a **driver delta between
+the laptop and the B60** (`.8991` vs `.8805`), and the B60 is the side to
+bring forward.
 
 Latest Intel Arc driver at that date was **`32.0.101.8991`** (2026-08-25,
 WHQL, re-certified 08-29), with `.8974` before it on 08-15 — per the driver

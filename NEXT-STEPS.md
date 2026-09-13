@@ -389,7 +389,7 @@ Worth teaching the probe to print both before the next driver hunt.
   `_optimize_model_for_decode()`; `OVModelForCausalLM` doesn't implement it, so
   `generate()` dies. `OVModelForVisualCausalLM` has its own `generate()` and is
   unaffected — the only reason Glimmer works. This will bite `nemotron_h`, which
-  is text-only. `install-optimum.ps1 -TransformersRef main` is the exposure:
+  is text-only. `scripts\New-OptimumVenv.ps1 -TransformersRef main` is the exposure:
   decide between pinning a known-good ref and waiting for optimum-intel.
 - **Offload non-determinism on the B60, unexplained.** At
   `--offload-ratio 30`, greedy decoding returned 87-2040 tokens for the same

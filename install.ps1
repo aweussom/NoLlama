@@ -806,9 +806,31 @@ Write-Host "  .\start.ps1"
 if ($OpenCodeArgs) {
     if ($OpenCodeArgs.SmallDir -and $OpenCodeArgs.Mode -eq "two-servers") { Write-Host "  .\start-small.ps1        # second terminal: the small model for OpenCode's side-tasks" }
     Write-Host ""
-    Write-Host "For OpenCode: copy opencode.json into your project root (or ~/.config/opencode/)." -ForegroundColor Cyan
-    Write-Host "  It carries the model ids NoLlama advertises, an honest context limit, and the" -ForegroundColor DarkGray
-    Write-Host "  timeouts a slow iGPU needs. Details: docs/AGENTS.md" -ForegroundColor DarkGray
+    Write-Host "For OpenCode, one command does the rest:" -ForegroundColor Cyan
+    Write-Host "  .\launch-agent.ps1 -Path <your project>"
+    Write-Host "  Starts the server if it is down, waits for the model to finish loading," -ForegroundColor DarkGray
+    Write-Host "  puts opencode.json where OpenCode reads it, and opens OpenCode there." -ForegroundColor DarkGray
+    Write-Host ""
+
+    # Check the client here rather than only in launch-agent.ps1: this is the
+    # moment the user learns what the setup needs, and "npm install -g" is a
+    # download they would rather start now than after the next command fails.
+    $ocCmd = Get-Command opencode -ErrorAction SilentlyContinue
+    if ($ocCmd) {
+        $ocVer = try { (& opencode --version 2>$null | Select-Object -First 1) } catch { $null }
+        Write-Host "  [OK] opencode found$(if ($ocVer) { " ($ocVer)" }) at $($ocCmd.Source)" -ForegroundColor Green
+    } else {
+        Write-Host "  [!] 'opencode' is not on PATH - launch-agent.ps1 will stop until it is." -ForegroundColor Yellow
+        Write-Host "      Install it with:  npm install -g opencode-ai" -ForegroundColor Yellow
+    }
+
+    Write-Host ""
+    Write-Host "  By hand instead - point OpenCode at the config without copying it:" -ForegroundColor DarkGray
+    Write-Host "    `$env:OPENCODE_CONFIG = '$(Join-Path $PSScriptRoot 'opencode.json')'" -ForegroundColor DarkGray
+    Write-Host "    opencode" -ForegroundColor DarkGray
+    Write-Host "  That layers on top of your existing settings rather than replacing them." -ForegroundColor DarkGray
+    Write-Host "  The config carries the model ids NoLlama advertises, an honest context limit," -ForegroundColor DarkGray
+    Write-Host "  and the timeouts a slow iGPU needs. Details: docs/AGENTS.md" -ForegroundColor DarkGray
 }
 Write-Host ""
 

@@ -102,12 +102,32 @@ turn two; one-shot prompts pay more once.**
 
 ## KV pool sizing
 
-**Auto-sized per slot** (`_resolve_kv_pool`): a third of what the weights
-leave free in the device budget, floor 2 GB (`AUTO_KV_MIN_GB`), cap ~64k
-tokens of the model's KV geometry (`AUTO_KV_TOKENS`). Sized from the
-*total* budget, not free RAM, so it's stable across restarts and reloads.
-The CB backend grows into the pool rather than allocating upfront, but
-prefix-cached blocks are never released — hence the fraction.
+**Auto-sized per slot** (`_resolve_kv_pool`), from what the weights leave
+free in the device budget. Takes the **larger** of two shapes, then floors
+at 2 GB (`AUTO_KV_MIN_GB`) and caps at ~64k tokens of the model's KV
+geometry (`AUTO_KV_TOKENS`):
+
+- everything above a fixed 2 GB working margin (`AUTO_KV_RESERVE_GB`), or
+- a flat third (`AUTO_KV_HEADROOM_SHARE`).
+
+Sized from the *total* budget, not free RAM, so it's stable across restarts
+and reloads. The CB backend grows into the pool rather than allocating
+upfront, but prefix-cached blocks are never released — hence the reserve.
+
+**Why two shapes** (changed 2026-09-13): the flat third alone under-spends a
+large budget badly. On the 140V laptop — 25.3 GB budget, 15.2 GB of weights,
+8.6 GB free — it sized **2.87 GB**, truncated by `int()` to 2, which looked
+like the floor had been hit when it had not. That is ~22k tokens against the
+60k context OpenCode declares, and a pool that cannot hold prompt +
+max_tokens lets a single request evict its own prefix mid-generation
+(TODONT.md). The fixed reserve wins on a large budget; the third still wins
+on a small one, where subtracting 2 GB would leave nothing. The rule now
+rounds instead of truncating.
+
+[OBSERVED 2026-09-13, 140V + Qwen3-Coder-30B-A3B int4] The new rule resolves
+to **6 GB** here — independently the same value the B60 rig was pinned to by
+hand for this model (`NEXT-STEPS.md`, task `nollama-gpu-8000`). 6 GB is
+65,536 tokens at this model's 96 KB/token.
 
 `--cache-size-gb N` pins it and skips auto.
 

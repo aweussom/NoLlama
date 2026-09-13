@@ -1,11 +1,13 @@
 %% Slot lifecycle: backend pick, load, prefix cache, prewarm, idle unload.
 %% Drawn 2026-08-19 from nollama.py @ 85e796f.
 %% Updated 2026-09-01: --gpu-large-alloc manual override of the alloc gate (issue #24).
+%% Updated 2026-09-13: KV pool auto-size takes the larger of (headroom - reserve)
+%%   and headroom/3 and rounds; load progress heartbeat added around the build.
 %% Legend: solid = normal path, dashed = failure/fallback/degraded,
 %%         ALL-CAPS nodes = prose annotations.
 %% Palette: route (blue) = decisions, gen (green) = live pipeline states,
 %%          client (yellow) = external effects, warn (orange) = annotations.
-%% covers: nollama.py:main,needs_optimum,is_vlm,_verify_weights_integrity,_resolve_kv_pool,_preflight_memory,_preflight_verdict,_largest_weight_tensor_bytes,_gpu_large_alloc_props,load,warmup,_prewarm_slot,_idle_watchdog,ensure_loaded,unload,_load_in_background
+%% covers: nollama.py:_LoadProgress,_load_time_key,_remembered_load_time,_record_load_time,main,needs_optimum,is_vlm,_verify_weights_integrity,_resolve_kv_pool,_preflight_memory,_preflight_verdict,_largest_weight_tensor_bytes,_gpu_large_alloc_props,load,warmup,_prewarm_slot,_idle_watchdog,ensure_loaded,unload,_load_in_background
 %% (_slot_class is nested inside main and invisible to the checker's AST scan
 %%  — its box below is covered via main.)
 flowchart TB
@@ -23,10 +25,13 @@ flowchart TB
   _verify_weights_integrity -.->|"truncated / missing .bin"| loaderr["RuntimeError, plain-English;<br/>'another process using the NPU?'<br/>hint SUPPRESSED for this class"]
   _verify_weights_integrity --> _resolve_kv_pool
 
-  _resolve_kv_pool["_resolve_kv_pool<br/>pin via --cache-size-gb, else auto:<br/>(budget - weights*1.1)/3, floor 2 GB,<br/>cap 64k tokens of KV geometry"]
+  _resolve_kv_pool["_resolve_kv_pool<br/>pin via --cache-size-gb, else auto from<br/>headroom = budget - weights*1.1:<br/>max(headroom - 2 GB, headroom/3), ROUNDED,<br/>floor 2 GB, cap 64k tokens of KV geometry"]
   _resolve_kv_pool --> _preflight_memory["_preflight_memory<br/>never blocks: _preflight_verdict says<br/>fits (silent) / tight (info, within the<br/>estimate's own 5% slack) / over (WARNING,<br/>hint typed iGPU vs dGPU); logs pool
   token capacity"]
-  _preflight_memory --> alloc_gate
+  _preflight_memory --> _LoadProgress
+
+  _LoadProgress["_LoadProgress.start<br/>daemon ticker, gaps 5/10/15/30s;<br/>_remembered_load_time yields a %,<br/>absent one it counts elapsed and says so.<br/>Clock starts HERE, after integrity+preflight"]
+  _LoadProgress --> alloc_gate
 
   alloc_gate{"GPU slot:<br/>--gpu-large-alloc given?"}
   alloc_gate -.->|"yes: force the property,<br/>skip the inspection entirely"| pipebuild
@@ -42,10 +47,12 @@ flowchart TB
   pipebuild -->|--no-prompt-cache| plain_pipe["plain pipeline"]
   cb_pipe -.->|"runtime rejects the property"| cb_fallback["plain pipeline; kv_pool_gb=0<br/>so /health is honest and<br/>prewarm skips this slot"]
 
-  cb_pipe --> warmup["warmup<br/>5-token generate; ready or error"]
-  npu_pipe --> warmup
-  plain_pipe --> warmup
-  cb_fallback --> warmup
+  cb_pipe --> _LoadDone
+  _LoadDone["_LoadProgress.done<br/>stops ticker, _record_load_time writes<br/>.load-times.json for the NEXT run's estimate.<br/>NOT called on a raise - a failed duration<br/>would poison the estimate"]
+  _LoadDone --> warmup["warmup<br/>5-token generate; ready or error"]
+  npu_pipe --> _LoadDone
+  plain_pipe --> _LoadDone
+  cb_fallback --> _LoadDone
   optimum_load --> warmup
 
   warmup --> _prewarm_slot{"_prewarm_slot<br/>PREWARM_FILE + live kv pool?"}
@@ -89,8 +96,16 @@ flowchart TB
 
   POOLSTABLE["Pool auto-size uses the TOTAL device budget, not free RAM:
   stable across restarts/reloads. CB grows into the pool rather than
-  allocating upfront, but prefix-cached blocks are never released -
-  hence taking only a third of headroom (AUTO_KV_HEADROOM_SHARE).
+  allocating upfront, but prefix-cached blocks are never released - hence
+  leaving a reserve at all. TWO SHAPES, take the larger: everything above a
+  fixed 2 GB working margin (AUTO_KV_RESERVE_GB), or a flat third
+  (AUTO_KV_HEADROOM_SHARE). The third alone under-spends a big budget badly
+  - 25.3 GB with 15.2 GB of weights sized 2.87 GB, int()-truncated to 2,
+  which looked like the floor when it was not. That is ~22k tokens against
+  an agent declaring 60k of context, and a pool that cannot hold prompt +
+  max_tokens lets ONE request evict its own prefix mid-generation. The
+  reserve wins on a large budget, the third on a small one where
+  subtracting 2 GB would leave nothing.
   On CPU the budget is min(MemTotal, cgroup limit) - /proc/meminfo alone
   reports the HOST total inside a container and oversizes the pool."]
   _resolve_kv_pool -.-> POOLSTABLE
@@ -101,5 +116,6 @@ flowchart TB
   classDef warn fill:#fec,stroke:#a60,color:#000
   class main,_slot_class,_verify_weights_integrity,_resolve_kv_pool,_preflight_memory,alloc_gate,_gpu_large_alloc_props,pipebuild,_prewarm_slot,_idle_watchdog,_load_in_background route
   class load,optimum_load,npu_pipe,cb_pipe,plain_pipe,cb_fallback,warmup,ready,ensure_loaded gen
+  class _LoadProgress,_LoadDone client
   class loaderr,unload client
   class NOREWARM,POOLSTABLE,DXGCAP,RUNTIMEALLOC warn

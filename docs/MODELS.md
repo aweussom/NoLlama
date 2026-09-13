@@ -373,7 +373,7 @@ you from:
 
   Controlled on the same machine, same venv, same IR, same session: CPU
   quoted the instruction back verbatim and answered `HELLO!` correctly.
-  That control matters more than it looks — `install-optimum.ps1` tracks
+  That control matters more than it looks — `scripts\New-OptimumVenv.ps1` tracks
   transformers `main`, so without it "the GPU is broken" and "transformers
   regressed this week" fit the evidence equally well.
 
@@ -390,21 +390,21 @@ and **fixed in 2026.4**. Re-run the comprehension test on each new OpenVINO
 release anyway — and note the GenAI path was never affected: Qwen3.8-27B runs
 correctly on the same B60 on both runtimes.
 
-Test it yourself with `.\install-optimum.ps1 -Nightly`, which builds a second
+Test it yourself with `.\scripts\New-OptimumVenv.ps1 -Nightly`, which builds a second
 `venv-optimum-nightly/` and leaves the release venv intact as a control. Keep
 that control: without a same-venv, same-session CPU run, "the GPU plugin
 changed" and "transformers main moved" are indistinguishable, because
-`install-optimum.ps1` tracks git main for both.
+`scripts\New-OptimumVenv.ps1` tracks git main for both.
 
 The catch is the python stack: these models need transformers **from git
 main** plus optimum-intel **from git main**, which no NoLlama venv pins.
-`install-optimum.ps1` (Windows and Linux, needs git on PATH) builds a
+`scripts\New-OptimumVenv.ps1` (Windows and Linux, needs git on PATH) builds a
 dedicated `venv-optimum/` with the right stack in the right order — the
 order matters: optimum-intel pins `transformers<5.6`, so the git
 transformers goes in last to override it:
 
 ```powershell
-.\install-optimum.ps1
+.\scripts\New-OptimumVenv.ps1
 venv-optimum\Scripts\python.exe nollama.py --model-dir ~\models\Muse-Glimmer-30B-int4-ov --backend optimum --device CPU --idle-timeout 0
 ```
 

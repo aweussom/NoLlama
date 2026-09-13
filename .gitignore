@@ -33,4 +33,9 @@ phi35v-report-*.txt
 # Personal notes and raw measurement replies that live beside the repo, not in it
 results/
 DESTILL-SMOLLM3-PLAN.md
+OPENCODE-140V-PLAN.md
 medium-article-*.txt
+
+# Per-model load durations, used to estimate progress on the next load.
+# Machine-specific timings - never shared.
+.load-times.json

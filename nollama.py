@@ -593,6 +593,163 @@ def _text_config(model_dir):
     return nested if isinstance(nested, dict) else cfg
 
 
+LOAD_TIMES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               ".load-times.json")
+# Gaps between keepalive lines, in seconds; the last value repeats forever.
+# Front-loaded deliberately: the first line lands at 5s, because the question a
+# user has at 5s ("is it doing anything at all?") is urgent and the question at
+# 5 minutes ("is it still going?") is not. A flat interval has to choose between
+# answering the first one late and spamming the second.
+LOAD_HEARTBEAT_SCHEDULE = (5, 10, 15, 30)
+
+
+def _load_time_key(model_dir, device_name):
+    """Identity for a remembered load duration: this model on this device.
+
+    Why: compile time is dominated by the model's size and the device's
+    compiler, and the two vary independently — the same 30B takes minutes on
+    an iGPU and seconds from a warmed OpenVINO cache, so a duration keyed on
+    the model alone would mispredict badly on the other device.
+
+    In: a model directory (any form) and a device name. Out: a stable string;
+    the directory is basename'd so a junction and its target agree.
+    """
+    return f"{os.path.basename(os.path.normpath(str(model_dir)))}@{device_name}"
+
+
+def _remembered_load_time(key):
+    """Seconds the last successful load of this model+device took, or None.
+
+    Why: OpenVINO's compile is one blocking native call with no progress
+    callback, so a true percentage is not obtainable. The previous duration is
+    the next best thing and turns "it has hung" into "it is 40% through" —
+    the whole point of the heartbeat.
+
+    In: a key from _load_time_key. Out: a float, or None when nothing has been
+    recorded (first load, or the file is missing/corrupt — a bad file must not
+    break loading, so every failure reads as None).
+    """
+    try:
+        with open(LOAD_TIMES_FILE) as f:
+            return json.load(f).get(key)
+    except Exception:
+        return None
+
+
+def _record_load_time(key, seconds):
+    """Persist how long a successful load took, for the next run's estimate.
+
+    Why: without persistence the heartbeat can only ever count up, which is
+    what makes a long load feel like a hang. Written after success only —
+    timing a failed load would poison the estimate with a duration that ends
+    in an exception.
+
+    In: a key and elapsed seconds. Out: nothing; all errors are swallowed
+    because failing to write a convenience file must never fail a load.
+    """
+    try:
+        data = {}
+        if os.path.exists(LOAD_TIMES_FILE):
+            with open(LOAD_TIMES_FILE) as f:
+                data = json.load(f)
+        data[key] = round(seconds, 1)
+        with open(LOAD_TIMES_FILE, "w") as f:
+            json.dump(data, f, indent=2)
+    except Exception:
+        pass
+
+
+class _LoadProgress:
+    """Print a progress line every LOAD_HEARTBEAT_SEC while a load blocks.
+
+    Why: a 15 GB model on an iGPU takes minutes inside a single uninterruptible
+    native call that prints nothing. Users read silence as a hang and kill the
+    server — the launcher's wait loop has the same problem from the outside.
+    OpenVINO exposes no progress callback, so a true percentage is impossible;
+    the honest substitute is elapsed time, turned into a percentage only when a
+    previous run of this same model+device was timed.
+
+    Deliberately a start/done pair rather than a context manager: the
+    construction it wraps is a long if/elif tree, and re-indenting that to fit
+    a `with` would be a large diff for no behavioural gain.
+
+    In: device name and model dir. Out: nothing directly; done() records the
+    elapsed time for next run's estimate, and must NOT be called on a failed
+    load — a duration that ends in an exception would poison the estimate. The
+    ticker is a daemon thread, so a load that dies hard cannot hold the process
+    open.
+    """
+
+    def __init__(self, device_name, model_dir, still_loading=None):
+        """Read any remembered duration for this model+device; start nothing yet.
+
+        Why the split from start(): the caller builds this before the load
+        begins but the clock must start at the load, not at construction —
+        weight-integrity verification and the memory preflight run in between
+        and would otherwise be counted into the estimate.
+
+        In: device name, model dir, and an optional predicate the ticker polls
+        to notice a load that died. Out: nothing; self.prior is None on a first
+        load, which is what makes the ticker say so instead of inventing a
+        percentage.
+        """
+        self.device_name = device_name
+        self.key = _load_time_key(model_dir, device_name)
+        self.prior = _remembered_load_time(self.key)
+        self.started = None
+        self._stop = threading.Event()
+        # Second stop condition, because the construction this wraps can raise
+        # and the caller's `except` is a level up in _load_in_background (which
+        # sets status "error"). Without this the ticker would print forever
+        # after a failed load.
+        self._still_loading = still_loading or (lambda: True)
+
+    def start(self):
+        """Begin timing and start the ticker thread."""
+        self.started = time.time()
+        threading.Thread(target=self._tick, daemon=True).start()
+        if self.prior:
+            print(f"  [{self.device_name}] last load took {self.prior:.0f}s",
+                  flush=True)
+
+    def _tick(self):
+        """Ticker body — one keepalive line per scheduled gap until stopped.
+
+        Prints on every tick whether or not a prior duration is known: the
+        keepalive is the point, the percentage is a bonus when we have the
+        evidence for one.
+        """
+        idx = 0
+        while True:
+            gap = LOAD_HEARTBEAT_SCHEDULE[min(idx, len(LOAD_HEARTBEAT_SCHEDULE) - 1)]
+            idx += 1
+            if self._stop.wait(gap):
+                return
+            if not self._still_loading():
+                return
+            elapsed = time.time() - self.started
+            if self.prior:
+                pct = min(99, int(elapsed / self.prior * 100))
+                print(f"  [{self.device_name}] still loading... {elapsed:.0f}s "
+                      f"(~{pct}% of last run's {self.prior:.0f}s)", flush=True)
+            else:
+                print(f"  [{self.device_name}] still loading... {elapsed:.0f}s "
+                      f"(first load of this model - timing it for next time)",
+                      flush=True)
+
+    def done(self):
+        """Stop the ticker and remember the duration. Call only on success."""
+        self._stop.set()
+        if self.started is not None:
+            elapsed = time.time() - self.started
+            _record_load_time(self.key, elapsed)
+            print(f"  [{self.device_name}] loaded in {elapsed:.0f}s", flush=True)
+
+    def abort(self):
+        """Stop the ticker without recording — for a load that raised."""
+        self._stop.set()
+
+
 def _kv_bytes_per_token(model_dir):
     """KV-cache bytes per token from config.json geometry (K+V, fp16).
 
@@ -1529,6 +1686,9 @@ class DeviceSlot:
         self._resolve_kv_pool(vlm)
         self._preflight_memory(vlm)
         print(f"  [{self.device_name}] Loading...", flush=True)
+        progress = _LoadProgress(self.device_name, model_dir,
+                                 still_loading=lambda: self.status == "loading")
+        progress.start()
 
         # MoE disk offload (--offload-ratio): GPU-only plugin property, and it
         # only does anything on XMX hardware (Arc dGPU, Lunar Lake 140V+) —
@@ -1639,6 +1799,7 @@ class DeviceSlot:
             else:
                 self.pipe = ovg.LLMPipeline(str(model_dir), device=self.device_id,
                                             **plugin_props)
+        progress.done()
         # Uses the pipeline's own tokenizer, never a fresh ovg.Tokenizer: on a
         # runtime older than the IR that second construction can segfault
         # [OBSERVED 2026-08-30, 2026.3.0 + Qwen3.8 main-branch IR].
@@ -1648,15 +1809,24 @@ class DeviceSlot:
     def _resolve_kv_pool(self, vlm):
         """Set self.kv_pool_gb — the KV-cache pool for this slot's CB backend.
 
-        An explicit --cache-size-gb pins it. Otherwise auto-size from the
-        device budget: a third of what's left after weights, floored at the
-        old 2 GB default and capped at AUTO_KV_TOKENS of this model's KV
+        An explicit --cache-size-gb pins it. Otherwise auto-size from what
+        the weights leave free in the device budget, taking the LARGER of
+        two shapes: everything above a fixed AUTO_KV_RESERVE_GB working
+        margin, or a flat 1/AUTO_KV_HEADROOM_SHARE. Floored at
+        AUTO_KV_MIN_GB, capped at AUTO_KV_TOKENS of this model's KV
         geometry. Sized from the *total* budget, not free memory, so the
-        result is stable across restarts and idle-unload reloads. The CB
-        backend grows into the pool rather than allocating it upfront, but
-        with prefix caching on, blocks are never released — a long agent
-        session eventually owns the whole pool, hence the headroom fraction
-        (see AUTO_KV_HEADROOM_SHARE).
+        result is stable across restarts and idle-unload reloads.
+
+        Why two shapes: the flat share alone under-spends a large budget
+        badly — 25.3 GiB with 15.2 GiB of weights gave a 2.87 GiB pool,
+        ~22k tokens, against an agent client declaring 60k of context, and
+        a pool that cannot hold prompt + max_tokens lets a single request
+        evict its own prefix mid-generation (TODONT.md). The fixed reserve
+        wins there; the share still wins on a small budget, where
+        subtracting 2 GiB would leave nothing. The reserve exists because
+        the CB backend grows into the pool and prefix-cached blocks are
+        never released, so a long agent session really does end up owning
+        all of it.
         """
         # VLM slots size a pool too: openvino_genai honors scheduler_config
         # on VLMPipeline (verified on 2026.3 release and the 2026.4 nightly;
@@ -1676,11 +1846,24 @@ class DeviceSlot:
             self.kv_pool_gb = AUTO_KV_MIN_GB  # can't estimate — old default
             return
         headroom = mem - weights * 1.1  # same overhead margin as the preflight
-        pool = headroom / AUTO_KV_HEADROOM_SHARE / gib
+        # Two ways to spend the headroom; take whichever is larger. The flat
+        # 1/(SHARE) is the right shape on a small budget, where a fixed
+        # reserve would leave nothing. On a large one it under-spends badly:
+        # a 25.3 GiB budget with 15.2 GiB of weights left 8.6 GiB free and
+        # the third sized a 2.87 GiB pool — ~22k tokens against OpenCode's
+        # declared 60k context, so a single long agent turn evicts its own
+        # prefix mid-generation (TODONT.md: "the KV pool must hold prompt +
+        # max_tokens"). Reserving a fixed working margin instead lands on
+        # 6 GiB, which is what the B60 rig was pinned to by hand for this
+        # same model (NEXT-STEPS.md, task nollama-gpu-8000).
+        pool = max(headroom / gib - AUTO_KV_RESERVE_GB,
+                   headroom / AUTO_KV_HEADROOM_SHARE / gib)
         per_tok = _kv_bytes_per_token(self.model_dir)
         if per_tok:
             pool = min(pool, AUTO_KV_TOKENS * per_tok / gib)
-        self.kv_pool_gb = max(AUTO_KV_MIN_GB, int(pool))
+        # round, not int: truncation cost a whole GiB at 2.87 and made the
+        # result look like the floor had been hit when it had not.
+        self.kv_pool_gb = max(AUTO_KV_MIN_GB, round(pool))
 
     def _preflight_memory(self, vlm):
         """Sanity-check model weights + KV pool against the device's memory
@@ -3089,6 +3272,10 @@ AUTO_KV_MIN_GB = 2    # auto-size floor — the old fixed default; also the fall
 AUTO_KV_TOKENS = 65536  # auto-size cap, in tokens of the model's KV geometry: covers an
                         # agent's ~21k-token system prompt plus a long session; beyond that
                         # the pool is waste
+AUTO_KV_RESERVE_GB = 2  # working space left unused after the pool on a large budget:
+                        # compile scratch, the runtime's own buffers, and the fact
+                        # that prefix-cached blocks are never released. Preferred over
+                        # the flat share below whenever it yields the bigger pool.
 AUTO_KV_HEADROOM_SHARE = 3  # auto takes at most 1/(this) of what's left after weights —
                             # iGPU "device memory" and the CPU pool are the same RAM the
                             # agent's own compilers and tests run in

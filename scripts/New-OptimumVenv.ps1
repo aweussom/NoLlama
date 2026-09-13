@@ -22,9 +22,9 @@ What lands in the venv, and why this exact order:
 Needs git on PATH (pip installs two packages straight from GitHub).
 Idempotent: re-running on a healthy venv exits early.
 
-  .\install-optimum.ps1                       # creates ./venv-optimum
-  .\install-optimum.ps1 -Python python3.12    # pick the python to seed from
-  .\install-optimum.ps1 -Nightly              # ./venv-optimum-nightly, OpenVINO nightly
+  .\scripts\New-OptimumVenv.ps1                       # creates ./venv-optimum
+  .\scripts\New-OptimumVenv.ps1 -Python python3.12    # pick the python to seed from
+  .\scripts\New-OptimumVenv.ps1 -Nightly              # ./venv-optimum-nightly, OpenVINO nightly
 
 -Nightly builds a SECOND venv on the OpenVINO nightly wheels, leaving the
 release one intact. That is the setup for re-testing the GPU corruption

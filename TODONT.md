@@ -567,7 +567,7 @@ keeping:
   and still stands. Two different symptoms; don't merge them.
 
 **Always run the CPU control on the same box, same venv, same session.**
-`install-optimum.ps1` tracks transformers `main`, so the stack moves between
+`scripts\New-OptimumVenv.ps1` tracks transformers `main`, so the stack moves between
 test runs. Without the control, "the GPU plugin is broken" and "transformers
 regressed since the last test" fit the evidence equally well, and you would
 file the wrong bug upstream.
@@ -1333,7 +1333,7 @@ from the menus unless it's passed.
   venv genuinely cannot hold both stacks; forcing it would silently break
   Qwen3-Next conversions to enable one untested model.
 - The cost of the split is small and already paid elsewhere:
-  `install-optimum.ps1` established the second-venv pattern, and
+  `scripts\New-OptimumVenv.ps1` established the second-venv pattern, and
   `start-template.ps1` now takes `-VenvName` so both runtimes coexist.
 
 Re-evaluate when: OpenVINO 2026.4.0 ships as a **release** and genai's
