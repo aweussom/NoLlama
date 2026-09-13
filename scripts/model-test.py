@@ -37,6 +37,18 @@ import time
 
 import openvino_genai as ovg
 
+# Windows gives a redirected stdout cp1252, which cannot encode most of what a
+# misbehaving model emits — and printing a tail then raises UnicodeEncodeError
+# and kills the run. That cost a 40-minute Qwen3-8B sweep on 2026-09-13, whose
+# results were lost entirely because the report was only written at the end.
+# errors="replace" keeps a mangled character from being fatal: this harness
+# exists to look at bad output, so it must be able to print anything.
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 # Prompts chosen to demand LENGTH, because length is what exposes decay. The
 # last is a follow-up chain: context growth is its own axis, and an agent's
 # later turns are where a small model is most likely to come apart.
@@ -232,6 +244,12 @@ def main():
             for r in results:
                 key = f"{name}/{knob[0]}/turn{r['turn']}"
                 report[key] = r
+            # Flush after every knob, not at the end. Each case costs minutes
+            # of generation; losing the lot to a late crash is not acceptable
+            # for a run measured in hours.
+            if a.json:
+                with open(a.json, "w", encoding="utf-8") as fh:
+                    json.dump(report, fh, indent=2)
                 jv = r.get("judge")
                 disagree = r.get("agree") is False
                 flag = "!!! " if disagree else ("    " if r["verdict"] == "ok" else ">>> ")
