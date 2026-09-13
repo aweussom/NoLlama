@@ -2262,12 +2262,25 @@ class DeviceSlot:
 
         Retries once without the repetition penalty when the model turns out
         to encode image placeholders out of vocab; see _vlm_penalty_guard.
+        A poisoned driver context takes the slot out of service instead, and
+        does it before any other recovery runs — see the handler below.
         """
         with self.lock:
             self._vlm_penalty_guard(gen, images)
             try:
                 result = self._vlm_generate_once(text_prompt, images, gen)
             except Exception as e:
+                # Poisoned context is checked first and short-circuits,
+                # because _reset_vlm_state issues an OpenCL call and that is
+                # the one thing OpenVINO's own error text says may hang after
+                # this error. It does worse than hang: a slot left "ready"
+                # here reaches the idle watchdog, whose unload() aborted the
+                # whole process [OBSERVED 2026-09-12, Arc 140T, issue #38 —
+                # `Fatal Python error: Aborted`, current thread
+                # _idle_watchdog inside unload()].
+                if _is_poisoned_context_error(e):
+                    self._note_poisoned(e)
+                    raise
                 # Unwedge before anything else: a throw skipped the
                 # pipeline's own state reset, so both the retry below and
                 # any later request would fail on stale history.
@@ -2287,14 +2300,30 @@ class DeviceSlot:
         return text
 
     def generate_llm(self, raw_messages, gen):
-        """LLM generate — non-streaming."""
+        """LLM generate — non-streaming.
+
+        Why the try/except around one call: this is the only LLM path that
+        does not go through stream_tokens, so without it a poisoned driver
+        context reached on a non-streaming request would leave the slot
+        "ready" and the idle watchdog would later unload it — which aborts
+        the process [OBSERVED 2026-09-12, issue #38]. The error still
+        propagates; _note_poisoned only records it.
+
+        In: OpenAI-shaped messages and a GenerationConfig. Out: the answer
+        text; raises whatever genai raised, slot marked out of service first
+        if the context is gone.
+        """
         history = ovg.ChatHistory()
         for msg in raw_messages:
             history.append({"role": msg["role"], "content": msg["content"]})
         _apply_thinking_switch(history, raw_messages)
         _apply_tuning(gen, self)
         with self.lock:
-            result = self.pipe.generate(history, gen)
+            try:
+                result = self.pipe.generate(history, gen)
+            except Exception as e:
+                self._note_poisoned(e)
+                raise
             self.last_used = time.time()
         ttft_ms, _ = extract_perf(result)
         if ttft_ms is not None:
@@ -2312,8 +2341,17 @@ class DeviceSlot:
         around it, /health show the reason, and the operator restart once
         rather than watch a stream of `!!` lines.
 
+        Why every generate path calls it, streaming or not: status "error"
+        is also what keeps the slot away from _idle_watchdog, and unloading
+        a poisoned slot aborts the process rather than the request [OBSERVED
+        2026-09-12, same reporter — `Fatal Python error: Aborted` inside
+        unload()]. A path that catches a generate error without calling this
+        leaves that abort reachable, which is how the non-streaming routes
+        did until 2026-09-13.
+
         In: the exception from a generate. Out: nothing; sets status and
         error_reason only for the poisoned-context class, no-op otherwise.
+        Never raises — callers are in except blocks re-raising the original.
         """
         if not _is_poisoned_context_error(e):
             return
@@ -3261,6 +3299,10 @@ class OptimumSlot(DeviceSlot):
                 self._stream_error = e
                 print(f"{datetime.now():%H:%M:%S} !! [{self.device_name}] "
                       f"{tag}generate error: {e}", flush=True)
+                # Same contract as the genai slot: the GPU under this backend
+                # is the same GPU, so CL_OUT_OF_RESOURCES poisons it the same
+                # way and the slot must go out of service (issue #38).
+                self._note_poisoned(e)
                 streamer.end()  # unblock the consumer even on pre-generate failure
 
         t = threading.Thread(target=_generate, daemon=True)
@@ -4826,7 +4868,18 @@ def _gpu_keepalive(slots, interval, check_interval=15):
 
 
 def _idle_watchdog(slots, idle_timeout, check_interval=30):
-    """Background thread: unload slots that have been idle too long."""
+    """Background thread: unload slots that have been idle too long.
+
+    Why the status check is not merely an optimisation: unloading a slot
+    whose OpenCL context is poisoned kills the process outright, not the
+    request [OBSERVED 2026-09-12, Arc 140T, issue #38 — `Fatal Python error:
+    Aborted`, current thread _idle_watchdog inside unload()]. _note_poisoned
+    sets status "error" on every generate path so that such a slot never
+    reaches unload() here. Do not relax this to "unload whatever is loaded".
+
+    In: the slot list, the --idle-timeout seconds. Out: never returns; runs
+    as a daemon thread. A slot serving a request is skipped, not waited for.
+    """
     while True:
         time.sleep(check_interval)
         now = time.time()

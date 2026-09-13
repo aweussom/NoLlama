@@ -20,7 +20,23 @@ All three outward-facing items are done (2026-09-01):
 - **Matrix reported** to openvinotoolkit/openvino#37322 —
   [comment 5498407344](https://github.com/openvinotoolkit/openvino/issues/37322#issuecomment-5498407344),
   addressed to @Zulkifli-Intel's 2026-08-13 "gibberish on NPU" observation,
-  with the NPU 3 positive control and the two-driver result. Nothing back yet.
+  with the NPU 3 positive control and the two-driver result.
+
+  **Answered 2026-09-12, and it has its own issue now:
+  [openvinotoolkit/openvino#38100](https://github.com/openvinotoolkit/openvino/issues/38100)
+  (filed 2026-09-13).** Zulkifli-Intel asked for a separate thread — *"keeping
+  separate bugs and model versions in their own threads helps us track and
+  triage them more effectively"* — which is fair: #37322 is titled for the
+  2.6B `unordered_map` crash, that bug was fixed by a nightly in August, and
+  our accuracy defect was living as a comment on someone else's resolved
+  problem. #38100 restates the whole matrix standalone (3720 control, CPU/GPU
+  controls, two drivers, three OpenVINO versions, both compilers, Intel's own
+  350M export, and the `finish_reasons` evidence), scoped explicitly to
+  **350M and 1.2B** with DavidDohmen's working 2.6B on a 256V cited as the
+  boundary. #37322 cross-linked and otherwise left to its own discussion.
+
+  Watch #38100 for a `Ref. <number>` — that is how Intel marks acceptance
+  into engineering triage (see #4405 and #37501 below).
 - **Both HF model cards** carry the caveat. The wording differs on purpose:
   LFM2.5-1.2B says a driver update does not fix it (measured on 4778 and
   5540); LFM2-1.2B says it is not expected to (that build was never
@@ -30,8 +46,8 @@ All three outward-facing items are done (2026-09-01):
   explanation, and an explicit ask, since that reporter's 4.29 GB cap is the
   only place `_reset_vlm_state` can be verified.
 
-Open, waiting on other people: a reply from Intel on #37322, and the
-issue #24 reporter confirming whether the slot reset actually works.
+Open, waiting on other people: triage of #38100, and the issue #24 reporter
+confirming whether the slot reset actually works.
 
 Note for whoever re-probes: the 5540 run covered LFM2.5-1.2B and Intel's
 `OpenVINO/LFM2.5-350M-int8-ov` (re-downloaded; NPU garbage, CPU and GPU
@@ -186,9 +202,12 @@ Worth teaching the probe to print both before the next driver hunt.
   future "release vs nightly on a discrete Intel GPU" question has nowhere
   to run today. → `docs/dev/machines.md`.
 
-- **USM OOM: filed upstream as openvino.genai#4344 (2026-08-18).**
-  Raw VLMPipeline (plain, no scheduler_config), Glimmer int4 on the B60:
-  first ~33k-token generate fails with a USM Device allocation error;
+- **USM OOM: filed upstream as openvinotoolkit/openvino#37501 (2026-08-18).**
+  (This section said `openvino.genai#4344` until 2026-09-13. No such issue
+  exists — it is against the **openvino** repo, because the allocation is the
+  GPU plugin's, not genai's. Corrected so a search for the number finds the
+  thread.) Raw VLMPipeline (plain, no scheduler_config), Glimmer int4 on the
+  B60: first ~33k-token generate fails with a USM Device allocation error;
   identical retry succeeds. 100% reproducible, with or without short
   generates first.
 
@@ -223,6 +242,11 @@ Worth teaching the probe to print both before the next driver hunt.
   doubled, which moved the failure from "16 GB alloc fails" to "32 GB exceeds
   the 25,055,051,776 device maximum outright". Only known change on the box
   is the Windows Intel graphics driver.
+
+  **Upstream status (2026-09-01):** an Intel engineer posted `Ref. 193991` —
+  the internal tracker id, same convention as `Ref. 194483` on #4405 above.
+  Accepted into triage, nothing asked of us, nothing to do but wait. Quote
+  the number if anyone upstream asks about this one.
 
   Intel's suggested workaround (a dummy short generate first) **does not
   work** — measured 2026-08-25, fails identically. It does tighten the

@@ -86,6 +86,129 @@ def test_ordinary_error_leaves_slot_in_service():
     assert slot.status == "ready" and slot.error_reason is None
 
 
+# --------------------------------------------------------------------------
+# The non-streaming paths. Until 2026-09-13 only the two streaming handlers
+# called _note_poisoned, so a non-streaming request left the slot "ready" —
+# and a ready slot is what the idle watchdog unloads, which aborts the
+# process (issue #38, the reporter's second traceback).
+# --------------------------------------------------------------------------
+
+class _VlmPipe:
+    """VLMPipeline stand-in: generate() throws, finish_chat() is recorded."""
+
+    def __init__(self, exc):
+        self.exc = exc
+        self.finish_chat_calls = 0
+
+    def generate(self, **kwargs):
+        raise self.exc
+
+    def finish_chat(self):
+        self.finish_chat_calls += 1
+
+
+def _vlm_slot(pipe):
+    slot = _slot(pipe)
+    slot.model_type = "vlm"
+    slot._rep_penalty_breaks_images = False
+    slot._atem = False
+    return slot
+
+
+class _Gen:
+    repetition_penalty = 1.05
+
+
+def _raises(fn):
+    try:
+        fn()
+    except Exception as e:
+        return e
+    raise AssertionError("expected the original error to propagate")
+
+
+def test_nonstreaming_llm_marks_slot_out_of_service():
+    class Pipe:
+        def generate(self, history, gen):
+            raise RuntimeError(REAL)
+    slot = _slot(Pipe())
+    e = _raises(lambda: slot.generate_llm([{"role": "user", "content": "hi"}], None))
+    assert "CL_OUT_OF_RESOURCES" in str(e), "the caller still sees the real error"
+    assert slot.status == "error"
+    assert not nollama._slot_serviceable(slot)
+
+
+def test_nonstreaming_vlm_marks_slot_out_of_service():
+    slot = _vlm_slot(_VlmPipe(RuntimeError(REAL)))
+    e = _raises(lambda: slot.generate_vlm("hi", [], _Gen()))
+    assert "CL_OUT_OF_RESOURCES" in str(e)
+    assert slot.status == "error"
+    assert not nollama._slot_serviceable(slot)
+
+
+def test_poisoned_vlm_throw_does_not_touch_the_pipeline():
+    """The regression guard: _reset_vlm_state calls finish_chat(), an OpenCL
+    call, and OpenVINO says any OpenCL call after this error may hang the
+    application. So the poison check must run BEFORE the reset, not after."""
+    pipe = _VlmPipe(RuntimeError(REAL))
+    slot = _vlm_slot(pipe)
+    _raises(lambda: slot.generate_vlm("hi", [], _Gen()))
+    assert pipe.finish_chat_calls == 0, "finish_chat() ran on a dead OpenCL context"
+
+
+def test_ordinary_vlm_throw_still_resets_state():
+    """The other half: an ordinary throw must keep the issue #24 reset."""
+    pipe = _VlmPipe(RuntimeError("Got unfinished GenerationStatus"))
+    slot = _vlm_slot(pipe)
+    _raises(lambda: slot.generate_vlm("hi", [], _Gen()))
+    assert pipe.finish_chat_calls == 1
+    assert slot.status == "ready" and slot.error_reason is None
+
+
+def test_idle_watchdog_never_unloads_a_poisoned_slot():
+    """Unloading one killed the reporter's process; status "error" is what
+    keeps it away from here, so the guard is asserted rather than assumed."""
+    class _Stop(Exception):
+        pass
+
+    unloaded = []
+    slot = _slot(PoisonPipe())
+    slot.unload = lambda: unloaded.append(slot.device_name)
+    slot.status = "error"        # what _note_poisoned leaves behind
+    slot.error_reason = "poisoned"
+
+    calls = []
+    real_sleep = nollama.time.sleep
+
+    def _sleep(_):
+        calls.append(1)
+        if len(calls) > 1:
+            raise _Stop()
+
+    nollama.time.sleep = _sleep
+    try:
+        nollama._idle_watchdog([slot], idle_timeout=0, check_interval=0)
+    except _Stop:
+        pass
+    finally:
+        nollama.time.sleep = real_sleep
+
+    assert unloaded == [], "the watchdog unloaded a slot with a dead OpenCL context"
+
+    # ...and the guard is the status, not the absence of a timeout: the same
+    # slot marked ready IS unloaded, which is what makes the test meaningful.
+    slot.status = "ready"
+    calls.clear()
+    nollama.time.sleep = _sleep
+    try:
+        nollama._idle_watchdog([slot], idle_timeout=0, check_interval=0)
+    except _Stop:
+        pass
+    finally:
+        nollama.time.sleep = real_sleep
+    assert unloaded == ["GPU"]
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_") and callable(fn):

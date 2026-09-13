@@ -4,11 +4,13 @@
 %% Updated 2026-09-01: _vlm_penalty_guard one-shot retry on the image path.
 %% Updated 2026-09-01: _reset_vlm_state on the VLM throw path (issue #24).
 %% Updated 2026-09-11: per-request cancel token replaces the shared slot flag (issue #40).
+%% Updated 2026-09-13: _note_poisoned reached from the non-streaming generates too,
+%%   and it now short-circuits _reset_vlm_state (issue #38).
 %% Legend: solid = normal path, dashed = failure/timeout/cancel paths,
 %%         ALL-CAPS nodes = prose annotations.
 %% Palette: route (blue) = protocol consumers, gen (green) = backend/worker,
 %%          client (yellow) = wire frames, warn (orange) = annotations.
-%% covers: nollama.py:_apply_tuning,_tuning_for,_model_family,_apply_thinking_switch,_no_think_requested,stream_tokens,stream_vlm_tokens,_reset_vlm_state,_vlm_penalty_guard,_is_placeholder_bounds_error,_note_poisoned,_is_poisoned_context_error,stream_llm,stream_vlm,_sse_stream,_ollama_stream_chat,_ollama_stream_generate,generate_llm,cancel,explain_genai_error,_AtemStreamFilter,_AtemPlainFilter,_ThinkSplitter,_split_think,_ToolCallGate,_prompt_preseeds_think
+%% covers: nollama.py:_apply_tuning,_tuning_for,_model_family,_apply_thinking_switch,_no_think_requested,stream_tokens,stream_vlm_tokens,_reset_vlm_state,_vlm_penalty_guard,_is_placeholder_bounds_error,_note_poisoned,_is_poisoned_context_error,stream_llm,stream_vlm,_sse_stream,_ollama_stream_chat,_ollama_stream_generate,generate_llm,generate_vlm,cancel,explain_genai_error,_AtemStreamFilter,_AtemPlainFilter,_ThinkSplitter,_split_think,_ToolCallGate,_prompt_preseeds_think
 flowchart TB
   stream_tokens["DeviceSlot.stream_tokens<br/>SEAM between backend and protocol.<br/>Owns: worker thread, lock, binding the<br/>caller's per-request cancel token to<br/>slot._cancel INSIDE the lock, _stream_error.<br/>A token already set at lock time skips<br/>generate (client left while queued).<br/>Yields str chunk, or None after
   'heartbeat' quiet seconds"]
@@ -24,8 +26,11 @@ flowchart TB
   stream_vlm_tokens --> worker
 
   penalty_guard["_vlm_penalty_guard (image turns only)<br/>Some VLM exports put image placeholders<br/>outside 0..vocab_size. genai's repetition<br/>-penalty transformer walks the PROMPT ids<br/>and asserts on them, so every image turn died<br/>while text turns worked. First failure sets a<br/>per-slot flag, warns once, and retries with<br/>repetition_penalty = 1.0; later image turns<br/>skip the penalty up front. Text turns keep it"]
-  reset_state["_reset_vlm_state<br/>FIRST thing on any throwing VLM generate:<br/>finish_chat() to reconverge the attention mask<br/>with tokenized_history, so one failure does not<br/>wedge every later request on the slot"]
-  worker -.->|"VLM generate throws"| reset_state
+  reset_state["_reset_vlm_state<br/>on a throwing VLM generate, once the poisoned<br/>class is ruled out: finish_chat() to reconverge<br/>the attention mask with tokenized_history, so one<br/>failure does not wedge every later request"]
+  poison_gate{"_is_poisoned_context_error<br/>checked BEFORE any recovery"}
+  worker -.->|"VLM generate throws"| poison_gate
+  poison_gate -.->|"CL_OUT_OF_RESOURCES"| poisoned
+  poison_gate -.->|"anything else"| reset_state
   reset_state -.->|"image turn asserted:<br/>prompt_id out of bounds"| penalty_guard
   reset_state -.->|"anything else"| _stream_error
   penalty_guard -.->|"retry once, penalty cleared"| worker
@@ -51,10 +56,26 @@ flowchart TB
   WHAT IT CANNOT DO (observed 2026-09-12, issue #38): rescue a slot after
   CL_OUT_OF_RESOURCES - the driver context is gone; the reporter needed a
   process restart, once a reboot. _note_poisoned takes that slot out of
-  service (status error, reason in /health) instead of pretending."]
+  service (status error, reason in /health) instead of pretending.
+  AND IT MUST NOT RUN ON THAT CLASS AT ALL: finish_chat() is an OpenCL
+  call, which is exactly what OpenVINO's error text says may hang after
+  this error - hence the poison gate ahead of it."]
   reset_state -.-> WEDGEUNPROVEN
-  poisoned["_note_poisoned<br/>CL_OUT_OF_RESOURCES only:<br/>status = error, reason set,<br/>_slot_serviceable routes around it"]
+  poisoned["_note_poisoned<br/>CL_OUT_OF_RESOURCES only:<br/>status = error, reason set,<br/>_slot_serviceable routes around it,<br/>and _idle_watchdog leaves it alone<br/>(slot-lifecycle.mmd)"]
   _stream_error -.->|"_is_poisoned_context_error"| poisoned
+
+  nonstream["non-streaming generates<br/>DeviceSlot.generate_vlm / generate_llm<br/>and OptimumSlot.stream_tokens"]
+  nonstream -.->|"backend exception"| poisoned
+
+  EVERYPATH["EVERY GENERATE PATH CALLS _note_poisoned, streaming or not.
+  Until 2026-09-13 only the two genai streaming handlers did, so a
+  non-streaming VLM request that poisoned the context left the slot
+  'ready' - and a ready slot is what _idle_watchdog unloads, which
+  aborts the PROCESS rather than the request (observed 2026-09-12,
+  Arc 140T, issue #38: 'Fatal Python error: Aborted', current thread
+  _idle_watchdog inside unload()). A new catch site that re-raises
+  without calling this re-opens that abort."]
+  nonstream -.-> EVERYPATH
   worker -.->|"backend exception"| _stream_error["_stream_error set;<br/>explain_genai_error names the fix<br/>(KV pool too small, NPU compiler,<br/>AUTO_DETECT -> --npu-platform, and the<br/>per-allocation cap: a perfect-square<br/>'requested N bytes' is named as an S-squared<br/>attention mask, i.e. a prompt-length limit).<br/>Order matters: the specific matchers run<br/>before the broad 'Compilation failed' one,<br/>and the NPU hints are gated on the slot's<br/>device — see tests/test_npu_pin.py"]
 
   _sse_stream["_sse_stream (OpenAI SSE, shared body)<br/>None -> empty-content delta keepalive;<br/>first token stamps wall-clock TTFT;<br/>finish stop / cancelled / error, [DONE]"]
@@ -144,6 +165,7 @@ flowchart TB
   classDef client fill:#ffffcc,stroke:#b3b300,color:#000
   classDef warn fill:#fec,stroke:#a60,color:#000
   class _sse_stream,stream_llm,tool_stream,_ollama_stream_chat,_ollama_stream_generate,generate_llm route
-  class stream_tokens,stream_vlm_tokens,opt_stream_tokens,worker,atem,splitter,gate,penalty_guard,reset_state,think_switch,apply_tuning gen
+  class stream_tokens,stream_vlm_tokens,opt_stream_tokens,worker,atem,splitter,gate,penalty_guard,reset_state,think_switch,apply_tuning,nonstream gen
+  class poison_gate route
   class cancel,_stream_error,poisoned client
-  class FINALLY,CANCELLIMIT,ORDER,RETRYSAFE,WEDGEUNPROVEN,NOTHINK,TUNING warn
+  class FINALLY,CANCELLIMIT,ORDER,RETRYSAFE,WEDGEUNPROVEN,NOTHINK,TUNING,EVERYPATH warn

@@ -3,6 +3,41 @@
 Things we tried that didn't work, or that work but aren't worth doing. Each
 entry explains *why not* so we don't re-litigate it in six months.
 
+## Handling the poisoned GPU context at the streaming seam only (2026-09-12 -> 2026-09-13)
+
+`_note_poisoned` shipped on 2026-09-12 wired into the two genai **streaming**
+handlers, on the reasoning that every real client streams and the seam is
+where generate errors are already caught. It is the natural place and it is
+where the reporter's traceback pointed.
+
+**Verdict: insufficient, and the shortfall is a process kill rather than a
+bad request.** [OBSERVED 2026-09-12, Arc 140T, issue #38] The same reporter
+posted a second traceback: `Fatal Python error: Aborted`, current thread
+`_idle_watchdog`, inside `unload()`. A slot that hits `CL_OUT_OF_RESOURCES`
+on a path that does *not* call `_note_poisoned` stays `status == "ready"`,
+and ready is exactly what the idle watchdog unloads — releasing a pipeline
+whose OpenCL context is gone takes the whole process down, not the request.
+
+**Why not, precisely:** "the streaming seam catches everything" was false in
+three places — `DeviceSlot.generate_vlm` and `generate_llm` (the
+non-streaming routes) and `OptimumSlot.stream_tokens` (a different backend on
+the same GPU). Worse, `generate_vlm`'s handler called `_reset_vlm_state()`
+*first*, and that calls `finish_chat()` — an OpenCL call, which is precisely
+what OpenVINO's own error text says may hang the application after this
+error. The recovery ran on the thing it could not touch.
+
+**What replaced it:** every generate path calls `_note_poisoned`, streaming
+or not, and the poisoned check runs *before* any other recovery on the VLM
+path. `tests/test_poisoned_gpu.py` asserts both halves — including that
+`finish_chat()` is never called on the poisoned class, and that the watchdog
+unloads a `ready` slot but not an `error` one, so the guard cannot be
+"simplified" away.
+
+**The generalisable bit:** a status flag that routing reads is also read by
+background threads. When a flag exists to keep requests away from a slot,
+check what *else* touches that slot on a timer before deciding one catch site
+is enough.
+
 ## Compress-at-birth: a small model distilling tool results for the coder (2026-09-12)
 
 Idea (from aikomp, moved into an OpenCode `tool.execute.after` plugin): when a
@@ -1186,9 +1221,19 @@ bisect downward — 4724/4512 are older than the driver that already fails,
 and stay staged in `rollback-npu-driver.ps1` for other purposes. Two
 driver generations, three OpenVINO versions, both compilers, every NPUW
 knob, our export and Intel's own: the only variable that has ever moved
-the result is the **NPU generation**. Report the matrix to
-openvinotoolkit/openvino#37322. Retest when the *NPU 4 firmware or the
-plugin's LFM/short-conv path* changes — not on a routine driver bump.
+the result is the **NPU generation**. Retest when the *NPU 4 firmware or
+the plugin's LFM/short-conv path* changes — not on a routine driver bump.
+
+**Update 2026-09-13: it has its own upstream issue,
+[openvinotoolkit/openvino#38100](https://github.com/openvinotoolkit/openvino/issues/38100).**
+The matrix went to #37322 on 2026-09-01 as a comment; Intel replied on
+2026-09-12 asking for a separate thread, because #37322 is titled for the
+LFM2.5-**2.6B** `unordered_map` crash that a nightly fixed in August. Lesson
+worth keeping: posting evidence into the nearest existing thread is cheap and
+it is what we did, but a defect filed as a comment on someone else's resolved
+bug has no tracker identity of its own — it cannot be assigned, labelled, or
+referenced, and it dies when that thread closes. **Scope it and file it
+separately when the failure is not the one the title names.**
 
 Scope note: the 5540 re-probe covered `LFM2.5-1.2B-Instruct-int4-cw-ov`
 and, re-downloaded for the upstream report, Intel's own

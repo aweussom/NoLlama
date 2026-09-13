@@ -55,7 +55,7 @@ correctly with identical software.
 **Updating the NPU driver does not fix it** (checked 2026-09-01): output
 is byte-identical on 32.0.100.4778 and 32.0.100.5540, while other models
 stay correct on the same NPU and driver. Upstream:
-openvinotoolkit/openvino#37322. Details in `TODONT.md`.
+openvinotoolkit/openvino#38100. Details in `TODONT.md`.
 
 ## Models
 

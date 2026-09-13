@@ -4,6 +4,8 @@
 %% Updated 2026-09-13: KV pool auto-size is device-typed (GPU takes the larger of
 %%   headroom-reserve and headroom/3; CPU keeps the fraction) and rounds; load
 %%   progress heartbeat added around the build.
+%% Updated 2026-09-13: dGPU keepalive against WDDM idle eviction.
+%% Updated 2026-09-13: the watchdog's ready-only guard is load-bearing (issue #38).
 %% Legend: solid = normal path, dashed = failure/fallback/degraded,
 %%         ALL-CAPS nodes = prose annotations.
 %% Palette: route (blue) = decisions, gen (green) = live pipeline states,
@@ -64,8 +66,21 @@ flowchart TB
   _gpu_keepalive -->|"yes: 1-token generate,<br/>non-blocking lock"| ready
   _gpu_keepalive -.->|"iGPU / CPU / NPU:<br/>never arms"| ready
 
-  ready --> _idle_watchdog{"_idle_watchdog<br/>every 30s, non-blocking<br/>lock acquire"}
+  ready --> _idle_watchdog{"_idle_watchdog<br/>every 30s, non-blocking<br/>lock acquire; status ready ONLY"}
   _idle_watchdog -.->|"idle > timeout"| unload["unload<br/>pipe=None, gc"]
+
+  poisoned_slot["status = error<br/>_note_poisoned (stream-plumbing.mmd)<br/>after CL_OUT_OF_RESOURCES"]
+  ready -.->|"GPU driver context poisoned"| poisoned_slot
+  poisoned_slot -.->|"never unloaded, never reloaded;<br/>operator restarts the process"| WATCHDOGGUARD
+
+  WATCHDOGGUARD["THE 'status != ready' SKIP IS NOT AN OPTIMISATION.
+  Unloading a slot whose OpenCL context is poisoned does not fail the
+  unload - it kills the process (observed 2026-09-12, Arc 140T,
+  issue #38: 'Fatal Python error: Aborted', current thread
+  _idle_watchdog inside unload()). _note_poisoned marks such a slot
+  'error' on every generate path precisely so it never arrives here.
+  Do not relax this to 'unload whatever is loaded'."]
+  _idle_watchdog -.-> WATCHDOGGUARD
   unload -.-> ensure_loaded["ensure_loaded<br/>reload + warmup on next request,<br/>double-checked under lock"]
   ensure_loaded -.-> ready
 
@@ -156,5 +171,5 @@ flowchart TB
   class _gpu_keepalive,main,_slot_class,_verify_weights_integrity,_resolve_kv_pool,_preflight_memory,alloc_gate,_gpu_large_alloc_props,pipebuild,_prewarm_slot,_idle_watchdog,_load_in_background route
   class load,optimum_load,npu_pipe,cb_pipe,plain_pipe,cb_fallback,warmup,ready,ensure_loaded gen
   class _LoadProgress,_LoadDone client
-  class loaderr,unload client
-  class NOREWARM,POOLSTABLE,DXGCAP,RUNTIMEALLOC,WRONGSLOT,EVICTION warn
+  class loaderr,unload,poisoned_slot client
+  class NOREWARM,POOLSTABLE,DXGCAP,RUNTIMEALLOC,WRONGSLOT,EVICTION,WATCHDOGGUARD warn

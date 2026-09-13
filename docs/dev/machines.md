@@ -340,7 +340,7 @@ is a GPU story.
 
 **The two NPUs are on different drivers, and that is a live gap.** The laptop
 (NPU 4) is on 5540; the 285K (NPU 3) is still on 4778. Every NPU 3 positive
-control we have — including the one in the #37322 report — was taken on 4778.
+control we have — including the one in the #38100 report — was taken on 4778.
 The controlled comparison still holds, because the NPU 4 side was measured on
 *both* drivers and did not move, so 4778-vs-4778 is a like-for-like pair. But
 we have never run NPU 3 on 5540 ourselves; the only evidence that NPU 3 stays
