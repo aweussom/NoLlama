@@ -3387,6 +3387,10 @@ secondary = None      # optional second model (GPU, for vision or bigger LLM)
 # the big coder is `secondary` (it is the --gpu-model-dir slot) and the small
 # side-request model is `primary` (whatever --device names, NPU or CPU).
 PREWARM_SLOT = None
+# Idle seconds before a discrete-GPU slot gets a 1-token ping. Must stay under
+# the platform's eviction threshold, measured at ~80s on an Arc Pro B60
+# (2026-09-13); 60 leaves room for a slow check cycle. 0 disables.
+GPU_KEEPALIVE_SEC = 60
 whisper_slot = None   # optional Whisper STT model
 max_dim = 768
 debug = False
@@ -4656,6 +4660,86 @@ def detect_devices(npu_platform=None):
     return devices
 
 
+def _keepalive_eligible(slot):
+    """True when this slot's allocation decays on idle and can be kept resident.
+
+    Why only a discrete GPU: WDDM evicts a dGPU's VRAM to host RAM after a
+    short idle and copies it back on next use. An integrated GPU's "VRAM" IS
+    host RAM, so there is nowhere to evict to and nothing to copy — pinging it
+    would burn power for no benefit. CPU slots have no residency to lose.
+
+    [OBSERVED 2026-09-13] Arc Pro B60, model held with no traffic: evicted
+    20.34 GB -> 0 at 80s, 80s and 79s after the last request (three for
+    three), each time moving ~20.1 GB into host RAM, with 21.5 GB of host
+    memory still free — so it is an idle timer, not memory pressure. The same
+    model on a 140V iGPU over the same window: 15.90 -> 15.82 GB (0.5% drift),
+    and a generate after 300s idle took 0.1s against 0.4s for the first one.
+
+    In: a slot. Out: bool, from OpenVINO's FULL_DEVICE_NAME suffix, which ends
+    in "(iGPU)" or "(dGPU)". An unknown or missing name reads as NOT eligible
+    — a needless ping is worse than a missed optimisation.
+    """
+    return (slot is not None
+            and getattr(slot, "device_name", None) == "GPU"
+            and "(dGPU)" in (getattr(slot, "device_full", "") or ""))
+
+
+def _gpu_keepalive(slots, interval, check_interval=15):
+    """Background thread: touch idle dGPU slots so WDDM keeps them resident.
+
+    Why: the eviction costs a full reload of the weights across PCIe on the
+    next request — ~10s TTFT on a B60 against ~0.5s warm. Agent work is the
+    worst case for it, because a human reading a turn before replying crosses
+    the ~80s threshold constantly, so the reload is paid on most turns rather
+    than once. A single-token generate is enough to mark the allocation in
+    use.
+
+    Deliberately mirrors _idle_watchdog's shape, including the non-blocking
+    lock acquire: a keepalive that could ever sit in front of a real request
+    would trade a 10s reload for an unbounded stall, which is a worse bargain
+    than the one it is trying to fix.
+
+    In: the slot list, the idle seconds after which a slot is pinged (must be
+    under the platform's eviction threshold — 80s measured on the B60), and
+    how often to look. Out: never returns; runs as a daemon. Failures are
+    swallowed per slot: a keepalive that kills the server is worse than
+    eviction.
+    """
+    while True:
+        time.sleep(check_interval)
+        now = time.time()
+        for slot in slots:
+            if not _keepalive_eligible(slot) or slot.status != "ready":
+                continue
+            # Against the later of a real request and our own last ping —
+            # last_used alone would re-fire every check_interval once the slot
+            # went idle, since a keepalive deliberately does not touch it.
+            last = getattr(slot, "last_used", None)
+            if last is None:
+                continue
+            last = max(last, getattr(slot, "_last_keepalive", 0.0))
+            if now - last < interval:
+                continue
+            if not slot.lock.acquire(blocking=False):
+                continue   # a real request owns it; that IS the keepalive
+            try:
+                gen = ovg.GenerationConfig()
+                gen.max_new_tokens = 1
+                gen.do_sample = False
+                history = ovg.ChatHistory()
+                history.append({"role": "user", "content": "."})
+                slot.pipe.generate(history, gen)
+                # NOT last_used: that field drives the idle watchdog, and
+                # moving it would let a keepalive hold a model resident
+                # forever against an explicit --idle-timeout.
+                slot._last_keepalive = now
+            except Exception as e:
+                if debug:
+                    print(f"  [{slot.device_name}] keepalive failed: {e}", flush=True)
+            finally:
+                slot.lock.release()
+
+
 def _idle_watchdog(slots, idle_timeout, check_interval=30):
     """Background thread: unload slots that have been idle too long."""
     while True:
@@ -4780,6 +4864,13 @@ def parse_args():
                         "(recommended for agent use; also auto-enables --prewarm). "
                         "--prewarm implies 0; an explicit nonzero timeout "
                         "combined with --prewarm is refused at startup.")
+    p.add_argument("--gpu-keepalive", type=int, default=GPU_KEEPALIVE_SEC, metavar="SEC",
+                   help="Seconds of idle after which a DISCRETE GPU slot gets a "
+                        f"1-token ping to stay resident (default: {GPU_KEEPALIVE_SEC}; "
+                        "0 disables). Windows evicts a dGPU's VRAM to host RAM after "
+                        "~80s idle and copies it back on the next request (~10s TTFT "
+                        "on an Arc Pro B60 against ~0.5s warm). Integrated GPUs do not "
+                        "evict — their VRAM is host RAM — so this never arms on one.")
     p.add_argument("--debug", action="store_true",
                    help="Log every inbound API request (method, path, User-Agent, body)")
     p.add_argument("--vscode-compat", action="store_true",
@@ -5098,6 +5189,21 @@ def main():
     # Idle watchdog — unload models after inactivity. (PREWARM_FILE can't be
     # set here: --prewarm implies idle-timeout 0 and refuses an explicit
     # nonzero one, and the auto-prewarm only arms at idle-timeout 0.)
+    # Keepalive for discrete GPUs only. Started even at --idle-timeout 0: the
+    # two do opposite jobs (one unloads a stale model, the other stops the
+    # PLATFORM evicting a live one), and agent setups run with idle-timeout 0,
+    # which is exactly where the eviction hurts most.
+    # Gate on the DEVICES dict, not the slots: slot.device_full is filled in by
+    # _load_in_background, which is still starting up here, so asking the slots
+    # would read empty and silently never arm. The thread itself re-checks per
+    # slot on each pass, by which time the loaders have set it.
+    if args.gpu_keepalive > 0 and "(dGPU)" in (devices.get("GPU", {}).get("name") or ""):
+        print(f"  Discrete GPU keepalive: ping after {args.gpu_keepalive}s idle "
+              f"(Windows evicts dGPU VRAM at ~80s)", flush=True)
+        threading.Thread(target=_gpu_keepalive,
+                         args=(all_slots, args.gpu_keepalive),
+                         daemon=True).start()
+
     if args.idle_timeout > 0:
         print(f"  Idle unload after {args.idle_timeout}s of inactivity", flush=True)
         watchdog = threading.Thread(

@@ -8,7 +8,7 @@
 %%         ALL-CAPS nodes = prose annotations.
 %% Palette: route (blue) = decisions, gen (green) = live pipeline states,
 %%          client (yellow) = external effects, warn (orange) = annotations.
-%% covers: nollama.py:_LoadProgress,_load_time_key,_remembered_load_time,_record_load_time,main,needs_optimum,is_vlm,_verify_weights_integrity,_resolve_kv_pool,_preflight_memory,_preflight_verdict,_largest_weight_tensor_bytes,_gpu_large_alloc_props,load,warmup,_prewarm_slot,_idle_watchdog,ensure_loaded,unload,_load_in_background
+%% covers: nollama.py:_gpu_keepalive,_keepalive_eligible,_LoadProgress,_load_time_key,_remembered_load_time,_record_load_time,main,needs_optimum,is_vlm,_verify_weights_integrity,_resolve_kv_pool,_preflight_memory,_preflight_verdict,_largest_weight_tensor_bytes,_gpu_large_alloc_props,load,warmup,_prewarm_slot,_idle_watchdog,ensure_loaded,unload,_load_in_background
 %% (_slot_class is nested inside main and invisible to the checker's AST scan
 %%  — its box below is covered via main.)
 flowchart TB
@@ -59,6 +59,10 @@ flowchart TB
   warmup --> _prewarm_slot{"_prewarm_slot<br/>PREWARM_FILE + live kv pool<br/>AND slot is PREWARM_SLOT?"}
   _prewarm_slot -->|"yes: prefill saved prompt<br/>(VLM replays via parse_messages<br/>so the token prefix matches)"| ready["ready<br/>(first real turn = cache hit)"]
   _prewarm_slot -.->|"no pool / no file /<br/>not the prewarm slot"| ready
+
+  ready --> _gpu_keepalive{"_gpu_keepalive<br/>dGPU ONLY, every 15s:<br/>idle &gt; --gpu-keepalive (60s)?"}
+  _gpu_keepalive -->|"yes: 1-token generate,<br/>non-blocking lock"| ready
+  _gpu_keepalive -.->|"iGPU / CPU / NPU:<br/>never arms"| ready
 
   ready --> _idle_watchdog{"_idle_watchdog<br/>every 30s, non-blocking<br/>lock acquire"}
   _idle_watchdog -.->|"idle > timeout"| unload["unload<br/>pipe=None, gc"]
@@ -133,12 +137,24 @@ flowchart TB
   small model is not automatically a small pool."]
   _resolve_kv_pool -.-> POOLSTABLE
 
+  EVICTION["WINDOWS EVICTS A DISCRETE GPU'S VRAM ON IDLE, and NoLlama is not
+  involved: status stays ready, the allocation is never released, committed
+  memory does not change. [OBSERVED 2026-09-13, Arc Pro B60] 20.34 GB -&gt; 0 at
+  80s, 80s and 79s after the last request - three for three - each time moving
+  ~20.1 GB into host RAM and copying it back on the next request at ~10s TTFT
+  against ~0.5s warm. NOT memory pressure: 21.5 GB of host RAM was free when
+  it evicted. An iGPU is immune because its VRAM IS host RAM: same model, same
+  window, 15.90 -&gt; 15.82 GB (0.5% drift) and a generate after 300s idle took
+  0.1s. Hence _keepalive_eligible gates on FULL_DEVICE_NAME's (dGPU) suffix -
+  pinging an iGPU would burn power for nothing."]
+  _gpu_keepalive -.-> EVICTION
+
   classDef route fill:#e6f0ff,stroke:#0066cc,color:#000
   classDef gen fill:#e6ffe6,stroke:#00b300,color:#000
   classDef client fill:#ffffcc,stroke:#b3b300,color:#000
   classDef warn fill:#fec,stroke:#a60,color:#000
-  class main,_slot_class,_verify_weights_integrity,_resolve_kv_pool,_preflight_memory,alloc_gate,_gpu_large_alloc_props,pipebuild,_prewarm_slot,_idle_watchdog,_load_in_background route
+  class _gpu_keepalive,main,_slot_class,_verify_weights_integrity,_resolve_kv_pool,_preflight_memory,alloc_gate,_gpu_large_alloc_props,pipebuild,_prewarm_slot,_idle_watchdog,_load_in_background route
   class load,optimum_load,npu_pipe,cb_pipe,plain_pipe,cb_fallback,warmup,ready,ensure_loaded gen
   class _LoadProgress,_LoadDone client
   class loaderr,unload client
-  class NOREWARM,POOLSTABLE,DXGCAP,RUNTIMEALLOC,WRONGSLOT warn
+  class NOREWARM,POOLSTABLE,DXGCAP,RUNTIMEALLOC,WRONGSLOT,EVICTION warn

@@ -232,6 +232,39 @@ dies at 67k tokens elsewhere would need ~165k tokens here. When a report names
 *"Exceeded max size of memory object allocation"*, reach for another box, and
 never read a clean run here as a refutation (issue #24).
 
+## A discrete GPU evicts its VRAM on idle; an integrated one does not
+
+[OBSERVED 2026-09-13] On the B60 box a loaded model disappears from the card
+about 80 seconds after the last request and is copied back on the next one.
+**NoLlama is not doing it** — `/health` reports `ready` throughout, the
+allocation is never released (committed memory is unchanged), and at
+`--idle-timeout 0` the unload watchdog thread is never even constructed.
+
+| | Arc Pro B60 (discrete) | Arc 140V (integrated) |
+|---|---|---|
+| idle eviction | **20.34 GB → 0 at 80s, 80s, 79s** (3/3) | none — 15.90 → 15.82 GB over 4 min |
+| where it goes | +20.1 GB into host RAM, 1:1 | nowhere; its VRAM *is* host RAM |
+| next request | ~10s TTFT (full PCIe reload) | **0.1s** after 300s idle |
+
+**It is not memory pressure.** The first eviction fired with **21.5 GB of
+host RAM free**. Two separate explanations built on pressure were proposed and
+both were wrong; what settled it was logging residency against wall clock and
+finding a flat ~80s timer.
+
+The tell in Task Manager is a **1:1 swap**: dedicated VRAM falls, host memory
+rises by the same amount, disk stays at 0% (nothing pages), and GPU
+utilisation spikes to ~100% on the way back in — that spike is the copy, not
+inference.
+
+**Mitigation:** `--gpu-keepalive` (default 60s) pings an idle dGPU slot with a
+one-token generate. It never arms on an iGPU or CPU — `_keepalive_eligible`
+gates on OpenVINO's `FULL_DEVICE_NAME`, which ends in `(dGPU)` or `(iGPU)`.
+
+**Why it matters most for agent work:** a human reading a turn before replying
+crosses 80s constantly, so the reload is paid on *most* turns rather than
+once. A benchmark loop never idles and never sees it — which is why the B60
+ran for weeks without this showing up.
+
 ## Drivers — never forcibly, but never stale either
 
 Two halves, and the second is the one that gets forgotten.
