@@ -40,16 +40,23 @@ import openvino_genai as ovg
 # Prompts chosen to demand LENGTH, because length is what exposes decay. The
 # last is a follow-up chain: context growth is its own axis, and an agent's
 # later turns are where a small model is most likely to come apart.
+# (name, budget, turns). The BUDGET IS PER PROMPT and must be generous enough
+# that a healthy answer finishes inside it, or "hit the cap" stops meaning
+# anything and condemns every long answer. Calibrated 2026-09-13 on
+# Phi-3.5-mini/CPU, and got this wrong twice on the way: 700 truncated the
+# medium answer mid-code, then a flat 1024 truncated the long one the same way
+# while the medium one was fine. A cap tuned on one prompt does not transfer to
+# a longer one.
 PROMPTS = [
-    ("short", ["Reply with exactly the word: ready"]),
-    ("medium", ["Demonstrate Python functions by writing three examples "
-                "and call them from main()"]),
-    ("long", ["Write a detailed explanation of Python decorators, with at "
-              "least four worked examples and common pitfalls."]),
-    ("follow-ups", ["Write a Python function that reverses a string.",
-                    "Now add type hints and a docstring.",
-                    "Now write three unit tests for it.",
-                    "Now explain what could still go wrong."]),
+    ("short", 48, ["Reply with exactly the word: ready"]),
+    ("medium", 1024, ["Demonstrate Python functions by writing three examples "
+                      "and call them from main()"]),
+    ("long", 3072, ["Write a detailed explanation of Python decorators, with at "
+                    "least four worked examples and common pitfalls."]),
+    ("follow-ups", 1536, ["Write a Python function that reverses a string.",
+                          "Now add type hints and a docstring.",
+                          "Now write three unit tests for it.",
+                          "Now explain what could still go wrong."]),
 ]
 
 # Only the knobs that have actually bitten. Each costs a full generation, so
@@ -61,12 +68,6 @@ KNOBS = [
     ("sampled t=0.7", {"do_sample": True, "temperature": 0.7, "top_p": 0.9}),
 ]
 
-# Must be generous enough that a HEALTHY answer finishes inside it, or
-# "hit the cap" stops discriminating and condemns everything. Calibrated
-# 2026-09-13 on Phi-3.5-mini: at 700 the good answer (repetition_penalty
-# 1.05) was truncated mid-code and looked identical to the bad one; at 1024
-# it stops cleanly at ~3100 chars while 1.1 runs past 4700 and keeps going.
-MAX_TOKENS = 1024
 # Weak signal, reported but never condemning on its own. Real Python hits 50
 # characters with a format string; the degenerate run measured 62. Too close
 # to separate, which an earlier draft of this file got wrong.
@@ -74,14 +75,18 @@ RUN_LEN_LIMIT = 45
 UNIQUE_RATIO_MIN = 0.30   # below this the output is looping
 
 
-def looks_degenerate(text, hit_cap):
+def looks_degenerate(text, hit_cap, budget):
     """Classify one completion without a human reading it.
 
     The decisive signal is whether it STOPPED. Given a cap a healthy answer
-    finishes inside (see MAX_TOKENS), running to the cap means no EOS was ever
-    emitted, which is what both shipped failures have in common. A collapsed
-    unique-word ratio is the other condemning signal, because looping output
-    can still terminate.
+    finishes inside (see each prompt's budget), running to the cap means no EOS
+    was ever emitted, which is what both shipped failures have in common. A
+    collapsed unique-word ratio is the other condemning signal, because looping
+    output can still terminate.
+
+    The budget is passed in rather than global: a cap calibrated on one prompt
+    does not transfer to a longer one, and a too-small cap makes this check
+    condemn every healthy long answer (got that wrong twice, 2026-09-13).
 
     Word-run length is REPORTED but never condemns alone: measured 2026-09-13,
     healthy Python reached 50 characters (a format string) against the
@@ -111,7 +116,7 @@ def looks_degenerate(text, hit_cap):
     # still appear in `reasons` for a human reading the report.
     condemning = []
     if hit_cap:
-        condemning.append(f"hit the {MAX_TOKENS}-token cap without emitting EOS")
+        condemning.append(f"hit the {budget}-token cap without emitting EOS")
     if len(words) > 60:
         ratio = len(set(w.lower() for w in words)) / len(words)
         if ratio < UNIQUE_RATIO_MIN:
@@ -122,7 +127,7 @@ def looks_degenerate(text, hit_cap):
     return "ok", reasons
 
 
-def run_case(pipe, tok, turns, knob, results):
+def run_case(pipe, tok, turns, budget, knob, results):
     """Run one prompt (or follow-up chain) under one knob setting.
 
     Why the whole chain shares a config: an agent does not change sampling
@@ -137,7 +142,7 @@ def run_case(pipe, tok, turns, knob, results):
     for i, user in enumerate(turns, 1):
         history.append({"role": "user", "content": user})
         cfg = ovg.GenerationConfig()
-        cfg.max_new_tokens = MAX_TOKENS
+        cfg.max_new_tokens = budget
         for k, v in knob[1].items():
             setattr(cfg, k, v)
         try:
@@ -150,8 +155,8 @@ def run_case(pipe, tok, turns, knob, results):
                                 reasons=[str(e)[:120]], chars=0, secs=0.0))
             return
         n_tok = len(tok.encode(out).input_ids.data[0]) if out else 0
-        hit_cap = n_tok >= MAX_TOKENS - 2
-        verdict, reasons = looks_degenerate(out, hit_cap)
+        hit_cap = n_tok >= budget - 2
+        verdict, reasons = looks_degenerate(out, hit_cap, budget)
         results.append(dict(knob=knob[0], turn=i, verdict=verdict, reasons=reasons,
                             chars=len(out), secs=round(dt, 1),
                             tail=out.strip()[-90:]))
@@ -177,10 +182,10 @@ def main():
 
     report = {}
     failures = 0
-    for name, turns in PROMPTS:
+    for name, budget, turns in PROMPTS:
         for knob in KNOBS:
             results = []
-            run_case(pipe, tok, turns, knob, results)
+            run_case(pipe, tok, turns, budget, knob, results)
             for r in results:
                 key = f"{name}/{knob[0]}/turn{r['turn']}"
                 report[key] = r
