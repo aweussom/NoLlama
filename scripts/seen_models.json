@@ -353,6 +353,8 @@
   "nvidia/Nemotron-3-Content-Safety",
   "nvidia/Nemotron-3-Embed-1B-BF16",
   "nvidia/Nemotron-3-Embed-8B-BF16",
+  "nvidia/Nemotron-3-Labs-Ultra-Math-RL",
+  "nvidia/Nemotron-3-Labs-Ultra-Math-SFT",
   "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16",
   "nvidia/Nemotron-3-Super-120B-A12B-BF16-MTPv2",
   "nvidia/Nemotron-3.5-Content-Safety",
