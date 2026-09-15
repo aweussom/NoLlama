@@ -169,6 +169,7 @@ Ollama, ComfyUI and the drivers are still ask-first.
 | CPU | Intel Core Ultra 7 258V (Lunar Lake) |
 | GPU | Intel Arc 140V iGPU — **~25.5 GB budget**, not the stock 16 GB (Intel Shared GPU Memory Override is on) |
 | NPU | yes — **NPU 4, `DEVICE_ARCHITECTURE=4000`.** The newer generation, and not the better one for every model |
+| Drivers | GPU `32.0.101.8991` (released 2026-08-24), NPU `32.0.100.5540` (released 2026-08-20) — **both installed 2026-09-14**, so anything measured here from 2026-09-15 is on a one-day-old stack |
 
 **WSL and Docker: hands off.** The owner needs this machine to work and is
 unwilling to have WSL messed with on it. That is a hard constraint, not a
@@ -242,9 +243,28 @@ allocation is never released (committed memory is unchanged), and at
 
 | | Arc Pro B60 (discrete) | Arc 140V (integrated) |
 |---|---|---|
-| idle eviction | **20.34 GB → 0 at 80s, 80s, 79s** (3/3) | none — 15.90 → 15.82 GB over 4 min |
+| idle eviction | **20.34 GB → 0 at 80s, 80s, 79s** (3/3) | none — 15.90 → 15.82 GB over 4 min (09-13); commit flat at 5.17 GB across **210 min** (09-15) |
 | where it goes | +20.1 GB into host RAM, 1:1 | nowhere; its VRAM *is* host RAM |
-| next request | ~10s TTFT (copied back over PCIe) | **0.1s** after 300s idle |
+| next request | ~10s TTFT (copied back over PCIe) | **0.1s** after 300s idle (09-13); **1.35s** after 210 min idle, against a 1.42s cold baseline (09-15) |
+
+**The iGPU column's long window, and a trap inside it.** [OBSERVED 2026-09-15,
+140V, `Qwen3-8B-int4-ov`, bare genai, driver `32.0.101.8991`] Rungs of 5, 45,
+120 and 210 minutes of untouched idle all generated in 1.19–1.35s against a
+1.42–1.55s cold baseline — so an iGPU allocation does not decay with time, and
+the 4-minute window above was simply too short to say so with any weight. The
+trap is the **working set**: on a run competing for RAM it fell 5.06 → 0.16 GB
+while commit held at 5.22 GB, and on a quiet run it stayed flat at 4.96 GB for
+all 211 samples of the 210-minute rung. Same box, same model, same day. **The
+trim tracks memory pressure, not idle time**, and a reader watching only Task
+Manager's working-set column will call it an unload when the allocation is
+perfectly alive. Read commit. Probe: `scripts/idle-residency-probe.py`.
+
+This is the arm that failed to reproduce issue #38, where a reporter's 140T
+poisoned its OpenCL context after 2–3 hours at `--idle-timeout 0`. A null
+result here is **not** a refutation of that: his model is ~15 GB inside a
+stock 32 GB shared ceiling against 4.55 GB inside this box's 27.2 GB override,
+and his driver was `32.0.101.8508`. Model-against-budget is the untested axis,
+and the 285K is the box for it.
 
 **It is not memory pressure.** The first eviction fired with **21.5 GB of
 host RAM free**. Two separate explanations built on pressure were proposed and
