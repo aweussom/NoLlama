@@ -3,9 +3,46 @@
 State after the 2026-08-18 merge. Anything settled lives in README, TODONT or
 the docs — this file is only what's still open.
 
-## Issue #38 idle crash — parked 2026-09-16, waiting on the reporter
+## Issue #38 idle crash — BOTH RUNS IN FLIGHT since 2026-09-16 11:26
 
-**Do not start either run below until oligocene reports back.** He was asked
+Unparked early: both boxes came free for a 6-hour window. They are **detached
+scheduled tasks**, so they do not need the laptop awake, an SSH session, or
+this conversation.
+
+| box | task | model | started |
+|---|---|---|---|
+| B60 `wossn@100.81.4.88` | `nollama-idle-probe-b60` | `Qwen3-8B-int4-ov` | 11:24 |
+| 285K `wossn@100.98.33.88` | `nollama-idle-probe-285k` | `gemma-4-26b-a4b-it-int4-ov` | 11:26 |
+
+Rungs `5,45,120,180` on both — 350 min of idle, so expect results from ~17:30.
+Results land in `bench-results\<tag>-<stamp>.log` and `.json` **on each box**,
+and the JSON flushes after every rung, so a killed run still yields what
+finished. To collect:
+
+```powershell
+ssh wossn@100.81.4.88  "Get-ChildItem C:\devel\aweussom\python\NoLlama\bench-results\b60-dgpu-*   | Sort LastWriteTime | Select -Last 2"
+ssh wossn@100.98.33.88 "Get-ChildItem C:\devel\aweussom\python\NoLlama\bench-results\285k-igpu-*  | Sort LastWriteTime | Select -Last 2"
+```
+
+Provenance worth keeping with the numbers: the B60 box is OpenVINO **2026.3.1**
+on driver `32.0.101.8805`; the 285K is OpenVINO **2026.3.0** on `32.0.101.8991`
+(its banner says `unreadable` — the probe's Arc-only driver filter, fixed in
+`4608dc0` after these two started). The 285K iGPU reports
+`GPU_DEVICE_MAX_ALLOC_MEM_SIZE` **4,294,959,104** and no `GPU_HW_MATMUL`, which
+is the whole reason it is the right box.
+
+**Why these two models.** The B60 runs the *identical* model and OpenVINO build
+as the 2026-09-15 140V run, so the only variable against that result is the
+device. The 285K runs the reporter's *own* model on the only stock-cap,
+no-XMX, Arrow Lake iGPU we own.
+
+The original parked plan follows, and still describes what each box answers.
+
+## Issue #38 idle crash — the parked plan, kept for the reasoning
+
+**Superseded by the block above — both runs started 2026-09-16.** The gate below
+was the right call when written; it was lifted because both boxes came free.
+The reporter was asked
 (comment 5687275131) to move from GPU driver `32.0.101.8508` to current, and
 to put the NPU driver in at the same time. If `8991` fixes it, both runs cost
 hours and tell us nothing.
