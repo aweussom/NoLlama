@@ -24,7 +24,7 @@ is ~15 GB inside a **stock 32 GB shared ceiling**; mine was 4.55 GB inside
 this box's 27.2 GB override. The laptop cannot imitate a stock cap — same trap
 as issue #24, and `machines.md` says so in as many words.
 
-### Run 1 — the 285K, when he reports back
+### Run 1 — the 285K (`wossn@100.98.33.88`), when he reports back
 
 **Model against budget, the axis today's run could not touch.** The 285K is
 the repro box for allocation-cap reports: stock-cap, no-XMX iGPU
@@ -40,8 +40,12 @@ Arrow Lake generation as his 285H. Nothing else we own is that shape.
 - It is a **working server** — Ollama serves from it and ComfyUI runs the
   graphic-novel work. Ask before touching either. SSH there is PowerShell:
   copy the script over rather than quoting it through `ssh '...'`.
+- **Check the address before you start.** Both boxes are `wossn@` on the
+  Tailscale range and the two differ by two digits; `100.81.4.88` is the B60
+  and `100.98.33.88` is this one. Getting it wrong means a 4-hour run on a
+  device that cannot answer the question.
 
-### Run 2 — the B60, and it is a different question
+### Run 2 — the B60 (`wossn@100.81.4.88`), and it is a different question
 
 The idle probe has **never run on a discrete GPU**, and the dGPU is where the
 interesting machinery lives: WDDM evicts at ~80 s and `--gpu-keepalive` pings
@@ -57,6 +61,13 @@ even true there by default. Two things worth having, neither blocking on #38:
 
 Related and already written down: `TODO.md` on finding the residency control
 the keepalive is standing in for.
+
+Two SSH facts that cost time there before: a process started with
+`Start-Process` **dies when the SSH session ends**, so a multi-hour probe runs
+either inside a session held open for the duration or as a scheduled task; and
+the box **cannot run the nightly stack** at all (code-integrity policy blocks
+the unsigned native modules), so anything needing a nightly has to go
+elsewhere. Both are in `docs/dev/machines.md`.
 
 ## LFM2 on NPU 4 — closed 2026-09-01, and it is not the driver
 
