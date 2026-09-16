@@ -3,6 +3,61 @@
 State after the 2026-08-18 merge. Anything settled lives in README, TODONT or
 the docs — this file is only what's still open.
 
+## Issue #38 idle crash — parked 2026-09-16, waiting on the reporter
+
+**Do not start either run below until oligocene reports back.** He was asked
+(comment 5687275131) to move from GPU driver `32.0.101.8508` to current, and
+to put the NPU driver in at the same time. If `8991` fixes it, both runs cost
+hours and tell us nothing.
+
+**What is already settled.** The 140V does not reproduce it:
+`scripts/idle-residency-probe.py` on `Qwen3-8B-int4-ov`, bare genai, rungs of
+5/45/120/**210** minutes of untouched idle, all generating in 1.19–1.35 s
+against a 1.42–1.55 s cold baseline, uptime 22.4 h → 32.0 h. Commit `c5d812c`;
+numbers in `docs/dev/machines.md`. Bare genai is the right arm because at
+`--idle-timeout 0` on an iGPU the server touches the pipeline *never* —
+`_gpu_keepalive` is dGPU-gated and `_idle_watchdog` is not constructed — so a
+bare pipeline left alone is his configuration minus Flask.
+
+**What that does not settle**, and why a null result here is weak: his model
+is ~15 GB inside a **stock 32 GB shared ceiling**; mine was 4.55 GB inside
+this box's 27.2 GB override. The laptop cannot imitate a stock cap — same trap
+as issue #24, and `machines.md` says so in as many words.
+
+### Run 1 — the 285K, when he reports back
+
+**Model against budget, the axis today's run could not touch.** The 285K is
+the repro box for allocation-cap reports: stock-cap, no-XMX iGPU
+(`GPU_DEVICE_MAX_ALLOC_MEM_SIZE` ~4.29 GB, no `GPU_HW_MATMUL`), and the same
+Arrow Lake generation as his 285H. Nothing else we own is that shape.
+
+- `scripts/idle-residency-probe.py`, unchanged, on
+  `Qwen3-Coder-30B-A3B-Instruct-int4-ov` (15.2 GB) so the allocation sits near
+  the ceiling rather than comfortably under it. Its 63 GB of RAM stages that
+  without the paging that got the first 140V run killed.
+- Its venv is OpenVINO **2026.3**; today's numbers are 2026.3.1. Close that
+  gap or state it.
+- It is a **working server** — Ollama serves from it and ComfyUI runs the
+  graphic-novel work. Ask before touching either. SSH there is PowerShell:
+  copy the script over rather than quoting it through `ssh '...'`.
+
+### Run 2 — the B60, and it is a different question
+
+The idle probe has **never run on a discrete GPU**, and the dGPU is where the
+interesting machinery lives: WDDM evicts at ~80 s and `--gpu-keepalive` pings
+to stop it. So the probe's premise — *nothing touches the allocation* — is not
+even true there by default. Two things worth having, neither blocking on #38:
+
+- The probe with `--gpu-keepalive 0`, to find out what a B60 allocation does
+  across hours with the mitigation deliberately off. Today's iGPU answer
+  (nothing decays) says nothing about a card that already evicts in 80 s.
+- The same with the keepalive on, as a long-duration check that the ping keeps
+  working for hours rather than minutes — the 2026-09-13 evidence is two
+  windows of ~2h15m, which is good but is not "overnight".
+
+Related and already written down: `TODO.md` on finding the residency control
+the keepalive is standing in for.
+
 ## LFM2 on NPU 4 — closed 2026-09-01, and it is not the driver
 
 The 258V laptop rebooted onto NPU driver **32.0.100.5540**
