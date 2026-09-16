@@ -108,8 +108,13 @@ def gpu_driver_version():
     try:
         out = subprocess.run(
             ["powershell", "-NoProfile", "-Command",
+             # Match on the vendor, not on "Arc": the 285K's iGPU enumerates
+             # as the bare "Intel(R) Graphics" and an Arc-only filter left the
+             # banner reading "unreadable" on the one box whose driver
+             # mattered most [OBSERVED 2026-09-16]. Vendor-matching also keeps
+             # the RX 580, the RTX 5090 and TeamViewer's virtual adapter out.
              "(Get-CimInstance Win32_VideoController | "
-             "Where-Object Name -like '*Arc*' | "
+             "Where-Object { $_.Name -match 'Intel' } | "
              "Select-Object -First 1 -ExpandProperty DriverVersion)"],
             capture_output=True, text=True, timeout=30)
         return (out.stdout or "").strip() or None
