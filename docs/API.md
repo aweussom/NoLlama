@@ -120,6 +120,9 @@ contexts). The preflight still warns when agent prompts would exhaust the
 pool, and when model + pool exceed the device budget entirely. On Core
 Ultra iGPUs that budget is ~half of system RAM by default — raise it with
 Intel Graphics Software's "Shared GPU Memory Override" (driver 101.6987+).
+**Run Intel Graphics Software as Administrator** for that: unelevated, the
+toggle is greyed out and the app crashes when you try it, on two different
+Core Ultra machines so far ([#38](https://github.com/aweussom/NoLlama/issues/38)).
 Per-request log lines include TTFT, so a prefix-cache hit (sub-second) vs
 a cold prefill (seconds-to-minutes) is visible directly; `/health` reports
 the cache config (`prompt_cache_info.auto`, per-slot `kv_pool_gb`) and

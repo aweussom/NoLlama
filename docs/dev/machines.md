@@ -195,6 +195,9 @@ stock ~50%-of-RAM default — and Intel Graphics Software crashed when used
 normally. **The fix was running Intel Graphics Software as Administrator**;
 the split could then be changed, and `GPU_DEVICE_TOTAL_MEM_SIZE` came back to
 **27,208,896,512**, byte-identical to the 2026-09-01 reading.
+[OBSERVED 2026-09-16] Not a quirk of this laptop: the #38 reporter's Arc 140T
+box shows the same thing — toggle disabled, app crashes on the attempt — so
+"run it elevated" is now in the user docs (`docs/API.md`).
 
 Three hypotheses died on the way, and each is worth not re-running:
 
