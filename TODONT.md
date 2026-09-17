@@ -3,6 +3,35 @@
 Things we tried that didn't work, or that work but aren't worth doing. Each
 entry explains *why not* so we don't re-litigate it in six months.
 
+## Git branches in place of the venvs, for release vs nightly (2026-09-17)
+
+Idea: the release and nightly stacks are the main reason this project carries
+four virtualenvs. Branches are the normal way to keep two versions of a thing
+apart, so put release on `main` and nightly on a branch and drop a venv or
+two. Raised by Tommy while setting the commit workflow.
+
+**Verdict:** they are not substitutes. Keep the venvs.
+
+**Why not:**
+- **A branch swaps source files; a venv swaps installed dependencies.** The
+  nightly venv exists to hold different *wheels* — OpenVINO 2026.4 nightlies,
+  transformers 5.2, optimum-intel from git — and checking out a branch does not
+  change which `site-packages` the interpreter imports. You would still need
+  every venv, with the branch carrying only a different requirements file.
+- **It would cost the control runs.** `requirements.txt` and
+  `requirements-nightly.txt` both live on `main`, so one checkout builds any venv.
+  Behind a branch, rebuilding the other one means switching branches — on a box
+  whose whole method is running a release venv against a nightly venv as a
+  control (that is how the Glimmer corruption fix was confirmed, and how the
+  #33 runtime-version axis was ruled out).
+- **Nothing needs different source yet.** All nightly handling is runtime
+  version checks in shared code. A branch would be carrying a difference that
+  does not exist.
+
+Re-evaluate if: nightly ever needs genuinely different source in `nollama.py`,
+not just different wheels. Then a branch carries that difference and the venvs
+stay exactly as they are — the two were never alternatives.
+
 ## An embeddings relay and an `--embed-only` flag (2026-09-17)
 
 Idea, from the `embeddings` branch of MyrkoF's fork (issue #43): besides the
