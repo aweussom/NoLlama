@@ -259,12 +259,35 @@ trim tracks memory pressure, not idle time**, and a reader watching only Task
 Manager's working-set column will call it an unload when the allocation is
 perfectly alive. Read commit. Probe: `scripts/idle-residency-probe.py`.
 
-This is the arm that failed to reproduce issue #38, where a reporter's 140T
-poisoned its OpenCL context after 2–3 hours at `--idle-timeout 0`. A null
-result here is **not** a refutation of that: his model is ~15 GB inside a
-stock 32 GB shared ceiling against 4.55 GB inside this box's 27.2 GB override,
-and his driver was `32.0.101.8508`. Model-against-budget is the untested axis,
-and the 285K is the box for it.
+**The dGPU penalty plateaus — three hours costs no more than forty-five.**
+[OBSERVED 2026-09-16, Arc Pro B60, `Qwen3-8B-int4-ov`, bare genai, driver
+`32.0.101.8805`, OpenVINO 2026.3.1] Same model and build as the 140V run
+above, so the device is the only variable. Warm baseline **0.60 s**, then
+**1.82 s** after 5 min idle and **3.68 / 3.13 / 3.02 s** after 45 / 120 / 180
+min. So the copy-back cost saturates once eviction has fully happened,
+somewhere between 5 and 45 minutes, and does not keep growing with idle
+length. The 5-minute rung is cheap because it caught the eviction partway
+through, **not** because a short idle is safe.
+
+Read that against the ~10 s TTFT in the table: this model is 4.55 GB against
+the ~20 GB one measured there, and ~3 s of penalty at a quarter of the size is
+consistent with a cost that scales with bytes moved. The probe samples **host**
+counters only and never the GPU — a VRAM query during the idle window would be
+the keepalive touch whose absence is under test — so eviction here is inferred
+from the host-side signature (working set ~4.6–5.0 GB after a generate, trimmed
+to 0.4–2.5 GB across the idle, commit steady at 5.70 GB), not measured on the
+card.
+
+Both arms failed to reproduce issue #38, where a reporter's 140T poisoned its
+OpenCL context after 2–3 hours at `--idle-timeout 0`. A null result is **not**
+a refutation: his model is ~15 GB inside a stock 32 GB shared ceiling against
+4.55 GB inside the laptop's 27.2 GB override, and his driver was
+`32.0.101.8508`. Model-against-budget is the untested axis — **and we cannot
+test it.** The 285K was the candidate because its iGPU is stock-cap, but it has
+no `GPU_HW_MATMUL` and his Arc Pro 140T reports `XMX: yes`, so it matches his
+allocation cap and not his maths units. No box here is a stock-cap iGPU *with*
+XMX. An attempt on the 285K with his own `gemma-4-26b-a4b-it-int4-ov` was
+killed after ~35 minutes of pagefile thrashing that never finished loading.
 
 **It is not memory pressure.** The first eviction fired with **21.5 GB of
 host RAM free**. Two separate explanations built on pressure were proposed and

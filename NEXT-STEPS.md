@@ -3,40 +3,64 @@
 State after the 2026-08-18 merge. Anything settled lives in README, TODONT or
 the docs — this file is only what's still open.
 
-## Issue #38 idle crash — BOTH RUNS IN FLIGHT since 2026-09-16 11:26
+## Issue #38 idle crash — three devices, no reproduction (2026-09-16)
 
-Unparked early: both boxes came free for a 6-hour window. They are **detached
-scheduled tasks**, so they do not need the laptop awake, an SSH session, or
-this conversation.
+**Idle time alone does not poison an Intel GPU's OpenCL context**, integrated or
+discrete, on a current driver. Three runs, each with the model and OpenVINO
+build held constant so the device is the only variable:
 
-| box | task | model | started |
-|---|---|---|---|
-| B60 `wossn@100.81.4.88` | `nollama-idle-probe-b60` | `Qwen3-8B-int4-ov` | 11:24 |
-| 285K `wossn@100.98.33.88` | `nollama-idle-probe-285k` | `gemma-4-26b-a4b-it-int4-ov` | 11:26 |
+| device | box | longest idle | generate | warm baseline |
+|---|---|---|---|---|
+| Arc 140V (iGPU) | laptop | **210 min** | 1.35 s | 1.42 s |
+| Arc Pro B60 (dGPU) | `100.81.4.88` | **180 min** | 3.02 s | 0.60 s |
+| Intel Graphics (iGPU) | `100.98.33.88` | — | **aborted, see below** | — |
 
-Rungs `5,45,120,180` on both — 350 min of idle, so expect results from ~17:30.
-Results land in `bench-results\<tag>-<stamp>.log` and `.json` **on each box**,
-and the JSON flushes after every rung, so a killed run still yields what
-finished. To collect:
+Both completed runs used `Qwen3-8B-int4-ov` on OpenVINO 2026.3.1. Drivers:
+`32.0.101.8991` on the laptop, `32.0.101.8805` on the B60 box. Artefacts in
+each box's `bench-results\`; the B60 pair is also copied to the laptop.
 
-```powershell
-ssh wossn@100.81.4.88  "Get-ChildItem C:\devel\aweussom\python\NoLlama\bench-results\b60-dgpu-*   | Sort LastWriteTime | Select -Last 2"
-ssh wossn@100.98.33.88 "Get-ChildItem C:\devel\aweussom\python\NoLlama\bench-results\285k-igpu-*  | Sort LastWriteTime | Select -Last 2"
-```
+**The dGPU penalty plateaus, and that is the new part.** A discrete card does
+pay for idling where an integrated one does not, but the cost stops growing:
+0.60 s warm, 1.82 s after 5 min, then 3.68 / 3.13 / 3.02 s at 45 / 120 / 180
+min. Eviction completes somewhere between 5 and 45 minutes and **three hours
+costs no more than forty-five**. The 5-minute rung looks cheap because it
+caught the eviction partway through, not because short idles are safe.
+Recorded in `docs/dev/machines.md`.
 
-Provenance worth keeping with the numbers: the B60 box is OpenVINO **2026.3.1**
-on driver `32.0.101.8805`; the 285K is OpenVINO **2026.3.0** on `32.0.101.8991`
-(its banner says `unreadable` — the probe's Arc-only driver filter, fixed in
-`4608dc0` after these two started). The 285K iGPU reports
-`GPU_DEVICE_MAX_ALLOC_MEM_SIZE` **4,294,959,104** and no `GPU_HW_MATMUL`, which
-is the whole reason it is the right box.
+Caveat on the mechanism: the probe samples **host** counters only and never the
+GPU, deliberately — a VRAM query during the idle window would be the keepalive
+touch whose absence is under test. So eviction is inferred from the host-side
+signature (working set ~4.6-5.0 GB after a generate, trimmed to 0.4-2.5 GB
+across the idle, commit steady at 5.70 GB) rather than measured on the card.
 
-**Why these two models.** The B60 runs the *identical* model and OpenVINO build
-as the 2026-09-15 140V run, so the only variable against that result is the
-device. The 285K runs the reporter's *own* model on the only stock-cap,
-no-XMX, Arrow Lake iGPU we own.
+### The 285K arm was aborted, and the box was the wrong analogue anyway
 
-The original parked plan follows, and still describes what each box answers.
+Killed ~35 minutes in: shared GPU memory climbing toward ~47 GB then
+collapsing, the SSD at ~100%, the log frozen at `loading on GPU ...`, and the
+python process reporting a 0.00 GB working set — a process entirely paged out.
+Thrashing, not slow compilation, on a machine that serves Ollama and ComfyUI.
+[INFERRED] The shape fits the GPU plugin decompressing the int4 weights to fp16
+in host memory — 26B parameters at fp16 is ~52 GB against that box's 63 GB —
+but it was stopped rather than instrumented, so this is unverified. Loading a
+large int4 MoE on a no-XMX iGPU would confirm or kill it.
+
+**The correction that matters more.** This file previously called the 285K the
+right box because its iGPU is stock-cap. It is stock-cap
+(`GPU_DEVICE_MAX_ALLOC_MEM_SIZE` 4,294,959,104) but it has **no
+`GPU_HW_MATMUL`**, and the #38 reporter's installer output says his Arc Pro
+140T has `XMX: yes`. So it matches his allocation cap and not his maths units,
+which for a large int4 MoE is most of what matters. **We own no stock-cap iGPU
+with XMX**, so the model-against-budget axis cannot be tested on our hardware
+at all. Run 1 as written below is not executable — kept for its reasoning, not
+as an instruction.
+
+### What is actually left
+
+- **The reporter's own box is the only correct hardware.** He has the probe
+  path; it is one file, needs no NoLlama, and `scripts/run-idle-probe.ps1`
+  will run it unattended. Ask only if he is still interested after the driver
+  update — he has moved this issue three times already.
+- Nothing else is blocking. Both queued runs are done or dead.
 
 ## Issue #38 idle crash — the parked plan, kept for the reasoning
 
