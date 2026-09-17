@@ -244,6 +244,48 @@ load is roughly model-sized** even on a discrete card. Two such loads at once
 on a 32 GB box will thrash the pagefile for tens of minutes; start one server
 at a time.
 
+## Embedding models
+
+An embedding model turns text into a vector. It does not chat, and it lives in
+its own slot: `--embed-model-dir`, alongside whatever chat model you are
+serving. See [API.md](API.md#embeddings-rag) for the endpoints and flags.
+
+| model | dims | notes |
+|---|---|---|
+| **BGE-M3** | 1024 | Recommended. Multilingual, 8192-token inputs. Exports natively. |
+| multilingual-e5-base | 768 | Smaller. Wants `query: ` / `passage: ` prefixes, added by the client. |
+| all-MiniLM-L6-v2 | 384 | 23 MB. English only. Good for checking the endpoint works. |
+| nomic-embed-text v1.5 | 768 | What Ollama-shaped RAG clients ask for by name. Needs the ONNX route below. |
+
+Most of these convert with the normal tool, given the task explicitly —
+without `-Task`, optimum exports a generation head and the embedding pipeline
+cannot load the result:
+
+```powershell
+.\download-model.ps1 BAAI/bge-m3 -Convert -Weight int8 -Task feature-extraction
+```
+
+**nomic-embed-text is the exception.** Its architecture (`nomic_bert`) is not
+a registered optimum-intel export target, so that command fails. The repo
+publishes an official ONNX graph and OpenVINO converts it directly, which is
+what this script does:
+
+```powershell
+.\venv\Scripts\python scripts\export-embed-onnx.py nomic-ai/nomic-embed-text-v1.5 --trust
+python nollama.py --embed-model-dir ~\models\nomic-embed-text-v1.5-ov --embed-name nomic-embed-text:v1.5
+```
+
+`--embed-name` matters for that model specifically: a RAG client looks its
+embedder up in `/api/tags` by a string frozen in its own source, and downloads
+from ollama.com when the name is absent.
+
+**You do not have to re-index to switch.** Vectors from an OpenVINO export and
+from Ollama's build of the same model are not bit-identical, but they retrieve
+the same things: 8 of 8 questions returned the same top result against a
+60,748-vector index built by Ollama, with 39 of 40 overlapping in the top 5
+(measured by MyrkoF, issue #43). CPU and GPU agree even more closely with each
+other — cosine 0.999999 on nomic (2026-09-17, Arc 140V).
+
 ## A note about small models
 
 During initial NPU testing with DeepSeek R1 1.5B, we asked:

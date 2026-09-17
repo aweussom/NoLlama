@@ -3,6 +3,44 @@
 State after the 2026-08-18 merge. Anything settled lives in README, TODONT or
 the docs — this file is only what's still open.
 
+## Embeddings landed and tested against a real RAG client (#43, 2026-09-17)
+
+`EmbedSlot` serves `/v1/embeddings` and Ollama's `/api/embed` / `/api/embeddings`
+on both ports, advertised in `/v1/models`, `/api/tags` and `/api/show` (capability
+`embedding`, never `completion`). CPU and GPU verified bare and through the
+server; the NPU refuses the architecture -> `docs/dev/models.md`. The relay /
+`--embed-only` half of MyrkoF's fork was declined -> `TODONT.md`.
+
+**Closed by a real client run**, not by curl: LangChain over FAISS indexed this
+repo's docs (25 files, 483 chunks) through `/api/embed`, then answered questions
+with Qwen3-8B on the iGPU from the same process. 3 of 3 answers correct and
+grounded, right sources retrieved.
+
+**That run found a defect nothing else had.** A RAG client sends its whole
+corpus in ONE request, and we passed it straight to the pipeline: 431s and a
+peak of 18.52 GB for 375 chunks, on a 32 GB laptop, with no log line until it
+finished and every other embedding request queued behind it. `embed()` now
+slices (`--embed-batch-size`, default 16), takes the lock per slice, and logs
+progress. Same work: 224s and ~5 GB. The numbers and the slice-size table are
+in `docs/dev/models.md`; `tests/test_embed_slot.py` pins the slicing and ordering.
+
+Still open:
+
+- **The no-reindex claim is still MyrkoF's, not ours.** 8/8 same top-1 against
+  a 60,748-vector Ollama-built index is his measurement with his build of
+  nomic. Ours is a different conversion (the repo's fp16 ONNX) and nobody has
+  compared the two. Do not repeat the number as ours.
+- **NOMAD itself has not been pointed at NoLlama** — LangChain exercises the
+  same two wire shapes, but NOMAD's *Remote Connection* screen and its
+  `/api/tags` name lookup are what issue #43 actually asks about.
+- **Indexing is slow on CPU**: ~1.7 chunks/s for nomic here, so a book-sized
+  corpus is hours. The iGPU was slower still on short encoder passes. Worth a
+  look at `--embed-device GPU` with a LARGE slice, which is the one case where
+  dispatch overhead might amortise — untested.
+- **`--embed-threads` carries a +32% measured on MyrkoF's 285H**, not here.
+- **`-Task` on `download-model.ps1` is new and lightly exercised.**
+- **No installer entry**, deliberately — same as Whisper.
+
 ## Issue #38 idle crash — three devices, no reproduction (2026-09-16)
 
 **Idle time alone does not poison an Intel GPU's OpenCL context**, integrated or
@@ -487,6 +525,18 @@ Worth teaching the probe to print both before the next driver hunt.
     (#33, 2026-09-11) — so the cached (scheduler) path is implicated on his
     box; the discriminating runs for him are `--no-prompt-cache` and a
     120k-char probe.
+  - **Update 2026-09-16:** both runs came back (#33). The 120k-char probe
+    passed; `--no-prompt-cache` in the real OpenCode session **failed one run
+    of two** — so the scheduler path is *not* the axis: the plain pipeline
+    fails under the server on weights bare genai accepts. What differs is the
+    prompt, synthetic repeated text against real agent content. [INFERRED]
+    expert routing — a repeated sentence lands on a handful of experts, real
+    text spreads across all 128, and the wide grouped gemm is the one with no
+    kernel; a bare probe fed a real 100k-char document on his box would
+    confirm or kill it. The `CL_PROFILING_INFO_NOT_AVAILABLE` lines in his
+    logs are verbose-profiler noise, present on passing runs too.
+    **Filed upstream as openvinotoolkit/openvino#38211 (2026-09-17)** with
+    his logs and our three-GPU negatives.
 
 - **A genai GPU load of a MoE aborts while a NoLlama NPU server runs on the
   same box** [OBSERVED 2026-09-11, 285K, 2026.3.0, three for three]:

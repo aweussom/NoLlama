@@ -6,6 +6,7 @@
 #     .\download-model.ps1 Qwen/Qwen2.5-VL-3B-Instruct -Convert -Weight int8
 #     .\download-model.ps1 Qwen/Qwen2.5-VL-3B-Instruct -Convert -Weight int4 -Trust
 #     .\download-model.ps1 HuggingFaceTB/SmolLM3-3B -Convert -Weight int4-cw   # for NPU
+#     .\download-model.ps1 BAAI/bge-m3 -Convert -Weight int8 -Task feature-extraction
 #
 # Converting for the NPU? Use -Weight int4-cw or int8-cw (channel-wise). The
 # default group-quantized int4 produces IRs that crash the NPU driver compiler
@@ -30,6 +31,12 @@ param(
     [switch]$Convert,
 
     [string]$Weight = "int4",
+
+    # optimum-cli's --task. Only needed when auto-detection picks the wrong
+    # head: an embedding model must export as `feature-extraction`, or optimum
+    # wraps it for text generation and TextEmbeddingPipeline cannot load the
+    # result. Left empty, optimum infers it (right for every chat/VLM model).
+    [string]$Task = "",
 
     [switch]$Trust,
 
@@ -158,6 +165,7 @@ if ($Convert) {
     } else {
         $args = @("export", "openvino", "--model", $HfId, "--weight-format", $Weight)
     }
+    if ($Task)  { $args += @("--task", $Task) }
     if ($Trust) { $args += "--trust-remote-code" }
     $args += $Output
 

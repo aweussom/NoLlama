@@ -3382,6 +3382,200 @@ def _load_audio(file_storage):
     return audio
 
 
+class EmbedSlot:
+    """Holds a TextEmbeddingPipeline — serves /v1/embeddings and /api/embed.
+
+    Why: a RAG client needs chat *and* embeddings from one base URL. Without
+    this, pointing one at NoLlama half-works — it chats, then silently fails
+    to build or query its index, because there is nothing to turn a question
+    into a vector (issue #43, Project NOMAD).
+
+    Deliberately NOT a DeviceSlot, and deliberately without `last_used`: that
+    absence is what exempts it from _idle_watchdog (see its getattr check).
+    An embedding model is small (a few hundred MB) and reloading it would
+    stall the next RAG batch to reclaim memory nobody needs back.
+
+    In: a directory holding an embedding IR + tokenizer. Out: `embed()`
+    returns one plain float list per input, L2-normalized, in input order.
+    """
+
+    def __init__(self, device_name, device_id=None, alias=None, threads=0,
+                 max_length=0, batch_size=16):
+        """Bare embedding slot; nothing is loaded until load().
+
+        Why there is no `last_used`: its absence is the mechanism that
+        exempts this slot from _idle_watchdog (same as WhisperSlot). Adding
+        one would silently enrol the slot in idle unloading, and there is no
+        unload() here to serve that.
+
+        In: `alias` overrides the advertised name, empty means take it from
+        the directory at load time. Out: status "not_configured" until
+        load() runs; `dims` is 0 until warmup() has measured it.
+        """
+        self.device_name = device_name
+        self.device_id = device_id or device_name
+        self.device_full = ""
+        self.pipe = None
+        self.model_name = alias or ""
+        self.model_type = "embed"
+        self.status = "not_configured"
+        self.dims = 0
+        self.threads = int(threads or 0)
+        self.max_length = int(max_length or 0)
+        # 0 means one pipeline call per request, i.e. whatever the client
+        # sent. See embed() for why that is a foot-gun rather than a
+        # default worth having.
+        self.batch_size = int(batch_size or 0)
+        self.lock = threading.Lock()
+
+    def load(self, model_dir):
+        """Build the TextEmbeddingPipeline; fails with an upgrade hint on
+        builds that predate it rather than an AttributeError.
+
+        Why MEAN + normalize and no instruction prefix: that is the
+        sentence-transformers contract these models were trained under, and
+        it is what the vectors in an already-built index were made with.
+        Task prefixes ("search_query: ") belong to the client — NOMAD adds
+        its own, and adding ours too would change the vector [DOCUMENTED,
+        nomic-embed-text-v1.5 model card].
+
+        In: model dir. Out: pipeline built, status still "loading" until
+        warmup() has confirmed it can actually embed.
+        """
+        self.status = "loading"
+        if not self.model_name:
+            self.model_name = model_display_name(model_dir)
+        print(f"  [{self.device_name}] Loading embeddings ({self.model_name})...",
+              flush=True)
+        EmbedPipe = getattr(ovg, "TextEmbeddingPipeline", None)
+        if EmbedPipe is None:
+            raise RuntimeError(
+                "No TextEmbeddingPipeline in this openvino_genai build. "
+                "Upgrade to openvino-genai >= 2025.3."
+            )
+        cfg = EmbedPipe.Config()
+        cfg.pooling_type = EmbedPipe.PoolingType.MEAN
+        cfg.normalize = True
+        # Bounds the worst case, not the common one: attention is quadratic,
+        # the pipeline does not truncate at all by default, and one dense
+        # chunk (code, base64, CJK) can then hold the lock for tens of
+        # seconds. Off by default all the same — silently truncating a
+        # document embeds it wrong and the caller never learns.
+        if self.max_length:
+            cfg.max_length = self.max_length
+        props = {}
+        if self.threads and self.device_name == "CPU":
+            # OpenVINO's default LATENCY hint opens threads on the P-cores
+            # only, which leaves a hybrid CPU half idle on a batch of chunks
+            # [OBSERVED 2026-09-16, MyrkoF, Core Ultra 9 285H, 16 cores:
+            # 1044 tok/s default -> 1378 at 12 threads, 1255 at 16].
+            props["INFERENCE_NUM_THREADS"] = self.threads
+        elif self.threads:
+            # CPU-only property: the GPU plugin rejects it outright with
+            # "Option not found: INFERENCE_NUM_THREADS" and the slot dies at
+            # load [OBSERVED 2026-09-17, Arc 140V, OpenVINO 2026.3.1]. Warn
+            # rather than fail — the flag is an optimisation, not a request
+            # that has to be honoured for the answer to be correct.
+            print(f"  [{self.device_name}] --embed-threads is a CPU-only setting; ignoring it.",
+                  flush=True)
+            self.threads = 0
+        self.pipe = EmbedPipe(str(model_dir), self.device_id, cfg, **props)
+
+    def warmup(self):
+        """Embed one string to compile the graph and learn the dimension.
+
+        Why it is not optional: the vector width is not in config.json for
+        every export, and /health advertises it — so the first real caller
+        would otherwise pay the compile *and* we would report dims 0.
+        """
+        self.dims = len(self.pipe.embed_documents(["warmup"])[0])
+        self.status = "ready"
+        print(f"  [{self.device_name}] Embeddings ready ({self.dims} dims)",
+              flush=True)
+
+    @staticmethod
+    def _sanitize(text):
+        """Make one input safe for the C++ tokenizer, never rejecting a batch.
+
+        Why: text extracted from PDFs, DOCX and ZIM articles carries lone
+        UTF-16 surrogates (half an emoji, a clipped glyph). pybind11 cannot
+        convert those to std::string and raises for the WHOLE call, so one
+        bad character loses every other document in the batch [OBSERVED
+        2026-09-16, MyrkoF, 54 files lost on one ingestion run; reproduced
+        bare here 2026-09-17, openvino-genai 2026.3.1 — tests/
+        test_embed_slot.py fails if the runtime ever stops refusing].
+
+        In: anything; non-strings are coerced. Out: a str with unconvertible
+        characters replaced, never empty — an all-whitespace input becomes
+        " " because some exports reject a zero-token sequence.
+        """
+        if not isinstance(text, str):
+            text = str(text)
+        text = text.encode("utf-8", "replace").decode("utf-8", "replace")
+        return text if text.strip() else " "
+
+    def embed(self, texts):
+        """Embed any number of texts, in order, in bounded slices.
+
+        Why the slicing is not an optimisation but the whole point: a RAG
+        client sends its ENTIRE corpus in one call — LangChain's
+        OllamaEmbeddings does no batching of its own — and handing that
+        straight to the pipeline is both slower and enormously heavier.
+        [OBSERVED 2026-09-17, nomic-embed-text v1.5 on CPU, 375 chunks of
+        this repo's docs, 433k chars] one call: 431.0s, peak RSS 18.52 GB;
+        the same chunks sliced: 223.9s, peak RSS ~5 GB. Nearly twice as fast
+        on a third of the memory, so there is no trade-off to tune — an
+        unbounded call is simply the wrong thing to issue. 18.5 GB was on a
+        32 GB laptop; a modestly larger corpus takes the machine out.
+
+        The lock is taken per slice, not once for the call, which bounds how
+        long a query waits behind an indexing run to ONE slice rather than
+        the whole corpus. It does not remove the wait: measured worst-case
+        query latency during indexing is the slice's own duration [OBSERVED
+        2026-09-17, same corpus] — 10.1s at 8, 15.4s at 16, 25.0s at 32,
+        55.3s at 64. That is why the default is small even though nothing
+        about memory forces it to be: total throughput is FLAT to slightly
+        better at 16 (597 ms/chunk) than at 64 (773 ms/chunk), so a large
+        slice buys nothing and costs a minute of query latency.
+
+        In: any iterable of texts, empty allowed. Out: one float list per
+        input, in input order, L2-normalized.
+        """
+        clean = [self._sanitize(t) for t in texts]
+        size = self.batch_size or len(clean) or 1
+        out = []
+        started = time.time()
+        for start in range(0, len(clean), size):
+            with self.lock:
+                vectors = self.pipe.embed_documents(clean[start:start + size])
+            # embed_documents may hand back ints (binary/int8 embedding
+            # types), and jsonify would emit those as ints — clients expect
+            # floats.
+            out.extend([float(x) for x in v] for v in vectors)
+            # Progress only for work long enough to look like a hang. A
+            # corpus index is minutes of silence otherwise, and the first
+            # thing it looks like from outside is a wedged server.
+            if len(clean) > size and time.time() - started > 10:
+                print(f"  [{self.device_name}] embedding {len(out)}/{len(clean)} "
+                      f"({time.time() - started:.0f}s elapsed)", flush=True)
+                started = time.time()
+        return out
+
+    @property
+    def info(self):
+        """The embed block in /health (subset of DeviceSlot.info)."""
+        return {
+            "status": self.status,
+            "model": self.model_name,
+            "type": self.model_type,
+            "device": self.device_full,
+            "dims": self.dims,
+            "max_length": self.max_length or None,
+            "threads": self.threads or None,
+            "batch_size": self.batch_size or None,
+        }
+
+
 class WhisperSlot:
     """Holds a WhisperPipeline for speech-to-text."""
 
@@ -3519,6 +3713,7 @@ PREWARM_SLOT = None
 # (2026-09-13); 60 leaves room for a slow check cycle. 0 disables.
 GPU_KEEPALIVE_SEC = 60
 whisper_slot = None   # optional Whisper STT model
+embed_slot = None     # optional text-embedding model (RAG clients, issue #43)
 max_dim = 768
 debug = False
 vscode_compat = False  # report a real Ollama version so VS Code accepts us
@@ -3544,6 +3739,11 @@ def overall_status():
     """Ready when all configured devices are ready."""
     slots = [s for s in (primary, secondary) if s and s.status != "not_configured"]
     if not slots:
+        # No generative slot does not mean nothing is served: an embeddings-only
+        # instance answers /v1/embeddings, and a launcher health check that saw
+        # "not_configured" would call it dead and never send it anything.
+        if embed_slot and embed_slot.status != "not_configured":
+            return "ready" if embed_slot.status == "ready" else embed_slot.status
         return "not_configured"
     # If ANY slot is ready or idle_unloaded (will reload on demand), we can
     # serve requests. A dead secondary shouldn't kill the primary.
@@ -3895,6 +4095,8 @@ def health():
               }}
     if whisper_slot and whisper_slot.status != "not_configured":
         result["whisper"] = whisper_slot.info
+    if embed_slot and embed_slot.status != "not_configured":
+        result["embed"] = embed_slot.info
     return jsonify(result)
 
 
@@ -3918,7 +4120,148 @@ def list_models():
             "created": 0,
             "owned_by": f"local-{whisper_slot.device_name.lower()}",
         })
+    if embed_slot and embed_slot.status == "ready":
+        # Bare name, no @DEVICE: unlike the generative slots this one is never
+        # routed to by name (there is only one), and a RAG client looks its
+        # embedding model up by the exact string it has hard-coded.
+        data.append({
+            "id": embed_slot.model_name,
+            "object": "model",
+            "created": 0,
+            "owned_by": f"local-{embed_slot.device_name.lower()}",
+        })
     return jsonify({"object": "list", "data": data})
+
+
+def _embed_inputs(body):
+    """Pull the texts out of whichever embedding request shape arrived.
+
+    Why: the three clients that matter disagree. OpenAI sends `input` as a
+    string or a list, current Ollama sends `input`, pre-0.3 Ollama sends
+    `prompt` as a single string, and LangChain-shaped callers send `text`.
+    Accepting all four costs four lines and removes a whole class of
+    "returns 400 and the index stays empty" reports.
+
+    In: the parsed JSON body. Out: a list of strings, empty when the body
+    carries no recognizable input (the caller turns that into a 400).
+    """
+    value = body.get("input", body.get("prompt", body.get("text")))
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if not isinstance(value, (list, tuple)):
+        return [str(value)]
+    return [v if isinstance(v, str) else str(v) for v in value]
+
+
+def _embed_or_error(body):
+    """Run one embedding request. Returns (vectors, None) or (None, response).
+
+    Why a tuple rather than raising: both wire shapes (OpenAI and Ollama)
+    need the same three failure replies with different success envelopes, and
+    an exception here would surface to the client as a Flask HTML 500 page.
+
+    In: the parsed body. Out: 503 when no embedding model is loaded, 400 on
+    an empty input list, 500 with the reason when the pipeline itself fails.
+    """
+    if not embed_slot or embed_slot.status != "ready":
+        return None, (jsonify({"error": {
+            "message": "No embedding model loaded. Start NoLlama with --embed-model-dir.",
+            "type": "server_error"}}), 503)
+    texts = _embed_inputs(body)
+    if not texts:
+        return None, (jsonify({"error": {
+            "message": "No input provided. Send `input` as a string or a list of strings.",
+            "type": "invalid_request_error"}}), 400)
+    print(f"{datetime.now():%H:%M:%S} <- [{embed_slot.device_name}] "
+          f"{len(texts)} texts, {sum(len(t) for t in texts)} chars (embed)", flush=True)
+    t0 = time.time()
+    try:
+        vectors = embed_slot.embed(texts)
+    except Exception as e:
+        print(f"{datetime.now():%H:%M:%S} !! [{embed_slot.device_name}] "
+              f"embed error: {e}", flush=True)
+        return None, (jsonify({"error": {
+            "message": f"Embedding failed: {e}", "type": "server_error"}}), 500)
+    print(f"{datetime.now():%H:%M:%S} -> [{embed_slot.device_name}] "
+          f"{len(vectors)} embeddings in {time.time() - t0:.2f}s", flush=True)
+    return vectors, None
+
+
+def _embed_token_estimate(texts):
+    """Rough prompt_tokens for an embedding usage block: ~4 chars per token.
+
+    Why an estimate is honest here: the embedding pipeline does not report a
+    token count, and clients use this field for logging rather than billing.
+    Named so nobody mistakes it for a measurement.
+    """
+    return sum(len(t) for t in texts) // 4
+
+
+@app.route("/v1/embeddings", methods=["POST"])
+def openai_embeddings():
+    """OpenAI-compatible embeddings. `data` is index-ordered, as clients assume."""
+    body = request.get_json(silent=True) or {}
+    vectors, err = _embed_or_error(body)
+    if err:
+        return err
+    tokens = _embed_token_estimate(_embed_inputs(body))
+    return jsonify({
+        "object": "list",
+        "model": body.get("model") or embed_slot.model_name,
+        "data": [{"object": "embedding", "index": i, "embedding": v}
+                 for i, v in enumerate(vectors)],
+        "usage": {"prompt_tokens": tokens, "total_tokens": tokens},
+    })
+
+
+def _ollama_embed_body():
+    """Ollama /api/embed response: the batch shape, `embeddings` plural."""
+    body = request.get_json(silent=True) or {}
+    t0 = time.time()
+    vectors, err = _embed_or_error(body)
+    if err:
+        return err
+    return jsonify({
+        "model": body.get("model") or embed_slot.model_name,
+        "embeddings": vectors,
+        "total_duration": int((time.time() - t0) * 1e9),
+        "load_duration": 0,
+        "prompt_eval_count": _embed_token_estimate(_embed_inputs(body)),
+    })
+
+
+def _ollama_embeddings_legacy_body():
+    """Ollama's pre-0.3 /api/embeddings: one vector, key `embedding` singular.
+
+    Why keep it: it is the shape several RAG clients still send, and the two
+    endpoints differ by one letter — a client on the old path against a
+    server that only serves the new one gets a 404 and reports "embeddings
+    are broken" with nothing else to go on.
+    """
+    body = request.get_json(silent=True) or {}
+    vectors, err = _embed_or_error(body)
+    if err:
+        return err
+    return jsonify({"embedding": vectors[0]})
+
+
+# The Ollama-shaped embedding routes are served on BOTH ports. A RAG client is
+# configured with ONE base URL for chat and embeddings, and with
+# --ollama-port 0 the Ollama port does not exist at all — so without these the
+# client silently gets no vectors. (Mirrors ollama_v1_chat_completions, which
+# serves the OpenAI path on the Ollama port for the same reason.)
+@app.route("/api/embed", methods=["POST"])
+def openai_port_ollama_embed():
+    """Ollama batch embeddings on the OpenAI port. See _ollama_embed_body."""
+    return _ollama_embed_body()
+
+
+@app.route("/api/embeddings", methods=["POST"])
+def openai_port_ollama_embeddings_legacy():
+    """Legacy single-vector embeddings on the OpenAI port."""
+    return _ollama_embeddings_legacy_body()
 
 
 @app.route("/v1/cancel", methods=["POST"])
@@ -4214,6 +4557,18 @@ def ollama_version():
     return jsonify({"version": version})
 
 
+@ollama_app.route("/api/embed", methods=["POST"])
+def ollama_embed():
+    """Ollama batch embeddings. See _ollama_embed_body for the wire shape."""
+    return _ollama_embed_body()
+
+
+@ollama_app.route("/api/embeddings", methods=["POST"])
+def ollama_embeddings_legacy():
+    """Legacy single-vector embeddings. See _ollama_embeddings_legacy_body."""
+    return _ollama_embeddings_legacy_body()
+
+
 @ollama_app.route("/api/tags", methods=["GET"])
 def ollama_tags():
     """Ollama's model list. Names are bare (no @DEVICE): Ollama clients echo
@@ -4231,6 +4586,20 @@ def ollama_tags():
                     "quantization_level": "int4",
                 },
             })
+    if embed_slot and embed_slot.status == "ready":
+        # A RAG client looks its embedding model up in this list by a name it
+        # has hard-coded, and downloads it from ollama.com when the name is
+        # absent — so --embed-name exists to make that string match.
+        models.append({
+            "name": embed_slot.model_name,
+            "model": embed_slot.model_name,
+            "size": 0,
+            "details": {
+                "family": "bert",
+                "parameter_size": "",
+                "quantization_level": "",
+            },
+        })
     return jsonify({"models": models})
 
 
@@ -4265,6 +4634,17 @@ def ollama_show():
                 "model_info": model_info,
                 "capabilities": caps,
             })
+    if embed_slot and embed_slot.status == "ready" and embed_slot.model_name == model_name:
+        # "embedding", never "completion": a client that reads this list
+        # decides from it whether the model can answer a chat request, and
+        # this one cannot. Ollama reports the same single capability.
+        return jsonify({
+            "model": model_name,
+            "details": {"family": "bert", "parameter_size": "",
+                        "quantization_level": ""},
+            "model_info": model_info,
+            "capabilities": ["embedding"],
+        })
     # Unknown model — we can't confirm it's on a GPU, so don't claim tools.
     return jsonify({"model": model_name, "details": {}, "model_info": model_info,
                     "capabilities": ["completion"]})
@@ -5003,6 +5383,30 @@ def parse_args():
                    help="Ollama API port (default: 11434, 0 to disable)")
     p.add_argument("--max-dim", type=int, default=768,
                    help="Max image dimension before resize (default: 768)")
+    p.add_argument("--embed-model-dir", default=None,
+                   help="Text-embedding model dir (OpenVINO IR). Serves /v1/embeddings "
+                        "and Ollama's /api/embed, so one base URL answers chat and RAG.")
+    p.add_argument("--embed-device", default="CPU",
+                   help="Device for the embedding model (default: CPU). It is small and "
+                        "runs beside a loaded LLM; GPU is faster but shares the budget.")
+    p.add_argument("--embed-name", default=None,
+                   help="Name to advertise the embedding model under (default: its "
+                        "directory name). Set this when a client has the name hard-coded "
+                        "-- e.g. --embed-name nomic-embed-text:v1.5.")
+    p.add_argument("--embed-max-length", type=int, default=0,
+                   help="Truncate embedding inputs to this many tokens (default: 0, no "
+                        "truncation). Bounds the worst case: attention is quadratic, so "
+                        "one pathological chunk can hold the embed lock for tens of seconds.")
+    p.add_argument("--embed-batch-size", type=int, default=16,
+                   help="Texts per pipeline call (default: 16, 0 = no limit). A RAG"
+                        " client sends its whole corpus in one request; slicing it is"
+                        " faster AND far lighter (375 chunks: 431s and 18.5 GB in one"
+                        " call, 224s and ~5 GB at 16). Raising it does not help"
+                        " throughput and adds query latency during indexing.")
+    p.add_argument("--embed-threads", type=int, default=0,
+                   help="INFERENCE_NUM_THREADS for the embedding model (0 = OpenVINO's "
+                        "default, which uses the P-cores only). Measured best at 12 on a "
+                        "16-core Core Ultra 9 285H: +32%% throughput, 4 cores left free.")
     p.add_argument("--whisper-dir", default=None,
                    help="Whisper model directory for speech-to-text (enables /v1/audio/transcriptions)")
     p.add_argument("--whisper-device", default="CPU",
@@ -5090,7 +5494,7 @@ def main():
     construction, background loads, then Flask on the main thread.
     docs/slot-lifecycle.mmd maps this; numbered comments below mark the steps.
     """
-    global primary, secondary, whisper_slot, max_dim, debug, vscode_compat
+    global primary, secondary, whisper_slot, embed_slot, max_dim, debug, vscode_compat
     global PREWARM_SLOT
     global PROMPT_CACHE, PROMPT_CACHE_GB, PREWARM_FILE, OFFLOAD_RATIO, THINK_IN_CONTENT
     global GPU_LARGE_ALLOC
@@ -5210,7 +5614,13 @@ def main():
         sys.exit(1)
 
     # 4. Verify model directories
-    if not os.path.isdir(model_dir):
+    # An embeddings-only instance is a legitimate topology: the two-server
+    # recipe in docs/AGENTS.md already splits work across processes, and an
+    # embedder that outlives a restart of the chat model is the point. So
+    # --embed-model-dir with no chat model is allowed, and the *absence* of a
+    # usable --model-dir is the signal — no extra flag to discover.
+    embed_only = bool(args.embed_model_dir) and not os.path.isdir(model_dir)
+    if not embed_only and not os.path.isdir(model_dir):
         print(f"ERROR: Model directory not found: {model_dir}")
         sys.exit(1)
     if args.gpu_model_dir and not os.path.isdir(args.gpu_model_dir):
@@ -5218,6 +5628,9 @@ def main():
         sys.exit(1)
     if args.whisper_dir and not os.path.isdir(args.whisper_dir):
         print(f"ERROR: Whisper model directory not found: {args.whisper_dir}")
+        sys.exit(1)
+    if args.embed_model_dir and not os.path.isdir(os.path.expanduser(args.embed_model_dir)):
+        print(f"ERROR: Embedding model directory not found: {args.embed_model_dir}")
         sys.exit(1)
 
     # 4b. Pick the serving backend per model. GenAI pipelines are the default;
@@ -5260,8 +5673,12 @@ def main():
 
     # 5. Create device slots
     npu_plat = devices.get("NPU", {}).get("platform", "")
-    primary = primary_cls(device, _id_of(device), npu_platform=npu_plat)
-    all_slots = [primary]
+    if embed_only:
+        primary = None
+        all_slots = []
+    else:
+        primary = primary_cls(device, _id_of(device), npu_platform=npu_plat)
+        all_slots = [primary]
 
     if args.gpu_model_dir:
         if "GPU" not in devices:
@@ -5280,6 +5697,18 @@ def main():
     PREWARM_SLOT = primary
     if secondary is not None and not is_vlm(args.gpu_model_dir):
         PREWARM_SLOT = secondary
+
+    if args.embed_model_dir:
+        embed_device = args.embed_device.upper()
+        if embed_device not in devices and embed_device != "CPU":
+            print(f"WARNING: Embedding device {embed_device} not available, falling back to CPU.")
+            embed_device = "CPU"
+        embed_slot = EmbedSlot(embed_device, _id_of(embed_device),
+                               alias=args.embed_name,
+                               threads=args.embed_threads,
+                               max_length=args.embed_max_length,
+                               batch_size=args.embed_batch_size)
+        all_slots.append(embed_slot)
 
     if args.whisper_dir:
         whisper_device = args.whisper_device.upper()
@@ -5307,12 +5736,13 @@ def main():
         print("  Ollama API:     disabled", flush=True)
 
     threads = []
-    t = threading.Thread(
-        target=_load_in_background,
-        args=(primary, model_dir, devices, args.port, args.ollama_port, all_slots),
-        daemon=True,
-    )
-    threads.append(t)
+    if primary:
+        t = threading.Thread(
+            target=_load_in_background,
+            args=(primary, model_dir, devices, args.port, args.ollama_port, all_slots),
+            daemon=True,
+        )
+        threads.append(t)
 
     if secondary:
         t2 = threading.Thread(
@@ -5322,6 +5752,15 @@ def main():
             daemon=True,
         )
         threads.append(t2)
+
+    if embed_slot:
+        te = threading.Thread(
+            target=_load_in_background,
+            args=(embed_slot, os.path.expanduser(args.embed_model_dir), devices,
+                  args.port, args.ollama_port, all_slots),
+            daemon=True,
+        )
+        threads.append(te)
 
     if whisper_slot:
         tw = threading.Thread(

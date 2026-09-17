@@ -3,6 +3,46 @@
 Things we tried that didn't work, or that work but aren't worth doing. Each
 entry explains *why not* so we don't re-litigate it in six months.
 
+## An embeddings relay and an `--embed-only` flag (2026-09-17)
+
+Idea, from the `embeddings` branch of MyrkoF's fork (issue #43): besides the
+embedding slot itself, add `--embed-url` to proxy `/api/embed` to a second
+NoLlama process, and `--embed-only` to run that second process with no chat
+model. The client keeps one base URL; the embedder survives a restart of the
+LLM and vice versa.
+
+**Verdict:** took the embedding slot, left the relay. Added the
+embeddings-only *topology* without the flag.
+
+**Why not:**
+- **It is a workaround for a bug we fixed elsewhere.** The motivation was
+  concrete and real: an iGPU hang made the waiting thread spin at 98% of a
+  core for 2.5 minutes, and the `stop`/`start` needed to clear it killed a
+  RAG indexing run in the same process. But a poisoned GPU context now takes
+  only its own slot out of service (`_note_poisoned`, 2026-09-13) — the
+  process survives, so the embedder does too. Building a second process to
+  route around a hang we already contain is paying twice.
+- **A proxy mode is a different kind of thing from a slot.** Every other
+  `--*-model-dir` names a model this process loads. `--embed-url` names a
+  server, so `/health` has to report a slot that is not here, failures split
+  into ours and theirs, and the retry-on-demand logic the fork needed
+  (a probe at startup can precede the other server's readiness) is the first
+  instalment of that debt, not the last.
+- **`--embed-only` is a flag for something the absence of a flag already
+  says.** `--embed-model-dir` with no usable `--model-dir` is unambiguous,
+  and it is what NoLlama now does: serves embeddings alone, reports ready,
+  answers chat with a clean 503. One less thing in `--help`.
+
+**Taken from the fork, with thanks:** the slot itself, the input sanitiser
+(lone UTF-16 surrogates from PDF/DOCX/ZIM text make pybind reject the whole
+batch — reproduced here bare, 2026-09-17), serving the Ollama routes on both
+ports, and the measured `INFERENCE_NUM_THREADS` finding.
+
+Re-evaluate if: someone wants one client URL in front of embedders on
+*different machines*. That is a reverse proxy's job (nginx, Caddy) and
+should stay one — but if it keeps coming up, the answer is a documented
+proxy config, not a flag.
+
 ## Handling the poisoned GPU context at the streaming seam only (2026-09-12 -> 2026-09-13)
 
 `_note_poisoned` shipped on 2026-09-12 wired into the two genai **streaming**

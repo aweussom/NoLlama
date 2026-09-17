@@ -11,6 +11,13 @@ OpenAI-compatible LLM/VLM server for Intel hardware. NPU-first.
 - GPU: `VLMPipeline` (images) or `LLMPipeline` (text). Both stream as of
   openvino-genai 2026.1 — verified on Arc 140V iGPU.
 - Routing: images go to GPU, text goes to NPU (or GPU if no NPU).
+- Embeddings: `EmbedSlot` + `TextEmbeddingPipeline` for RAG clients,
+  `/v1/embeddings` plus Ollama's `/api/embed` on **both** ports. CPU or GPU,
+  never the NPU (its plugin requires SDPA nodes). Non-generative, so it is
+  exempt from the idle watchdog and never enters `_route_request`;
+  it also runs with no chat model at all. A RAG client sends its whole
+  corpus in one request, so `embed()` slices it (`--embed-batch-size`).
+  -> `docs/API.md`
 - Whisper: `WhisperSlot` + `WhisperPipeline` for STT,
   `POST /v1/audio/transcriptions`, CPU or GPU.
 - Prefix (KV) caching is **default on** for GPU/CPU **LLM and VLM** slots;
@@ -22,7 +29,8 @@ OpenAI-compatible LLM/VLM server for Intel hardware. NPU-first.
   old shape). → `docs/dev/tool-calling.md`
 - Most models run on openvino_genai; a few need optimum-intel's python
   runtime (`--backend`). → `docs/dev/runtime-stacks.md`
-- `models.json` — curated model registry (npu, gpu_vlm, gpu_llm, whisper).
+- `models.json` — curated model registry (npu, gpu_vlm, gpu_llm, whisper,
+  embed).
   `install.ps1` detects devices, shows the model menu, generates `start.ps1`;
   agent setups get `--idle-timeout 0` (keeps the prefix cache alive,
   auto-enables prewarm).

@@ -6,6 +6,8 @@
 %%   progress heartbeat added around the build.
 %% Updated 2026-09-13: dGPU keepalive against WDDM idle eviction.
 %% Updated 2026-09-13: the watchdog's ready-only guard is load-bearing (issue #38).
+%% Updated 2026-09-17: EmbedSlot — a non-generative slot with its own load path
+%%   and no idle unload (issue #43).
 %% Legend: solid = normal path, dashed = failure/fallback/degraded,
 %%         ALL-CAPS nodes = prose annotations.
 %% Palette: route (blue) = decisions, gen (green) = live pipeline states,
@@ -61,6 +63,32 @@ flowchart TB
   warmup --> _prewarm_slot{"_prewarm_slot<br/>PREWARM_FILE + live kv pool<br/>AND slot is PREWARM_SLOT?"}
   _prewarm_slot -->|"yes: prefill saved prompt<br/>(VLM replays via parse_messages<br/>so the token prefix matches)"| ready["ready<br/>(first real turn = cache hit)"]
   _prewarm_slot -.->|"no pool / no file /<br/>not the prewarm slot"| ready
+
+  _load_in_background -.->|"--embed-model-dir"| embed_load
+  embed_load["EmbedSlot.load<br/>TextEmbeddingPipeline, MEAN + L2,<br/>no KV pool, no preflight, no prefix cache"]
+  embed_load --> embed_warm["EmbedSlot.warmup<br/>embed one string; learns dims"]
+  embed_warm --> embed_ready["ready<br/>serves /v1/embeddings + /api/embed<br/>embed() slices the request (--embed-batch-size),<br/>lock per slice, progress logged"]
+  embed_ready -.-> EMBEDSLOT
+
+  EMBEDSLOT["AN EMBEDDING SLOT IS NOT A DeviceSlot AND HAS NO last_used,
+  which is exactly what exempts it from _idle_watchdog above (that loop
+  skips any slot without the attribute - the same mechanism WhisperSlot
+  relies on). Deliberate: the model is a few hundred MB, so unloading it
+  reclaims nothing worth a stalled RAG batch on the next query.
+  It also never reaches _route_request - there is one embedding slot and
+  requests arrive on their own endpoints, so it is advertised under a BARE
+  name rather than name@DEVICE (a RAG client looks its embedding model up
+  by a string it has hard-coded; hence --embed-name).
+  A RAG CLIENT SENDS ITS WHOLE CORPUS IN ONE REQUEST (LangChain does no
+  batching of its own), so embed() slices it. Unsliced measured 431s and a
+  peak 18.52 GB for 375 chunks against 224s and ~5 GB at 16 [OBSERVED
+  2026-09-17] - faster AND lighter, so there is nothing to trade off. The
+  lock is per slice so a query waits one slice, not the corpus.
+  NPU IS NOT A TARGET: the plugin's embedding path requires SDPA nodes and
+  refuses a plain BERT export outright - 'Check check_sdpa_nodes(model)
+  failed', prepare_embedding_model.cpp:345 [OBSERVED 2026-09-17,
+  all-MiniLM-L6-v2 int8, OpenVINO 2026.3.1]. CPU and GPU both work and
+  agree to cosine 0.999781, so one index can be built by either."]
 
   ready --> _gpu_keepalive{"_gpu_keepalive<br/>dGPU ONLY, every 15s:<br/>idle &gt; --gpu-keepalive (60s)?"}
   _gpu_keepalive -->|"yes: 1-token generate,<br/>non-blocking lock"| ready
@@ -176,6 +204,7 @@ flowchart TB
   classDef warn fill:#fec,stroke:#a60,color:#000
   class _gpu_keepalive,main,_slot_class,_verify_weights_integrity,_resolve_kv_pool,_preflight_memory,alloc_gate,_gpu_large_alloc_props,pipebuild,_prewarm_slot,_idle_watchdog,_load_in_background route
   class load,optimum_load,npu_pipe,cb_pipe,plain_pipe,cb_fallback,warmup,ready,ensure_loaded gen
+  class embed_load,embed_warm,embed_ready gen
   class _LoadProgress,_LoadDone client
   class loaderr,unload,poisoned_slot client
-  class NOREWARM,POOLSTABLE,DXGCAP,RUNTIMEALLOC,WRONGSLOT,EVICTION,WATCHDOGGUARD warn
+  class NOREWARM,POOLSTABLE,DXGCAP,RUNTIMEALLOC,WRONGSLOT,EVICTION,WATCHDOGGUARD,EMBEDSLOT warn

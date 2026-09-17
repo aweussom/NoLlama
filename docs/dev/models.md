@@ -102,6 +102,70 @@ on the LFM2 family, where no good int8 NPU variant exists (see
 
 ## Verified models
 
+### Embedding models (issue #43)
+
+Served through `--embed-model-dir`, not a chat slot. Both probed
+bare through `TextEmbeddingPipeline` first, then through the server
+[OBSERVED 2026-09-17, this laptop: Core Ultra 7 258V + Arc 140V,
+OpenVINO 2026.3.1, GPU driver 32.0.101.8991].
+
+| model | CPU | GPU (140V) | NPU |
+|---|---|---|---|
+| nomic-embed-text v1.5 (fp16, ONNX route) | 768 dims, 0.20s/3 docs | 0.59s/3 docs | **refused** |
+| all-MiniLM-L6-v2 (int8) | 384 dims, 0.03s/2 docs | 0.63s/2 docs | **refused** |
+
+**Tested against a real RAG client, not just curl** [OBSERVED 2026-09-17]:
+LangChain (`langchain-ollama` / `langchain-openai`, i.e. the official `ollama`
+and `openai` SDKs) over FAISS, indexing this repo's own docs — 25
+documents, 483 chunks — then answering questions with Qwen3-8B on the iGPU
+from the same NoLlama process. Index built in 297s; retrieval returned the
+right source files; 3 of 3 answers were correct and grounded. The same text
+through `/v1/embeddings` and `/api/embed` agrees to cosine 1.0000.
+
+**That test is what found the batching defect.** A RAG client sends the
+whole corpus in ONE request; passing it straight to the pipeline measured
+431s and a peak RSS of **18.52 GB** for 375 chunks, on a 32 GB laptop.
+Sliced, the same work is 224s and ~5 GB. Throughput is flat-to-better at
+small slices, so the default is 16:
+
+| slice | total (375 chunks) | ms/chunk | worst query wait during indexing |
+|---|---|---|---|
+| 8 | 247.8s | 661 | 10.1s |
+| **16 (default)** | **223.9s** | **597** | 15.4s |
+| 32 | 236.4s | 631 | 25.0s |
+| 64 | 289.7s | 773 | 55.3s |
+| unsliced | 431.0s | 1149 | the whole corpus |
+
+The lock is per slice, so a query waits one slice, not the corpus. None of
+this was visible from single-request testing — every endpoint answered in
+milliseconds by hand.
+
+CPU and GPU vectors are interchangeable in one index: cosine **0.999999**
+(nomic) and **0.999781** (MiniLM int8) between the two devices. Retrieval
+behaves — a query matched its own document at 0.71-0.81 against 0.34-0.43
+for an unrelated one, through the server on the Ollama route.
+
+**The NPU refuses both, and that is the result, not a skip:**
+
+```
+Check 'check_sdpa_nodes(model)' failed at
+src\plugins\intel_npu\src\plugin\npuw\embedding\prepare_embedding_model.cpp:345
+```
+
+The NPU's embedding path wants SDPA nodes in the graph; a standard encoder
+export has plain attention, so it never compiles. This is not the NPU
+prompt cap or an export mistake — it is the plugin declining the
+architecture, identically for an int8 optimum export and an fp16 ONNX
+conversion. Do not spend another afternoon on it without an upstream
+change; `--embed-device NPU` falls back to CPU with a warning.
+
+Small is not slow here: CPU beat the iGPU on both models, because an
+encoder pass of a few hundred tokens is dominated by dispatch rather than
+compute. Hence `--embed-device CPU` is the default. MyrkoF measured the
+reverse on a loaded box (9.29s Ollama CPU vs 0.02s OpenVINO iGPU, issue
+#43) — that machine was under load ~19 and the comparison was against
+Ollama, so both readings can be true. Measure on the box you will serve on.
+
 - Qwen3-8B (INT4-CW) on NPU — recommended, needs MAX_PROMPT_LEN=4096
 - SmolLM3-3B (INT4-CW 23 tok/s, INT8-CW 12 tok/s) on 285K NPU — 2026.3,
   our export

@@ -258,10 +258,77 @@ token by token, then the parsed `tool_calls` delta and
 get the pre-2026-08-30 shape (tags inside `content`) for a client that
 depends on it. The Ollama API (`/api/chat`) is unaffected either way.
 
+### Embeddings (RAG)
+
+`--embed-model-dir DIR` loads a text-embedding model into its own slot, so
+one NoLlama answers both chat and retrieval. This is what a RAG client needs
+to point at a single base URL; without it, such a client chats happily and
+then silently fails to build or query its index.
+
+```bash
+python nollama.py --model-dir model --embed-model-dir ~/models/bge-m3-ov
+```
+
+```bash
+curl http://localhost:8000/v1/embeddings \
+  -d '{"input": ["first chunk", "second chunk"]}'
+```
+
+The vectors are MEAN-pooled and L2-normalized, which is what these models
+were trained for. **Task prefixes are the client's job** — a model whose card
+asks for `search_query: ` or `query: ` expects the caller to add it, and
+NoLlama deliberately adds nothing, because prefixing twice changes the
+vector.
+
+The slot is never idle-unloaded (an embedding model is small, and reloading
+it would stall the next batch), and it is not a chat model: `/api/show`
+reports its capability as `embedding`, not `completion`.
+
+Flags:
+
+| flag | meaning |
+|---|---|
+| `--embed-model-dir DIR` | the model; enables all the endpoints below |
+| `--embed-device` | `CPU` (default), `GPU`. **Not the NPU** — see below |
+| `--embed-name` | the name to advertise it under, when a client has one hard-coded |
+| `--embed-max-length N` | truncate inputs to N tokens; off by default |
+| `--embed-batch-size N` | texts per pipeline call (default 16) |
+| `--embed-threads N` | CPU only, ignored with a warning elsewhere |
+
+**Indexing a corpus takes minutes, and that is the model, not the server.**
+A RAG client sends its whole corpus in a single request — LangChain's
+embedding classes do no batching of their own — so NoLlama slices it
+internally. On this laptop's CPU, nomic-embed-text manages roughly 1.7
+chunks per second, so 483 chunks of documentation is about five minutes.
+Progress is logged while it runs. Queries sent during an indexing run are
+answered between slices rather than queued behind the whole corpus,
+measured at 0.4-5.7s while 68 chunks indexed.
+
+Do not raise `--embed-batch-size` expecting throughput: 16 measured *faster*
+than 64 (597 vs 773 ms/chunk) and keeps query latency down. `0` disables
+slicing and hands the client's whole request to the pipeline, which on a
+375-chunk corpus cost 431s and 18.5 GB against 224s and ~5 GB sliced.
+
+`--embed-model-dir` also works **without a chat model**: if `--model-dir`
+points nowhere, the process serves embeddings alone. That is the shape to run
+when you want the embedder to survive restarts of the chat model.
+
+**The NPU cannot serve embeddings.** Its plugin requires SDPA nodes in the
+graph and refuses a standard encoder export outright (`Check
+'check_sdpa_nodes(model)' failed`). CPU and GPU both work, and their vectors
+agree closely enough to share one index — cosine 0.999999 on nomic-embed-text
+v1.5, 0.999781 on an int8 MiniLM (measured 2026-09-17, Arc 140V).
+
+For which models to use and how to convert one, see
+[MODELS.md](MODELS.md#embedding-models).
+
 ### Other endpoints
 
 - `GET /health` — device status, model names, readiness
 - `GET /v1/models` — list loaded models (OpenAI format)
+- `POST /v1/embeddings` — embeddings, OpenAI format (needs `--embed-model-dir`)
+- `POST /api/embed` — embeddings, Ollama format; also on the main port
+- `POST /api/embeddings` — the pre-0.3 Ollama shape, one vector
 
 ### Response headers
 
@@ -299,6 +366,12 @@ Supported endpoints:
 - `POST /api/generate` — single-turn completion
 - `GET /api/tags` — list models
 - `POST /api/show` — model info
+- `POST /api/embed` — embeddings (with `--embed-model-dir`)
+- `POST /api/embeddings` — the pre-0.3 single-vector shape
+
+The two embedding routes are served on **both** ports. A RAG client is
+configured with one base URL for chat and embeddings, and with
+`--ollama-port 0` that port does not exist at all.
 
 ```bash
 curl http://localhost:11434/api/chat \

@@ -193,5 +193,35 @@
             "est_size_gb": 17,
             "notes": "Code-focused MoE. Needs >32 GB RAM (shared with system)."
         }
+    ],
+    "embed": [
+        {
+            "name": "BGE-M3 (INT8)",
+            "hf_id": "BAAI/bge-m3",
+            "source": "convert",
+            "est_size_gb": 0.6,
+            "notes": "Recommended. Multilingual (100+ languages), 1024 dims, 8192-token inputs. Exports natively: optimum-cli export openvino --task feature-extraction --weight-format int8. Convert with download-model.ps1 -Convert -Weight int8 -Task feature-extraction."
+        },
+        {
+            "name": "multilingual-e5-base (INT8)",
+            "hf_id": "intfloat/multilingual-e5-base",
+            "source": "convert",
+            "est_size_gb": 0.3,
+            "notes": "Smaller multilingual option, 768 dims. Needs the 'query: ' / 'passage: ' prefixes its model card describes - the CLIENT adds those, NoLlama never does."
+        },
+        {
+            "name": "all-MiniLM-L6-v2 (INT8)",
+            "hf_id": "sentence-transformers/all-MiniLM-L6-v2",
+            "source": "convert",
+            "est_size_gb": 0.03,
+            "notes": "Tiny (23 MB int8), English-only, 384 dims. Verified 2026-09-17 on CPU and Arc 140V iGPU: CPU 0.03s / GPU 0.63s for 2 docs, vectors agree to cosine 0.999781. Good for testing the endpoint. REFUSED by the NPU (check_sdpa_nodes, see docs/dev/models.md)."
+        },
+        {
+            "name": "nomic-embed-text v1.5 (FP16)",
+            "hf_id": "nomic-ai/nomic-embed-text-v1.5",
+            "source": "convert-onnx",
+            "est_size_gb": 0.3,
+            "notes": "768 dims. What Ollama-based RAG clients expect by name - serve it with --embed-name nomic-embed-text:v1.5. Does NOT export through optimum-intel (nomic_bert is unsupported); use scripts/export-embed-onnx.py, which converts the repo's official ONNX instead. Task prefixes ('search_document: ') belong to the client."
+        }
     ]
 }
