@@ -12,7 +12,7 @@
 %%         ALL-CAPS nodes = prose annotations.
 %% Palette: route (blue) = decisions, gen (green) = live pipeline states,
 %%          client (yellow) = external effects, warn (orange) = annotations.
-%% covers: nollama.py:_gpu_keepalive,_keepalive_eligible,_LoadProgress,_load_time_key,_remembered_load_time,_record_load_time,main,needs_optimum,is_vlm,_verify_weights_integrity,_resolve_kv_pool,_preflight_memory,_preflight_verdict,_largest_weight_tensor_bytes,_gpu_large_alloc_props,load,warmup,_prewarm_slot,_idle_watchdog,ensure_loaded,unload,_load_in_background
+%% covers: nollama.py:_gpu_keepalive,_keepalive_eligible,_LoadProgress,_load_time_key,_remembered_load_time,_record_load_time,main,needs_optimum,is_vlm,_verify_weights_integrity,_resolve_kv_pool,_preflight_memory,_preflight_verdict,_largest_weight_tensor_bytes,_gpu_large_alloc_props,npu_arch_warning,load,warmup,_prewarm_slot,_idle_watchdog,ensure_loaded,unload,_load_in_background
 %% (_slot_class is nested inside main and invisible to the checker's AST scan
 %%  — its box below is covered via main.)
 flowchart TB
@@ -47,7 +47,11 @@ flowchart TB
   _gpu_large_alloc_props -->|"no (the common case)"| pipebuild
 
   pipebuild{"pipeline build<br/>plugin_props = OFFLOAD_RATIO +<br/>large-allocation hint"}
-  pipebuild -->|NPU| npu_pipe["LLMPipeline MAX_PROMPT_LEN=4096<br/>plain; no CB path on NPU"]
+  pipebuild -->|NPU| npu_arch{"npu_arch_warning<br/>config.json model_type x<br/>DEVICE_ARCHITECTURE"}
+  npu_arch -->|"not a known-bad pairing"| npu_pipe
+  npu_arch -.->|"known bad on this NPU generation"| npu_warn["WARNING to stdout;<br/>load CONTINUES - never refuses"]
+  npu_warn --> npu_pipe
+  npu_pipe["LLMPipeline MAX_PROMPT_LEN=4096<br/>plain; no CB path on NPU"]
   pipebuild -->|"GPU/CPU + prompt cache"| cb_pipe["LLMPipeline / VLMPipeline with<br/>scheduler_config(enable_prefix_caching,<br/>cache_size=kv_pool_gb)"]
   pipebuild -->|--no-prompt-cache| plain_pipe["plain pipeline"]
   cb_pipe -.->|"runtime rejects the property"| cb_fallback["plain pipeline; kv_pool_gb=0<br/>so /health is honest and<br/>prewarm skips this slot"]
@@ -198,13 +202,25 @@ flowchart TB
   pinging an iGPU would burn power for nothing."]
   _gpu_keepalive -.-> EVICTION
 
+  npu_warn -.-> NPUARCH
+  NPUARCH["SILENT ON EVERY SIGNAL A USER CAN CHECK: an LFM2 int4-cw on NPU 4
+  compiles, decodes at full speed and returns fluent word salad, while the
+  SAME FILES on NPU 3 are correct - two NPU drivers, three OpenVINO versions
+  and both compilers held constant [OBSERVED 2026-09-01,
+  openvinotoolkit/openvino#38100]. FULL_DEVICE_NAME is 'Intel(R) AI Boost' on
+  every generation, so DEVICE_ARCHITECTURE ('3720' = NPU 3, '4000' = NPU 4) is
+  the only discriminator. install.ps1 keeps these off the menu (models.json
+  npu_arch_deny); this guard is for the copy already on disk, which never
+  passed the installer. WARNS RATHER THAN REFUSES because the fault is not the
+  whole family - a 2.6B on a 256V was reported working upstream."]
+
   classDef route fill:#e6f0ff,stroke:#0066cc,color:#000
   classDef gen fill:#e6ffe6,stroke:#00b300,color:#000
   classDef client fill:#ffffcc,stroke:#b3b300,color:#000
   classDef warn fill:#fec,stroke:#a60,color:#000
-  class _gpu_keepalive,main,_slot_class,_verify_weights_integrity,_resolve_kv_pool,_preflight_memory,alloc_gate,_gpu_large_alloc_props,pipebuild,_prewarm_slot,_idle_watchdog,_load_in_background route
-  class load,optimum_load,npu_pipe,cb_pipe,plain_pipe,cb_fallback,warmup,ready,ensure_loaded gen
+  class _gpu_keepalive,main,_slot_class,_verify_weights_integrity,_resolve_kv_pool,_preflight_memory,alloc_gate,_gpu_large_alloc_props,pipebuild,npu_arch,_prewarm_slot,_idle_watchdog,_load_in_background route
+  class load,optimum_load,npu_pipe,npu_warn,cb_pipe,plain_pipe,cb_fallback,warmup,ready,ensure_loaded gen
   class embed_load,embed_warm,embed_ready gen
   class _LoadProgress,_LoadDone client
   class loaderr,unload,poisoned_slot client
-  class NOREWARM,POOLSTABLE,DXGCAP,RUNTIMEALLOC,WRONGSLOT,EVICTION,WATCHDOGGUARD,EMBEDSLOT warn
+  class NOREWARM,POOLSTABLE,DXGCAP,RUNTIMEALLOC,WRONGSLOT,EVICTION,WATCHDOGGUARD,EMBEDSLOT,NPUARCH warn

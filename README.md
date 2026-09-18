@@ -46,13 +46,28 @@ transcription, and every flag: [docs/API.md](docs/API.md).
 MoE fits a 24 GB card, and both drive agent loops with tool-calling. **CPU works
 too**, slower — and on a strong desktop it beats a weak iGPU.
 
-**On the NPU: not quite yet.** It tops out at 1-3B-class models. SmolLM3-3B at
-23 tok/s is genuinely pleasant for bounded work — summarise this, extract these
-fields — without being a daily driver. That gap is closing fast, and the NPU is
+**On the NPU: real, but narrow.** Qwen3-8B does run there, at 10 tok/s;
+SmolLM3-3B at 23 is genuinely pleasant for bounded work — summarise this,
+extract these fields. Speed is not the binding limit though. The NPU caps
+prompts at **4096 tokens** and has **no tool-calling and no prefix cache**, so
+it cannot drive a coding agent at all. Treat it as a short-document and
+side-task device, not a daily driver. That gap is closing fast, and the NPU is
 the part of this that gets interesting.
 
 Below ~3B, expect trouble. Asked for the capital of Norway, a 1.5B once answered
 that "Norway is a small island". Fine for testing the plumbing.
+
+**Check which NPU generation you have.** A model can be correct on one and
+silently wrong on the next. The LFM2 1.2B builds decode at full speed on Lunar
+Lake (**NPU 4**, Core Ultra 200V) and return word salad, while the same files on
+Meteor/Arrow Lake (**NPU 3**) answer correctly — across two NPU drivers, three
+OpenVINO versions and both compilers
+([openvino#38100](https://github.com/openvinotoolkit/openvino/issues/38100)).
+Nothing about the failure looks like a failure: it compiles, it is fast, and the
+sentences are fluent. The installer reads your generation and keeps the models
+that cannot work on it off the menu, and the server warns if you load one
+anyway — but if you are picking models by hand,
+[docs/MODELS.md](docs/MODELS.md) carries the per-generation list.
 
 ## Speed at a glance
 
@@ -98,7 +113,7 @@ doesn't reach. Pick per device, not per project:
 
 | Run on | Use | Why |
 |---|---|---|
-| **Intel NPU** | **NoLlama** | Ollama can't target it at all. This is the reason NoLlama exists. |
+| **Intel NPU** | **NoLlama** | Ollama can't target it at all. This is the reason NoLlama exists — within the 4096-token, no-tool-calling limits above. |
 | **Intel iGPU / ARC**, text | **NoLlama** | OpenVINO INT4 is ~1.6× faster on decode than Ollama's Vulkan on an Arc 140V. Ollama also needs `OLLAMA_IGPU_ENABLE=1` or it silently falls back to CPU. |
 | **Intel iGPU / ARC**, images | **NoLlama** | Ollama has no Intel path for local vision models. |
 | **CPU only** | **Ollama** | llama.cpp's CPU backend is more mature, and `ollama pull` beats model conversion. |

@@ -275,15 +275,40 @@ for dev in core.get_available_devices():
             out['GPU'] = {'id': dev, 'name': full, 'xmx': 'GPU_HW_MATMUL' in caps}
     elif dev in ('NPU', 'CPU'):
         out[dev] = {'id': dev, 'name': full}
+        if dev == 'NPU':
+            # DEVICE_ARCHITECTURE is the ONLY thing that separates NPU
+            # generations: FULL_DEVICE_NAME is 'Intel(R) AI Boost' on all of
+            # them. '3720' = NPU 3 (Meteor/Arrow Lake), '4000' = NPU 4 (Lunar
+            # Lake). Some models are correct on one and silently wrong on the
+            # other, so the model menu gates on this (models.json
+            # npu_arch_deny).
+            try: out[dev]['arch'] = core.get_property(dev, 'DEVICE_ARCHITECTURE')
+            except: out[dev]['arch'] = ''
 print(json.dumps(out))
 "@ | ConvertFrom-Json
+
+# Turn a DEVICE_ARCHITECTURE string into the name people actually use. The
+# generation matters because model defects track it: an IR can be correct on
+# NPU 3 and word salad on NPU 4 with everything else held constant.
+function Get-NpuGenLabel {
+    param([string]$Arch)
+    switch ($Arch) {
+        "3720" { "NPU 3, Meteor/Arrow Lake" }
+        "4000" { "NPU 4, Lunar Lake" }
+        ""     { "generation unknown" }
+        default { "arch $Arch" }
+    }
+}
 
 $HasNPU = $null -ne $DeviceInfo.NPU
 $HasGPU = $null -ne $DeviceInfo.GPU
 
 Write-Host ""
-if ($HasNPU) { Write-Host "  [+] NPU: $($DeviceInfo.NPU.name)" -ForegroundColor Green }
-else         { Write-Host "  [-] NPU: not found" -ForegroundColor DarkGray }
+if ($HasNPU) {
+    Write-Host "  [+] NPU: $($DeviceInfo.NPU.name) ($(Get-NpuGenLabel $DeviceInfo.NPU.arch))" -ForegroundColor Green
+} else {
+    Write-Host "  [-] NPU: not found" -ForegroundColor DarkGray
+}
 if ($HasGPU) {
     $gpuSuffix = if ($DeviceInfo.GPU.id -ne "GPU") { " [$($DeviceInfo.GPU.id)]" } else { "" }
     Write-Host "  [+] GPU$($gpuSuffix): $($DeviceInfo.GPU.name)" -ForegroundColor Green
@@ -677,10 +702,39 @@ function Select-Device {
     }
 }
 
+# Drop registry entries that cannot work on the device they would be placed on.
+# Two gates, both measured rather than inferred:
+#   npu_arch_deny - correct on one NPU generation and silently wrong on another.
+#                   LFM2.5-1.2B decodes at full speed on NPU 4 and returns word
+#                   salad; models.json records the drivers, runtimes and
+#                   compilers that were held constant while proving it.
+#   npu_only      - an NPU-shaped export (static shapes, int4 channel-wise) that
+#                   does not load on CPU/GPU at all.
+# Listing a model IS recommending it, so one that cannot work here does not
+# belong in the list. Say what was dropped and why, though: a silent absence
+# reads as a missing download and sends people hunting for it.
+function Where-NpuUsable {
+    param([object[]]$Models, [string]$Device)
+    $arch = if ($HasNPU) { [string]$DeviceInfo.NPU.arch } else { "" }
+    $blocked = @($Models | Where-Object {
+        ($Device -eq "NPU" -and $arch -and ($_.npu_arch_deny -contains $arch)) -or
+        ($Device -ne "NPU" -and $_.npu_only)
+    })
+    if ($blocked.Count -gt 0) {
+        $why = if ($Device -eq "NPU") { "not usable on this NPU ($(Get-NpuGenLabel $arch))" }
+               else { "NPU-only builds, they do not load on $Device" }
+        Write-Host ""
+        Write-Host "  Not offered - ${why}:" -ForegroundColor Yellow
+        foreach ($b in $blocked) { Write-Host "    - $($b.name)" -ForegroundColor DarkGray }
+        Write-Host "  docs/MODELS.md explains." -ForegroundColor DarkGray
+    }
+    @($Models | Where-Object { $blocked -notcontains $_ })
+}
+
 # Chat can run anywhere; small NPU-class models + bigger GPU LLMs both work on GPU/CPU.
 function Get-ChatRegistry { param([string]$Device)
-    if ($Device -eq "NPU") { return $Registry.npu }
-    return @($Registry.npu) + @($Registry.gpu_llm)
+    if ($Device -eq "NPU") { return Where-NpuUsable $Registry.npu "NPU" }
+    return Where-NpuUsable (@($Registry.npu) + @($Registry.gpu_llm)) $Device
 }
 function Get-ChatLocal { param([string]$Device, [string]$Exclude = "")
     @($LocalModels | Where-Object { $_.Type -eq "llm" -and (($Device -ne "NPU") -or $_.NpuOk) -and $_.Name -ne $Exclude })
@@ -770,8 +824,9 @@ switch ($useKey) {
             # content (SmolLM3-3B on NPU 4 did exactly that, 3/3 — models.json
             # carries the measurement). Menu order is the recommendation, so the
             # non-thinking ones have to be at the top.
-            $smallModels = @($Registry.npu | Where-Object { $_.small_model }) +
-                           @($Registry.npu | Where-Object { -not $_.small_model })
+            $smallUsable = Where-NpuUsable $Registry.npu $smallDev
+            $smallModels = @($smallUsable | Where-Object { $_.small_model }) +
+                           @($smallUsable | Where-Object { -not $_.small_model })
             $smallSel = Show-ModelMenu -Title "Small model for OpenCode side-tasks ($smallDev)" -RegistryModels $smallModels -LocalModels (Get-ChatLocal $smallDev -Exclude $sel.Name) -AllowSkip $true
             if ($smallSel -and (Install-Model -Selected $smallSel -TargetDir $SmallModelDir)) {
                 $OpenCodeArgs = @{ CoderDir = (Get-InstalledDirName $sel); CoderDevice = $dev; SmallDir = (Get-InstalledDirName $smallSel); SmallDevice = $smallDev; Mode = "two-servers" }

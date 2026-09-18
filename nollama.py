@@ -160,6 +160,50 @@ def needs_optimum(model_dir):
         return False
 
 
+# Model families that compile cleanly, decode at full speed, and return wrong
+# tokens anyway — on one NPU generation only. Keyed by config.json model_type,
+# valued by the DEVICE_ARCHITECTURE strings where that was measured.
+#
+# [OBSERVED 2026-09-01] LFM2 350M and 1.2B int4-cw emit byte-identical word
+# salad on NPU 4 (arch 4000, Lunar Lake 258V) with NPU drivers 32.0.100.4778
+# and .5540, OpenVINO 2026.3.0 / 2026.3.1 / 2026.5-nightly, the plugin and the
+# driver compiler alike, and Intel's own LFM2.5-350M export — while the same
+# files on NPU 3 (arch 3720, Arrow Lake 285K) are correct, and CPU/GPU in the
+# same venv are correct. Filed as openvinotoolkit/openvino#38100. A 2.6B on a
+# 256V was reported working upstream, so this is not the whole family: warn,
+# never refuse.
+NPU_ARCH_SUSPECT = {"lfm2": ("4000",)}
+
+
+def npu_arch_warning(model_dir, npu_platform):
+    """Warning text when this model is known to be wrong on this NPU generation.
+
+    Why: the failure is silent. The model compiles, the tok/s look right, and
+    the output is fluent nonsense — nothing in the log or the timings says
+    otherwise, so a user reads it as the model being dim rather than the device
+    being wrong for it. install.ps1 keeps these off the menu (models.json
+    npu_arch_deny), but a model already on disk never passes the installer.
+
+    In: a model directory, and the resolved DEVICE_ARCHITECTURE ("" when it
+    could not be read). Out: a one-line string, or None when the pairing is not
+    a known-bad one. An unreadable or absent config.json counts as not known
+    bad — this never blocks a load.
+    """
+    if not npu_platform:
+        return None
+    try:
+        with open(os.path.join(model_dir, "config.json")) as f:
+            mtype = json.load(f).get("model_type", "").lower()
+    except Exception:
+        return None
+    if str(npu_platform) not in NPU_ARCH_SUSPECT.get(mtype, ()):
+        return None
+    return (f"'{mtype}' models are known to return word salad on this NPU "
+            f"(arch {npu_platform}) while looking healthy — verified for the "
+            f"350M and 1.2B builds, openvinotoolkit/openvino#38100. Check the "
+            f"output before trusting it; CPU, GPU and NPU 3 are unaffected.")
+
+
 # Suffixes describing the *export* rather than the model, dropped from the
 # display name (and so from the model ID clients configure).
 _NAME_SUFFIXES = ("-ov", "-openvino", "-int8", "-int4")
@@ -1888,6 +1932,9 @@ class DeviceSlot:
         else:
             # NPU has a default prompt limit of 1024 tokens — raise it
             if self.device_name == "NPU":
+                _bad_arch = npu_arch_warning(model_dir, self.npu_platform)
+                if _bad_arch:
+                    print(f"  [NPU] WARNING: {_bad_arch}", flush=True)
                 if self.npu_platform:
                     # Pin the architecture so the compiler never sees AUTO_DETECT.
                     # Provenance for why this kwarg exists:
