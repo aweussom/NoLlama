@@ -285,7 +285,8 @@ GenerationStatus` is what a too-small pool produces.
 ### 1.3 Model load stages through host RAM
 
 Loading a big model peaks at roughly model-sized host RAM even on a discrete
-card (recorded in `NEXT-STEPS.md`). WSL2 caps its VM at ~50% of host RAM by
+card (`docs/MODELS.md`, "peak system memory during load"). WSL2 caps its VM
+at ~50% of host RAM by
 default — on this 32 GB box that is ~16 GB, and the 26B needs 14.3 GB.
 
 A `.wslconfig` was created 2026-08-24 in the user profile setting

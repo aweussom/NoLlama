@@ -2056,7 +2056,7 @@ class DeviceSlot:
         # prefix mid-generation (TODONT.md: "the KV pool must hold prompt +
         # max_tokens"). Reserving a fixed working margin instead lands on
         # 6 GiB, which is what the B60 rig was pinned to by hand for this
-        # same model (NEXT-STEPS.md, task nollama-gpu-8000).
+        # same model (STATUS.md, task nollama-gpu-8000).
         # GPU only. On the CPU path "budget" is the machine's whole RAM, shared
         # with the OS and everything else the user is running, so "take all but
         # 2 GB" is not a reserve, it is a claim on the entire machine — it

@@ -111,7 +111,7 @@ that hurts.
 | Arm | Config | Measures |
 |---|---|---|
 | 0 | Recipe A, OpenCode defaults | **Ran 2026-09-11, degenerate:** turn 1 = 46.6k chars, TTFT 217 s, then Qwen3-8B fired 27 tool calls (1 glob + 26 `read`s) and OpenCode sent 1.49 M chars back against a 40k-token window; killed after 4 min of prefill. Two lessons: declare the model's real `limit.context` (the config said 120k) so OpenCode compacts before sending, and a weak model's tool-call fan-out is the byte source, not any single result |
-| 1 | + Recipe B (12 KB / 300 lines, prune on) | **B60 result below (2026-09-12).** 285K attempt 2026-09-11, no data: the run failed on something that did not reproduce afterwards (`NEXT-STEPS.md`); the exact request replayed later behaves normally at 216 s TTFT on the scheduler path vs 72 s plain (`docs/dev/prefix-cache.md`). Rerun with the honest 40k `limit.context`, `chunkTimeout` raised, and a 600 s patience |
+| 1 | + Recipe B (12 KB / 300 lines, prune on) | **B60 result below (2026-09-12).** 285K attempt 2026-09-11, no data: the run failed on something that did not reproduce afterwards (`brain/proposed/2026-09-11-opencode-arm-1-never-produced-a-token.md`); the exact request replayed later behaves normally at 216 s TTFT on the scheduler path vs 72 s plain (`docs/dev/prefix-cache.md`). Rerun with the honest 40k `limit.context`, `chunkTimeout` raised, and a 600 s patience |
 | 2 | + Recipe C plugin, compressor on the NPU | **Ran 2026-09-12 with the CPU as compressor: failed the gate** (5× slower, 4 of 5 rejected, answer quality halved). Below |
 | 3 | Arm 2 on the B390 class (community) | does it still pay on a fast iGPU? |
 
@@ -157,7 +157,7 @@ What this does and does not show:
 - NoLlama's memory preflight warned "needs ~23.3 GB, budget 23.3 GB — will
   likely NOT work" on a load that worked; the wording is the iGPU's
   (shared-memory override) and the equality case is a false alarm on a
-  discrete card. Noted in `NEXT-STEPS.md`.
+  discrete card. Noted in `brain/todo/1-now/010`.
 ### Arm 2: the compress-at-birth plugin, first build, 2026-09-12
 
 Built as `.opencode/plugins/nollama-distill.ts` (a `tool.execute.after`

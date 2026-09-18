@@ -137,7 +137,7 @@ against the 60k context OpenCode declares, and a pool that cannot hold prompt
 | B60 | CPU, 32 GB RAM | Phi-3.5-mini int4 | **10 GB** |
 
 The laptop's 6 GB is independently the value the B60 rig had been pinned to by
-hand for that model (`NEXT-STEPS.md`, task `nollama-gpu-8000`); 6 GB is 65,536
+hand for that model (`STATUS.md`, task `nollama-gpu-8000`); 6 GB is 65,536
 tokens at the coder's 96 KB/token.
 
 **Watch the cap on a model without GQA.** Phi-3.5-mini has `kv_heads ==

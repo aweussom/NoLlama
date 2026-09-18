@@ -86,6 +86,12 @@ too — `-HfToken` is just the bootstrap-proof way.
 
 ### Adding models outside the menu
 
+> **If a large download stalls, disable Xet.** [OBSERVED 2026-09] `hf download`
+> sat at 0.00 CPU holding a `.lock` on a 14.9 GB blob and never progressed.
+> `HF_HUB_DISABLE_XET=1` resumed it and ran at ~78 MB/s. It also leaves an
+> abandoned partial in `.cache/huggingface/download` that has to be deleted by
+> hand — 17 GB of files can occupy 28.7 GB on disk until you do.
+
 Use `download-model.ps1` to grab any HuggingFace model:
 
 ```powershell
@@ -380,8 +386,9 @@ nightly, see below):
   **So Glimmer on an Intel GPU is coming, and we know it works** — but the
   fix is only in a nightly today, and NoLlama stays leading edge rather
   than bleeding edge. It moves into `install.ps1`/`models.json` when 2026.4
-  ships as a *release* (and the stack gate closes too — see
-  `NEXT-STEPS.md`); until then the manual path below is the honest
+  ships as a *release* (and the stack gate closes too — see `TODONT.md`,
+  "nightly stack in the default install"); until then the manual path
+  below is the honest
   offering. Sanity-check your first reply regardless: the failure mode was
   always silent.
 

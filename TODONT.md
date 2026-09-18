@@ -3,6 +3,76 @@
 Things we tried that didn't work, or that work but aren't worth doing. Each
 entry explains *why not* so we don't re-litigate it in six months.
 
+## NVIDIA support (settled 2026-05-21, migrated here 2026-09-18)
+
+Recurring temptation: **there is now a working path.** OpenVINO 2026 ships an
+experimental NVIDIA plugin via `openvino-extensibility`, so running inference
+on an RTX through OpenVINO is possible.
+([docs](https://docs.openvino.ai/2026/documentation/openvino-extensibility/openvino-plugin-library/plugin.html))
+
+**Verdict:** NoLlama will never support NVIDIA GPUs. Not "not yet" — never.
+
+**Why not:**
+- Ollama already does NVIDIA inference excellently. Anyone with an NVIDIA card
+  should use Ollama. NoLlama's whole reason to exist is the Intel NPU + Arc
+  story that Ollama does not cover.
+- The plugin drags CUDA/cuDNN into the stack and lives in contrib/plugin land.
+  It is a developer backend, not a drop-in user feature.
+- Supporting both would dilute the project's identity, multiply the test
+  matrix, and compete with a much better tool on its home turf.
+
+**The historical measurement, kept because it explains the device filter.**
+[OBSERVED 2026-05-03] On a desktop with both an Intel iGPU and an RTX 5090,
+`python nollama.py --device GPU.1` (GPU.1 being the RTX) failed with 144
+compile errors from the `intel_gpu` plugin's kernels, then a `CL_INVALID_VALUE`
+from `clEnqueueMapBuffer` at warmup.
+
+Root cause: OpenVINO's stock `intel_gpu` plugin enumerates **any** OpenCL-
+capable device. NVIDIA's driver provides OpenCL, so the 5090 shows up — but the
+plugin's kernels use Intel-specific GPU intrinsics NVIDIA's runtime does not
+support. **Enumeration is not executability.**
+
+That is why `detect_devices()` in `nollama.py` filters non-Intel GPUs
+(`0bbb948`), and why `install.ps1` got the same filter on 2026-05-21 along with
+multi-GPU enumeration handling (`GPU.0`/`GPU.1` to a canonical `GPU`, real
+OpenVINO id tracked separately). Removing either filter re-offers the footgun.
+
+---
+
+## CPU as the install-time default on NPU/GPU systems (settled 2026-05-26, migrated here 2026-09-18)
+
+Distinct from "recommending the CPU path" below — this is about the *installer
+default* on Ultra hardware, not about what we tell CPU-only users.
+
+Recurring temptation: `0bbb948` benchmarked Qwen3-8B on an Arrow Lake desktop
+and found **CPU > iGPU > NPU**. Decode is memory-bandwidth-bound, and DDR5 plus
+many CPU cores beat a 4-core Xe-LPG iGPU and the NPU's power-sipping memory
+path. That makes it tempting to expose CPU as a deliberate install-time choice.
+
+**Verdict:** NPU > GPU > CPU stays the install default on Ultra hardware. CPU is
+offered only when neither an NPU nor a GPU is present.
+
+**Why not — the "CPU wins" rule is narrower than the benchmark suggests:**
+
+1. **VLM flips the result.** [OBSERVED 2026-05-26] Same desktop, same
+   Qwen3-VL-8B-INT4, image-bearing prompts ran **~2.2x slower** on CPU than on
+   the Xe-LPG iGPU (15.29 s vs 6.93 s avg). VLM prefill is compute-bound on the
+   vision encoder, and the iGPU wins it. Text-only on the same model: CPU only
+   ~10-30% slower.
+2. **The NPU has its own memory path.** Intel AI Boost uses dedicated DMA,
+   separate from the CPU/GPU memory controllers. Benchmark numbers are
+   best-case for CPU and iGPU (idle system) and unchanged for the NPU. Under
+   real load — browser open, build running — CPU and iGPU lose bandwidth they
+   share and the NPU keeps its own. For the always-on assistant workload most
+   people actually have, idle benchmarks **undervalue the NPU**.
+3. **A prompt adds friction for the 95%.** CLAUDE.md's "keep it simple"
+   preference argues against an interactive choice for a power-user scenario.
+4. **The runtime override already exists.** Anyone who has measured and wants
+   CPU can run `python nollama.py --device CPU --model-dir .\model`, which is
+   discoverable from `--help`.
+
+---
+
 ## Git branches in place of the venvs, for release vs nightly (2026-09-17)
 
 Idea: the release and nightly stacks are the main reason this project carries
@@ -1499,8 +1569,8 @@ from the menus unless it's passed.
   user. A nightly index resolves to a different build every day, so two
   people running the same `install.ps1` on the same commit get different
   runtimes — and one of them gets whatever broke last night. This is the
-  same objection that kept Glimmer out of the installer (NEXT-STEPS
-  "stack gate"): an installer that builds from a moving target promises
+  same objection that kept Glimmer out of the installer (the "stack
+  gate", now closed — 2026.3.1 shipped both models in a release): an installer that builds from a moving target promises
   reproducibility it can't keep.
 - Intel marks the export itself EXPERIMENTAL / "not fully validated with
   OpenVINO". Shipping an unvalidated runtime to serve an unvalidated model

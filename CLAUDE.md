@@ -53,6 +53,7 @@ never inside.
 
 | File | Read it before touching |
 |---|---|
+| **`STATUS.md`** | **anything at all — read it first.** Where things stand, what is merely built, what is blocked and on whom |
 | `docs/dev/prefix-cache.md` | caching, KV pool sizing, prewarm, `--idle-timeout`, TTFT logging, `/health`, memory preflight |
 | `docs/dev/tool-calling.md` | `tools` handling, `render_tools_prompt`, `parse_tool_calls`, SSE heartbeat, agent-client quirks |
 | `docs/dev/models.md` | model discovery/naming, `--scan`, weight integrity, `download-model.ps1`, NPU export rule, the verified-model list |
@@ -60,10 +61,34 @@ never inside.
 | `docs/dev/moe-offload.md` | `--offload-ratio` and anything XMX-dependent |
 | `docs/dev/machines.md` | which box to run a test on, and which one is off-limits |
 | `TODONT.md` | **anything structural** — it records approaches already rejected, with the reason |
-| `NEXT-STEPS.md` | what is currently open/unresolved |
+| `brain/` | the open work, one file per item. `next/` needs Tommy, `todo/` is startable cold, `proposed/` is noticed but **not trusted**. `brain/README.md` has the rules |
 | `OPENCODE-PLAN.md` | anything about coding agents on weak hardware: the two-server recipe, OpenCode's knobs and hooks, the compress-at-birth plugin plan, the NPU as compressor, the evaluation arms |
 | `docs/DIAGRAMS.md` + `docs/*.mmd` | any function a diagram `covers:` — the diagram moves in the same commit, and `.\check-docs.ps1` says which |
 | `docs/` (`MODELS.md`, `API.md`, `DEVICES.md`, `BENCHMARKS.md`, `AGENTS.md`, `INTERNALS.md`) | user-facing behaviour and measured numbers |
+
+## Working state lives in brain/, one file per item
+
+`STATUS.md` is the three-minute answer to "where are we". Everything open is a
+file under `brain/`, and **the directory is the state** — `git mv` between
+buckets is the transaction, and `ls brain/next/1-now` is the view. There is no
+merged list and nothing renders one.
+
+Adopted 2026-09-18, replacing `NEXT-STEPS.md` (631 lines) and `TODO.md` (713
+lines, and never referenced from this file, so no session ever read it). Over
+half of that was closed, superseded or reference material — one block had been
+labelled "Superseded by the block above" for weeks, and another claimed Docker
+Phase 3 was "still only in a session scratchpad" three weeks after the
+`Dockerfile` landed at the repo root. A queue nobody trusts is a queue nobody
+reads.
+
+- **Finishing an item deletes it.** `git rm`; git holds the history. It moves
+  to `brain/done/` only when the *reasoning* outlives the work and no other
+  artifact owns it — and harvest to `TODONT.md`, a `docs/dev/` note or
+  `STATUS.md` first.
+- **Do not append a correction to a stale item.** Delete what stopped being
+  true. That is the failure mode this replaced.
+- IDs are shared across `next/` and `todo/` and never reused. Commits name the
+  item: `N-007: …`, `T-014: …`.
 
 ## Development preferences
 
