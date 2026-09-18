@@ -17,6 +17,18 @@ Ollama's OpenAI-compatible `/v1/chat/completions` and its native `/api/chat`
 agree exactly once temperature is pinned (1755 tokens either way), so the
 endpoint choice isn't a variable.
 
+**Kill servers by port owner, not by pid.** A venv built from the Microsoft
+Store Python has a redirector at `venv\Scripts\python.exe`, so
+`Start-Process -PassThru` returns the *launcher's* pid and the real server
+survives being stopped. The next server then fails to bind, and the benchmark
+quietly keeps talking to the previous model — a wrong number that looks
+perfectly healthy. `scripts/bench-b60.ps1` kills by port and asserts `/health`
+reports the expected model; copy both.
+
+**Use the 285K or the B60 box, not the laptop.** A busy 140V reads about 30%
+low (Qwen3-8B int4-cw: 14.8 tok/s with a browser and chat apps running, 19.4
+quiet). Machine rules and SSH gotchas: `docs/dev/machines.md`.
+
 ## Big MoE models on small GPUs (disk offload)
 
 OpenVINO 2026.3 can stream Mixture-of-Experts weights from disk instead of
@@ -323,6 +335,101 @@ practice:
 > single-user local server (multi-user, production serving of 30B+
 > models), the step up is [OpenVINO Model Server](https://github.com/openvinotoolkit/model_server)
 > — same runtime underneath, built for that job.
+
+### NoLlama vs llama.cpp's OpenVINO backend (Arc Pro B60)
+
+llama.cpp took an **OpenVINO backend upstream** (`-DGGML_OPENVINO=ON`, preview
+alongside OpenVINO 2026.1), so on Intel hardware the runtime is no longer what
+separates us from it — it is the same OpenVINO underneath, reached through a
+different front-end. That makes this the sharper comparison than the Ollama one
+above, which still runs through Vulkan.
+
+Measured **2026-09-07** on the B60 box: Ryzen 9 5950X + **Arc Pro B60 24 GB**,
+native Windows (not WSL — see the note below), GPU driver `32.0.101.8805`.
+**OpenVINO 2026.3.0-22451-bd8d6542e3c on every row**, llama.cpp at commit
+`465e49b9c` built with MSVC 19.44. Model: Qwen3-8B, GGUF **Q4_K_M** (4.68 GiB)
+for llama.cpp against OV **int4** (4.52 GiB) for ours — within 3.5% on weight
+bytes. `llama-bench -p 512 -n 128 -r 3`; our side greedy, `ignore_eos`,
+`min_new_tokens == max_new_tokens`, warmup discarded, medians of 3.
+
+| Arc Pro B60 | pp512 | tg128 | pp2048 | tg128 |
+|---|---|---|---|---|
+| llama.cpp OpenVINO, stateless (default) | **3967** | 27.2 | — | — |
+| llama.cpp OpenVINO, `GGML_OPENVINO_STATEFUL_EXECUTION=1` | 3339 | 38.7 | 3143 | 38.8 |
+| NoLlama, bare `openvino_genai` (no server) | 3849 | **67.3** | **5497** | **62.5** |
+| **NoLlama server** (HTTP/SSE, prefix cache on) | 2100 | 65.7 | 3189 | 61.2 |
+
+**Cold prefill is a tie — the same runtime showing through two front-ends —
+and decode is not.** NoLlama decodes at 65.7 tok/s against their best 38.7
+(**1.7x**) and their default 27.2 (**2.4x**). Their stateless/stateful switch
+is a trade with no good corner: stateful buys +42% decode and costs 16%
+prefill.
+
+#### The number that decides agent use
+
+Prefill throughput is the wrong metric for an agent, which re-sends a growing
+prefix every turn. 8192-token prompt, 8 tokens generated, so the request is
+almost entirely prefill:
+
+| NoLlama server, B60 | wall time |
+|---|---|
+| unique prompt each run (cache miss) | 3.98 s |
+| same prompt repeated (cache **hit**) | **0.205 s** |
+
+**19x.** The prefill itself drops from ~3.86 s to under 0.1 s. `llama-server`
+on the OpenVINO backend is **stateless-only with no context shifting** (their
+own docs), so it has no counterpart to this at all. On agent traffic that gap
+dwarfs the decode one — which is the honest summary of where NoLlama wins:
+not raw tokens per second, but being usable as an agent backend on hardware
+these models otherwise run badly on.
+
+#### CPU: OpenVINO is the wrong choice either way
+
+Same box, native Windows, same models:
+
+| Ryzen 9 5950X | pp512 | tg128 |
+|---|---|---|
+| llama.cpp, its own CPU backend | **91.5** | **9.74** |
+| NoLlama, bare `openvino_genai` | 78.3 | 9.08 |
+| llama.cpp OpenVINO backend | 60.1 | 4.35 |
+| llama.cpp OpenVINO + stateful | 59.5 | 5.77 |
+
+llama.cpp's hand-written CPU kernels beat **every** OpenVINO row, ours
+included. This is the measurement behind the README's advice to use Ollama if
+you are CPU-only. Between the two OpenVINO front-ends ours is the faster one
+(78.3/9.08 vs 60.1/4.35), which is a narrow thing to win.
+
+#### Do not benchmark this under WSL
+
+Same commit, same model, same box, WSL 2 (Ubuntu 24.04) vs native Windows:
+
+| pp512 | WSL | native | penalty |
+|---|---|---|---|
+| NoLlama bare GenAI, CPU | 46.7 | 78.3 | **-40%** |
+| llama.cpp OpenVINO, CPU | 47.9 | 60.1 | -20% |
+| llama.cpp own CPU backend | 87.6 | 91.5 | -4% |
+
+**The WSL penalty is not a constant** — it lands hardest on OpenVINO's CPU
+path and barely touches llama.cpp's own kernels, so a WSL-measured comparison
+against native numbers ranks the layer, not the stack. The 2-4% figure in
+`DOCKER-INSTALL.md` is a GPU result and does not carry over to CPU. The B60
+also cannot be reached from WSL without replacing Ubuntu's compute-runtime
+(its packaged NEO predates BMG-G31), which is the other reason every row above
+is native.
+
+#### Caveats
+
+- Not the same 4-bit: Q4_K_M vs OV int4. Close on bytes, not identical in
+  format, so decode differences are runtime *and* quantisation.
+- The server row is not the bare row's equal by construction: chat template,
+  HTTP/SSE, and the continuous-batching path. Its ~1.8x slower cold prefill vs
+  bare is the known CB cold-prefill cost — you pay once per new prefix and win
+  19x on every turn that reuses one.
+- `llama-bench` feeds raw tokens with no chat template, which flatters it
+  slightly on the like-for-like rows.
+- **Stock Ollama has no OpenVINO path** as of 2026-09; only third-party forks
+  (`zhaohb/ollama_openvino`). The Ollama comparison above is therefore still
+  current — this section is about llama.cpp built from source.
 
 ### Benchmark (Core Ultra 9 285K, RTX 5090) — desktop, DDR5
 
