@@ -20,7 +20,12 @@ Usage:
 # also reports its short commit (see _version_string below), so a bug report
 # names the exact tree. Nothing parses this: the version VS Code's Ollama client
 # validates is a separate faked one on /api/version.
-__version_date__ = "2026-08-24"
+#
+# The `v1.0.0` tag (2026-09-18) is a named milestone on the release page, not a
+# return to semver. It does not appear here on purpose: a bug report still has
+# to name a tree, and "1.0.0" would not. If a later release is ever called
+# 1.1.0, this line still moves to that day's date.
+__version_date__ = "2026-09-18"
 
 import argparse
 import base64

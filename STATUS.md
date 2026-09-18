@@ -5,8 +5,8 @@ what is merely *built*, and what is in flight. Three minutes to read; updated at
 the end of a working session. If `README.md` disagrees, this one is younger —
 say so and fix the older.
 
-**As of 2026-09-18, `main` at `28f58d9`. Last tag is `v0.9.0` (2026-08-11),
-220 commits back — see `brain/next/1-now/001`.**
+**As of 2026-09-18, `main` at the `v1.0.0` tag — the first release since
+`v0.9.0` (2026-08-11), 223 commits back.**
 
 ---
 
@@ -44,6 +44,9 @@ Working state is `brain/next/` (needs Tommy), `brain/todo/` (startable cold) and
 - **`brain/` itself.** Adopted from `ace-brain` on 2026-09-18 and this repo is
   its first instance outside that one. The `triage` and `premise-sweep` skills
   there have never run against a repo.
+- **The v1.0.0 release ZIP.** Tagged 2026-09-18; nobody has yet unzipped it on
+  a clean box and run `install-windows.bat` from it. That is the path
+  release-ZIP users take and the one a checkout never exercises.
 - **Docker Phase 3.** `Dockerfile`, `docker-compose.yml` and
   `docker-compose.wsl.yml` are in the repo and publish both ports, but
   `DOCKER-INSTALL.md` is the only thing that has exercised them. No clean-box
