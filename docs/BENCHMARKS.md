@@ -572,18 +572,20 @@ multi-token-prediction drafter on (`ollama show` lists `draft_num_predict
 on a maximally predictable output. `BONSAI_SPECULATIVE=1` has nothing to
 load for this model.
 
-**The PQ2_0 CUDA kernel leaves ~120 tok/s on the table.** Against the
-5090's ~1.8 TB/s the 4-bit base is close to bandwidth-bound — 15.7 GB
-allow ~115 tok/s, the fork gets 79 (~70%) — and Bonsai is not: 7.2 GB
-allow ~250, it gets 131 (~52%). The format delivers the byte reduction;
-the kernel turns only part of it into tokens, because unpacking 2-bit
-codes for the tensor cores costs compute that Q4_K's kernels optimised
-away long ago. Same shape as the CPU gate below, on GPU. The consumer-card
-rows (2080 Ti, 3060: far less compute per GB/s) decide whether that cost
-is fixed or scales. The 2080 Ti answered: 46% there against 52% here, a
-six-point drop across two GPU generations, so the unpack cost is mostly
-fixed and the finding, while real, does not by itself justify an upstream
-issue; a kernel profile would.
+**The PQ2_0 CUDA kernel leaves ~120 tok/s on the table, and it is not
+arithmetic.** Against the 5090's ~1.8 TB/s the 4-bit base is close to
+bandwidth-bound — 15.7 GB allow ~115 tok/s, the fork gets 79 (~70%) — and
+Bonsai is not: 7.2 GB allow ~250, it gets 131 (~52%). The hypothesis that
+unpacking 2-bit codes costs compute was tested on cards with far less
+compute per byte of bandwidth (2080 Ti ~21 FLOP/byte, 3060 ~35, 5090
+~59): Bonsai's share of ceiling is 46% on the 2080 Ti, ~68% on the 3060,
+52% on the 5090 — it does not track compute in either direction. The
+control in the same table does: the 2-bit PTQ quants of the base, whose
+dequant is compute-heavy, fall to 29-35% on Turing. So the gap scales
+with bandwidth across three GPU generations, which points at per-layer
+overhead (launches, sync, access pattern, the Q8 activation round-trip),
+not arithmetic. A kernel profile would say which; an issue without one
+would not.
 
 ### Arc Pro B60 (NoLlama, OpenVINO 2026.3.1, driver 32.0.101.8805)
 
