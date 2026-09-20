@@ -615,9 +615,9 @@ Two things this arm surfaced, both fixed or recorded the same day:
 - **The auto-sized 5 GB KV pool died with `CL_OUT_OF_RESOURCES`** on the
   34th request; 3 GB ran two full passes clean. `docs/dev/machines.md`.
 
-### RTX 2080 Ti 11 GB and RTX 3060 12 GB (i9-9900K box) — the cards the base model does not fit
+### RTX 3060 12 GB, RTX 2080 Ti 11 GB, RTX 4060 8 GB (i9-9900K box) — the cards the base model does not fit
 
-The "cheap card" question — you have 11 or 12 GB, which file do you want? —
+The "cheap card" question — you have 8, 11 or 12 GB, which file do you want? —
 with the same fork CUDA build on every row, `-ngl 99 -fa on -c 16384 -np
 1`, no speculation, 3 runs. The 3060 was measured as a second card with
 nothing else on it; the 2080 Ti alone in the box with the desktop's 0.3-0.5
