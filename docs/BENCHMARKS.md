@@ -580,9 +580,10 @@ the kernel turns only part of it into tokens, because unpacking 2-bit
 codes for the tensor cores costs compute that Q4_K's kernels optimised
 away long ago. Same shape as the CPU gate below, on GPU. The consumer-card
 rows (2080 Ti, 3060: far less compute per GB/s) decide whether that cost
-is fixed or scales — if Bonsai's share of its ceiling falls further there,
-the gap widens on exactly the cards the cheap-hardware pitch is about.
-An upstream issue once those rows are in.
+is fixed or scales. The 2080 Ti answered: 46% there against 52% here, a
+six-point drop across two GPU generations, so the unpack cost is mostly
+fixed and the finding, while real, does not by itself justify an upstream
+issue; a kernel profile would.
 
 ### Arc Pro B60 (NoLlama, OpenVINO 2026.3.1, driver 32.0.101.8805)
 
@@ -610,6 +611,30 @@ Two things this arm surfaced, both fixed or recorded the same day:
   `TODONT.md` has the approach that did *not* work.
 - **The auto-sized 5 GB KV pool died with `CL_OUT_OF_RESOURCES`** on the
   34th request; 3 GB ran two full passes clean. `docs/dev/machines.md`.
+
+### RTX 2080 Ti 11 GB (i9-9900K, 16 GB DDR4) — the card the base model does not fit
+
+The "cheap card" question — you have 11 GB, which file do you want? — with
+the same fork CUDA build on every row, `-ngl 99 -fa on -c 16384 -np 1`, no
+speculation, 3 runs, on a single-GPU box where the desktop holds 0.3-0.5 GB:
+
+| Model | File | VRAM at 16k | Decode, free text | Prefill (4.4k) | Probes no-think | Probes think | Think tok/probe |
+|---|---|---|---|---|---|---|---|
+| **Bonsai 2 PQ2_0** (QAT ternary) | 7.2 GB | 9.2 GB — 32k also fits, 10.2 GB | **39.3** | **667 tok/s** | 20/23 | **23/23** | 104 |
+| Qwen3.8 UD-IQ2_XXS (unsloth, 2.06 bpw PTQ) — Bonsai's byte size | 7.3 GB | 8.3 GB | 24.2 | 614 tok/s | 21/23 | 21/23 | 145 |
+| Qwen3.8 UD-Q2_K_XL (unsloth PTQ) — largest base quant that fits | 9.8 GB | 10.4 GB | 22.1 | 576 tok/s | 21/23 | 21/23 | 100 |
+| Qwen3.8 Q4_K_M | 17.7 GB | does not fit (36/65 layers offloaded: 2.6-2.9 tok/s, stopped) | — | — | — | — | — |
+
+Equal bytes, same card, same binary: **the QAT ternary model decodes 1.6x
+faster than the best 2-bit PTQ of its own base and, with thinking on, is
+ahead (23/23 vs 21/23) while thinking less.** Without thinking the PTQ
+quant is one probe ahead, and that probe is the clock arithmetic: both
+2-bit PTQ quants answer 215 where Bonsai answers 235, so Bonsai's miss is
+distillation loss, not a 2-bit budget. Share of bandwidth ceiling on this
+card: Bonsai 46% (52% on the 5090 — the unpack cost is mostly fixed, not
+exploding on weaker cards), IQ2_XXS 29%, Q2_K_XL 35%: the codebook
+dequant of IQ2 is what hurts on Turing. Full detail and the 32k fit check
+in the fork's `bench/README.md`.
 
 ### CPU, same models, as of `prism-b10685` (2026-09-18) — these rows measure the fork's kernels, not the format
 
@@ -645,6 +670,7 @@ Same binary on both sides of each pair (the fork's `bin\cpu`, `-c 8192`,
 | | Qwen3.8 Q4_K_M | 4.3 | 42 tok/s (104 s) | 21/23 |
 | **Ryzen 9 5950X** (Zen 3: AVX2 only; 16 threads, DDR4) | Bonsai 2 PQ2_0 | 2.7 | **3.3 tok/s (1,342 s)** | 20/23 |
 | | Qwen3.8 Q4_K_M | 2.4 | 27 tok/s (163 s) | 21/23 |
+| **Core i9-9900K** (Coffee Lake: AVX2 only; 8 threads, DDR4) | Bonsai 2 PQ2_0 | 1.3 | not run (short prompts 11-16 tok/s) | 20/23 |
 | 285K, for reference | Qwen3.8 Q4_K_M via Ollama `num_gpu 0`, **MTP drafter on** | 5.2 | 29 tok/s | 21/23 |
 
 Read down each pair. **Decode:** on Arrow Lake the ternary model is 1.65x
@@ -706,7 +732,8 @@ and one tool call). It is a smoke test, not MMLU:
   build, the 285K CPU build and the 5950X CPU build — the same wrong number
   three times, greedy, so it is the weights, not a backend or sampler.
   Every Qwen3.8 arm (Q4_K_M in the fork, Q8_0, both Ollama rows, OpenVINO
-  int4 on the B60) gets 215; with thinking on, Bonsai gets it too. One
+  int4 on the B60, and both 2-bit PTQ quants on the 2080 Ti) gets 215, so
+  it is not the bit budget; with thinking on, Bonsai gets it too. One
   data point, reproducible, and the kind PrismML can act on.
 - **Thinking is cheap on these prompts**: ~100 tokens per probe median for
   both models. The token-count parity is itself a result — a distillation
