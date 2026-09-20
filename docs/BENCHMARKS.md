@@ -542,16 +542,25 @@ PRs for the regex. If a Bonsai number looks wrong, check which
 | Arm | Decode, free text | Decode, count 1-100 | Prefill (4,411 tok) | TTFT short | Probes no-think | Probes think | Think tokens / probe |
 |---|---|---|---|---|---|---|---|
 | **Bonsai 2 PQ2_0**, fork CUDA build, no drafter | **131** | 131 | **3,135 tok/s** (1.4 s) | 0.11 s | 20/23 | **23/23** | 103 |
-| Qwen3.8 q4_K_M, Ollama 0.34, **MTP drafter on (default)** | 95 | 201 | 2,703 tok/s (1.6 s) | 0.10 s | 21/23 | 22/23 | 94 |
-| Qwen3.8 q4_K_M, Ollama 0.34, `draft_num_predict=0` | 77 | 77 | 3,021 tok/s (1.5 s) | 0.09 s | 21/23 | 22/23 | 94 |
+| Qwen3.8 Q4_K_M, **same fork CUDA build** (Ollama's GGUF blob), no drafter | 79 | 79 | 2,860 tok/s (1.5 s) | 0.10 s | 21/23 | **23/23** | 105 |
+| Qwen3.8 Q4_K_M, Ollama 0.34, `draft_num_predict=0` | 77 | 77 | 3,021 tok/s (1.5 s) | 0.09 s | 21/23 | 22/23 | 94 |
+| Qwen3.8 Q4_K_M, Ollama 0.34, **MTP drafter on (default)** | 95 | 201 | 2,703 tok/s (1.6 s) | 0.10 s | 21/23 | 22/23 | 94 |
+
+**The like-for-like pair is the first two rows: same binary, same flags,
+no speculation on either side, 131 vs 79.** The ternary model decodes
+1.66x faster than a 4-bit quant of its base on the same card. The second
+Qwen3.8 row is the same GGUF through Ollama, and the gap between the two
+Qwen3.8 rows (79 vs 77) is what the runtime is worth — about 3%, so the
+1.7x was not "half ternary, half Ollama tax" (the objection was raised,
+and this row is the answer). The fork is mainline llama.cpp plus extra
+types, so any standard GGUF runs in it; that is what makes the same-binary
+row possible.
 
 Read the two Ollama rows together. Ollama runs Qwen3.8 with the model's
 multi-token-prediction drafter by default (`ollama show` lists
 `draft_num_predict 4`; the server log reports ~4.3 accepted tokens per
 step). On a maximally predictable output (counting to 100) that is 2.6x;
-on free prose it is 1.23x. **The like-for-like decode pair is 131 vs 77**:
-the ternary model decodes 1.7x faster than a 4-bit quant of its base on the
-same card, with neither side speculating. Bonsai has its own drafter
+on free prose it is 1.23x. Bonsai has its own drafter
 (`BONSAI_SPECULATIVE=1`, needs a converted dspark GGUF) that was not
 enabled — an open item, `brain/todo/3-someday/032-1h-bonsai-dspark-drafter-arm.md`.
 
@@ -585,7 +594,27 @@ Two things this arm surfaced, both fixed or recorded the same day:
 - **The auto-sized 5 GB KV pool died with `CL_OUT_OF_RESOURCES`** on the
   34th request; 3 GB ran two full passes clean. `docs/dev/machines.md`.
 
-### CPU, same models
+### CPU, same models — these rows measure the fork's kernels, not the format
+
+**Read the CPU rows as "what PrismML's CPU build does on this instruction
+set", never as "ternary is slow on CPU".** The fork's PQ2_0 CPU path is
+unpack-then-dot, not a lookup-table kernel of the T-MAC / bitnet.cpp kind
+[DOCUMENTED: `ggml/src/ggml-cpu/arch/x86/quants.c` and `repack.cpp` at tag
+`prism-b10685-7dffb15`]: `ggml_vec_dot_pq2_0_q8_0` spreads the 2-bit codes
+to bytes and runs VNNI `dpbusd` against Q8_0 activations, guarded by
+`__AVXVNNI__` or AVX-512 VNNI with a scalar loop otherwise; and the
+repacked GEMM/GEMV that does batched prefill (`ggml_gemm_pq2_0_4x8_q8_0`)
+is guarded by **AVX-512F + BW + DQ + VNNI**, falling back to a scalar
+generic loop on anything less. Consequences on the two CPUs below: the
+Core Ultra 9 285K (Arrow Lake: AVX-VNNI, **no AVX-512**) gets the 256-bit
+dot for decode and scalar prefill; the Ryzen 9 5950X (Zen 3: AVX2 only)
+gets scalar everything. Mainline llama.cpp's `TQ2_0` CPU path has an AVX2
+kernel with no 512 gate, but Bonsai 2 cannot use it until its activation
+transform is upstream — which is the argument for getting it there.
+Someone is already on it: PrismML-Eng/Bonsai-demo#196 (2026-09-19) offers
+AVX2/AVX-VNNI PQ2_0 kernels as PR PrismML-Eng/llama.cpp#206, measured
+bit-exact on an i7-13620H (decode 1.3 → 4.2 tok/s, prompt processing
+6.7 → 16 tok/s); our two CPUs are posted there as corroboration.
 
 | Arm | Decode, free text | Decode, count 1-100 | Prefill (~4.4k tok) | Probes no-think |
 |---|---|---|---|---|
@@ -617,12 +646,16 @@ logic, dates, string reversal, JSON, three code functions run against
 asserts, a regex, SQL, a Norwegian translation, instruction constraints,
 and one tool call). It is a smoke test, not MMLU:
 
-- **With thinking on, Bonsai passed everything on both GPUs (23/23 twice);
-  the base model missed one** (reversing "benchmark") on every stack. On
-  the numbers PrismML publishes the base is ahead; this set is too small to
-  contradict that, and small enough to say the distillation did not break
-  anything a coding agent touches — tool calls, JSON, code, instruction
-  constraints all pass.
+- **With thinking on, both models pass everything in the same binary
+  (23/23 each, fork CUDA build).** Friday's "Bonsai 23/23 vs base 22/23"
+  was Ollama missing the string reversal, not the model — the same GGUF in
+  the fork gets it. Twenty-three probes cannot measure retention: PrismML's
+  published 98.2% is a claim this set is far too small to confirm or
+  contradict, and a Q4_K_M baseline is itself a lossy stand-in for the
+  base. What the probes do show is **no obvious collapse** on the shapes a
+  coding agent produces: tool calls, JSON, code, instruction constraints
+  all pass. A real retention number needs a Q8_0 baseline and a standard
+  suite (GSM8K, EvalPlus, MMLU-Redux), which nobody has run here.
 - **With thinking off the two are within one probe** (20-21/23). Both fail
   string reversal and one multi-step arithmetic item without reasoning;
   Bonsai additionally miscomputes the 09:40→13:15 duration (235 vs 215) on
