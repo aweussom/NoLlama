@@ -639,7 +639,7 @@ in the fork's `bench/README.md`.
 ### The laptop: Core Ultra 7 258V + Arc 140V (Windows 11, driver 32.0.101.8991)
 
 Measured 2026-09-20 by the fork's `bench/run-laptop.ps1`, same binaries,
-thinking off, 2 runs (Vulkan Bonsai: 1), laptop in use during the run:
+thinking off, 2 runs (Vulkan Bonsai: 1), laptop otherwise idle:
 
 | Arm | Decode, free text | Prompt processing (short prompts) | Probes no-think |
 |---|---|---|---|
