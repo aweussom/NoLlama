@@ -9,7 +9,11 @@ release wheels — and those figures are **iGPU-bound and say nothing about the
 card users will actually buy for these models**: Qwen3.8 at 3.6-4.8 tok/s,
 Glimmer at ~2.5.
 
-- [ ] both models on the B60 with the release stack
+- [x] **Qwen3.8 on the B60, 2026-09-18**: 23 tok/s decode, ~1,150 tok/s
+      prefill, `--cache-size-gb 3` (the auto-sized 5 GB pool crashed the slot —
+      T-031). Recorded in `docs/dev/models.md` and `docs/BENCHMARKS.md`
+      (Bonsai 2 section); `docs/MODELS.md` still quotes only the 140V figure.
+- [ ] Glimmer on the B60 with the release stack
 - [ ] replace the 140V numbers in `docs/MODELS.md`, or keep both and label the
       device on each
 
