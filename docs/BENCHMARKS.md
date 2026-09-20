@@ -636,6 +636,31 @@ exploding on weaker cards), IQ2_XXS 29%, Q2_K_XL 35%: the codebook
 dequant of IQ2 is what hurts on Turing. Full detail and the 32k fit check
 in the fork's `bench/README.md`.
 
+### The laptop: Core Ultra 7 258V + Arc 140V (Windows 11, driver 32.0.101.8991)
+
+Measured 2026-09-20 by the fork's `bench/run-laptop.ps1`, same binaries,
+thinking off, 2 runs (Vulkan Bonsai: 1), laptop in use during the run:
+
+| Arm | Decode, free text | Prompt processing (short prompts) | Probes no-think |
+|---|---|---|---|
+| Bonsai 2 PQ2_0, CPU build, 8 threads | 1.7 | 17-21 tok/s | 20/23 |
+| Bonsai 2 PQ2_0, CPU build, `-t 4` (P-cores only) | 1.9 | 17-21 tok/s | 20/23 |
+| Bonsai 2 PQ2_0, Vulkan on the 140V (no PQ2_0 kernels) | **1.3** | 3-9 tok/s | 20/23 |
+| Qwen3.8 Q4_K_M, CPU build, 8 threads | 2.2 | 34-42 tok/s | 21/23 |
+| Qwen3.8 Q4_K_M, CPU build, `-t 4` | 2.3 | 36-47 tok/s | 21/23 |
+| Qwen3.8 Q4_K_M, Vulkan on the 140V (mainline Q4_K kernels) | **3.9** | 15-22 tok/s | 21/23 |
+| Qwen3.8-27B int4-ov, **NoLlama/OpenVINO**, 140V (2026-08-30) | 3.6-4.8 | — | — |
+
+**On a Windows Intel laptop Bonsai is the slowest way to run this model,
+and its iGPU row is below its CPU row** — Vulkan has no PQ2_0 kernels, so
+the generic fallback on Xe2 loses to the AVX-VNNI dot on four P-cores. The
+base model has a real Vulkan path and an OpenVINO path and both beat every
+Bonsai row, at 4 tok/s. Nothing here is usable for a dense 27B; the "runs
+on your laptop" claim is a Mac/Metal claim until the SYCL port, Vulkan
+kernels or #206 land. `-t 4` bought Bonsai 12-35% (per-layer sync waiting
+on E-cores) and Q4_K_M nothing (memory-bound) — [INFERRED] for the Bonsai
+`-t 4` row, whose server log still reported 8 threads; see the fork README.
+
 ### CPU, same models, as of `prism-b10685` (2026-09-18) — these rows measure the fork's kernels, not the format
 
 **Dated on purpose**: PR PrismML-Eng/llama.cpp#206 adds AVX2/AVX-VNNI
