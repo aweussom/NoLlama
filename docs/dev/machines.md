@@ -87,6 +87,21 @@ time** — two concurrent 14 GB loads thrashed the pagefile for 40 minutes on
 2026-08-21 and produced nothing. `.wslconfig` sets `memory=24GB` so WSL does
 not take its default ~50% share and squeeze this further.
 
+### Qwen3.8-27B int4 on the B60: fits, but not with the auto-sized KV pool
+
+[OBSERVED 2026-09-18, driver `32.0.101.8805`, OpenVINO 2026.3.1,
+`OpenVINO/Qwen3.8-27B-int4-ov` rev `2026.3.1`, VLM slot] Bare genai passes
+every `bare-probe.py` case (text and image). Under NoLlama the auto-sized
+pool came out at **5 GB** on top of ~15 GB of weights, and the slot died on
+the 34th request of a benchmark run — a 323-char prompt, `max_tokens` 512 —
+with `CL_OUT_OF_RESOURCES`, after a ~4.5k-token prefill and three 500-token
+generations had already succeeded. **`--cache-size-gb 3` ran the same
+sequence plus a second full pass without incident.** Whether 5 GB is a
+genuine headroom problem (a dGPU has no shared-memory spill) or the driver
+leaks per request is not settled; the pool size is the lever that worked.
+Decode is **~23 tok/s** on this card, prefill ~1,150 tok/s (4.5k tokens in
+3.9 s).
+
 ## 2. 285K box — the NPU + Ollama + ComfyUI machine
 
 Reachable over SSH at `wossn@100.98.33.88` (Tailscale-range address). **The
@@ -144,7 +159,30 @@ not load.
 | WSL | **2.9.8.0** (pre-release channel), Ubuntu, kernel 6.18.40.1 — includes the WSL Containers preview (`wslc.exe`) |
 | Docker | 29.4.1 — already installed |
 | venvs | `venv` (2026.3.0, serving), `venv-2026.3` (transformers 5.4 — the one that knows `lfm2_moe`, use it for `-Convert`), `venv-2026.3.1` (scratch, runtime-version tests only, created 2026-09-11) |
-| Ollama | 0.32.14, well stocked (gemma4, muse-glimmer, qwen3-coder-next, …) |
+| Ollama | 0.34.0 (checked 2026-09-18), well stocked (gemma4, muse-glimmer, qwen3-coder-next, **qwen3.8:27b** q4_K_M pulled 2026-09-18 for the Bonsai comparison, …) |
+| Bonsai-demo | `C:\devel\Bonsai-demo` — PrismML's llama.cpp fork demo, release `prism-b10685`. **Three backends installed side by side**: `bin\vulkan` (what `setup.ps1` picked on its own), `bin\cuda` (13.3 build + cudart, added 2026-09-18) and `bin\cpu`. `start_llama_server.ps1` prefers `bin\cuda` when present. Its `setup.ps1` is patched on a local branch `fix/nvidia-smi-cuda-umd-version`; `main` there is untouched upstream. **The curated copy is the private fork `aweussom/Bonsai-demo`** (clone on the B60 box at `C:\devel\aweussom\Bonsai-demo`): upstream `main` + the fix + `bench/` with the harness, every result JSON and a README on reproducing the arms, including on a laptop iGPU. Point the 285K checkout's remote at the fork if the two should stop diverging |
+
+**Ollama runs Qwen3.8 with its MTP drafter by default** [OBSERVED 2026-09-18,
+Ollama 0.34.0, `qwen3.8:27b`]: `ollama show` lists `draft_num_predict 4`
+and the server log prints `draft-mtp` statistics (mean accepted length ~4.3
+on a count-to-100 prompt). A decode number from this box's Ollama is a
+*speculative* number unless the request sets `options.draft_num_predict=0`
+— `scripts/bonsai-bench.py --ollama-opt draft_num_predict=0` does that.
+Ollama with `num_gpu 0` is the CPU arm; it honours the option (17 GB model,
+5-11 tok/s on the 285K).
+
+**The Bonsai-demo setup script sends this box to Vulkan** [OBSERVED
+2026-09-18, driver 616.92]: it greps `nvidia-smi` for `CUDA Version:` while
+the current header reads `CUDA UMD Version: 13.4`, so `$GpuType` stays
+empty and "Vulkan SDK detected" wins. Vulkan has no PQ2_0 kernels
+(`MODEL-FORMATS.md` in the demo), and the result is a server that answers
+correctly at **4.9 tok/s** where the CUDA build of the same release does
+**132 tok/s** on the same file. Upstream issue PrismML-Eng/Bonsai-demo#176
+(our measurement is posted there); PRs #170/#178/#185 fix it. Long-running
+work on this box runs as a scheduled task with `New-ScheduledTaskPrincipal
+-UserId $env:USERNAME -LogonType Interactive` (the `-UserId` parameter is on
+the principal, not on `Register-ScheduledTask`); the benchmark chains live
+as `bonsai-bench-chain*` tasks, results in `~\bench-results`.
 
 **The only machine available for NPU-in-container work**, since the laptop is
 off-limits (below). Also the cross-stack reference: Ollama/llama.cpp results

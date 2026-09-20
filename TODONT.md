@@ -3,6 +3,42 @@
 Things we tried that didn't work, or that work but aren't worth doing. Each
 entry explains *why not* so we don't re-litigate it in six months.
 
+## `VLMPipeline.set_chat_template()` as the VLM no-think switch (2026-09-18)
+
+Idea: the LLM path turns thinking off structurally with
+`ChatHistory.set_extra_context({"enable_thinking": False})`, but VLM slots
+hand `VLMPipeline.generate` a prompt *string* and the pipeline applies the
+template itself, so the marker did nothing there — Qwen3.8-27B on the B60
+spent a 600-token "no-think" story budget entirely inside `<think>` and
+returned empty content (`scripts/bonsai-bench.py`, pre-fix run kept as
+`bench-results/*PREFIX-nothink-bug*`). The obvious lever is the pipeline's
+own `set_chat_template(copy with enable_thinking pinned false)`, swapped per
+request under the slot lock. Cheap, no prompt-shape change, prefix cache
+unaffected.
+
+**Verdict: don't.** [OBSERVED 2026-09-18, genai 2026.3.1.0-3290, B60] the
+call throws `continuous_batching_adapter.hpp:153: Chat mode is not
+supported` — it is routed through the chat-mode API, which the
+continuous-batching backend does not implement. Every GPU/CPU VLM slot
+runs on that backend because that is where prefix caching lives, so the
+swap and the cache are mutually exclusive.
+
+**What shipped instead:** render the prompt ourselves through the
+pipeline's tokenizer — `Tokenizer.apply_chat_template(raw_messages, True,
+extra_context={"enable_thinking": False})` — and pass it with
+`GenerationConfig.apply_chat_template = False` (`render_nothink_prompt`,
+`_nothink_render_ok`, `preseeded_for` in `nollama.py`). Verified at load by
+rendering a dummy turn and requiring a *closed* block. Text-only turns for
+now; whether `<ov_genai_image_N>` tags survive a pre-rendered prompt is
+unverified, so image turns keep the old prose-only behaviour.
+
+Two adjacent traps for whoever revisits: a standalone `ovg.Tokenizer(dir)`
+cannot even parse Qwen3.8's template (`namespace(...)` is beyond its Jinja
+engine) — only the pipeline's own tokenizer, which carries genai's patched
+copy, renders it; and a splitter told the template pre-seeds `<think>` will
+file the *whole answer* as reasoning once the block is pre-closed, which is
+what `preseeded_for()` exists to prevent.
+
 ## NVIDIA support (settled 2026-05-21, migrated here 2026-09-18)
 
 Recurring temptation: **there is now a working path.** OpenVINO 2026 ships an

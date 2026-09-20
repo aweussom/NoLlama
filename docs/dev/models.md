@@ -230,6 +230,18 @@ inference stacks (OpenVINO on the B60, Ollama/llama.cpp on an RTX 5090):
   markers into `<think>` blocks on both `generate_vlm` and `stream_vlm`.
   Full story in `docs/MODELS.md`.
 
+- Qwen3.8-27B (Intel's `OpenVINO/Qwen3.8-27B-int4-ov`, rev `2026.3.1`) on
+  the **Arc Pro B60** (the 5950X CPU load succeeded but was stopped before
+  measuring — 1.5 GB of RAM left on the 32 GB box) — measured 2026-09-18 as the
+  base-model arm of the Bonsai 2 comparison (`docs/BENCHMARKS.md`). VLM
+  slot; bare `bare-probe.py` passes every case on the GPU. **~23 tok/s
+  decode, ~1,150 tok/s prefill** on the B60 with `--cache-size-gb 3`. Two
+  things it surfaced: the auto-sized 5 GB pool died with
+  `CL_OUT_OF_RESOURCES` on the 34th request of a run (`docs/dev/machines.md`,
+  B60 section), and the no-think switch did nothing on VLM slots until
+  2026-09-18 (`TODONT.md`, "VLMPipeline.set_chat_template"). Its template
+  pre-seeds `<think>`; 3.6-4.8 tok/s on the 140V per `docs/MODELS.md`.
+
 Not yet tested here: Qwen3-VL, pre-exported by Intel as
 `OpenVINO/Qwen3-VL-8B-Instruct-int4-ov` (May 2026).
 

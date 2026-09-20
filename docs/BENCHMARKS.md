@@ -506,6 +506,143 @@ POST /v1/chat/completions
   [image + "What vehicle is this?"] --> GPU (VLM)
 ```
 
+## Bonsai 2 27B (ternary) vs its base model, Qwen3.8-27B (2026-09-18)
+
+PrismML's [Ternary Bonsai 2 27B](https://prismml.com/news/bonsai-2-27b) is
+Qwen3.8-27B distilled to ternary weights: 7.2 GB as `PQ2_0` (2.13 bpw)
+against ~15-17 GB for a 4-bit quant of the base, with a claimed 98% of the
+base's aggregate score. It runs only on PrismML's llama.cpp fork
+(`prism-b10685` here), which has PQ2_0 kernels for CUDA, Metal, HIP and CPU —
+**not Vulkan, not SYCL**, so there is no Intel GPU route for it yet. The base
+model runs everywhere. So this is a cross-stack comparison by necessity:
+Bonsai on the fork, Qwen3.8 on Ollama (RTX 5090) and on NoLlama (Arc Pro
+B60, CPU). Harness: `scripts/bonsai-bench.py`, raw JSON in `bench-results/`.
+
+Every row: greedy (`temperature 0`), thinking **off** for the speed tests
+(each stack's own switch: `chat_template_kwargs` on llama-server, `think:
+false` on Ollama's native API, the system-prompt marker on NoLlama), 1
+warmup + 3 runs, median. Prefill uses a *different* ~4.4k-token document
+per run because every stack caches the previous prompt's KV — the first
+version of the harness reported 70,000-100,000 tok/s "prefill" that was a
+cache lookup.
+
+### The first Bonsai number was 27x too low, and nothing said so
+
+The demo's `setup.ps1` picked the **Vulkan** build on the 285K: it greps
+`nvidia-smi` for `CUDA Version:` and driver 616.92 prints `CUDA UMD
+Version: 13.4`. Vulkan has no PQ2_0 kernels, so the server loaded, answered
+correctly, and decoded at **4.9 tok/s** (prompt processing 4-7 tok/s). The
+CUDA 13.3 build of the same release, same file: **132 tok/s** and 348
+tok/s. Reported on PrismML-Eng/Bonsai-demo#176, which already carried three
+PRs for the regex. If a Bonsai number looks wrong, check which
+`bin\<backend>` the launcher printed before anything else.
+
+### RTX 5090 (285K box, driver 616.92)
+
+| Arm | Decode, free text | Decode, count 1-100 | Prefill (4,411 tok) | TTFT short | Probes no-think | Probes think | Think tokens / probe |
+|---|---|---|---|---|---|---|---|
+| **Bonsai 2 PQ2_0**, fork CUDA build, no drafter | **131** | 131 | **3,135 tok/s** (1.4 s) | 0.11 s | 20/23 | **23/23** | 103 |
+| Qwen3.8 q4_K_M, Ollama 0.34, **MTP drafter on (default)** | 95 | 201 | 2,703 tok/s (1.6 s) | 0.10 s | 21/23 | 22/23 | 94 |
+| Qwen3.8 q4_K_M, Ollama 0.34, `draft_num_predict=0` | 77 | 77 | 3,021 tok/s (1.5 s) | 0.09 s | 21/23 | 22/23 | 94 |
+
+Read the two Ollama rows together. Ollama runs Qwen3.8 with the model's
+multi-token-prediction drafter by default (`ollama show` lists
+`draft_num_predict 4`; the server log reports ~4.3 accepted tokens per
+step). On a maximally predictable output (counting to 100) that is 2.6x;
+on free prose it is 1.23x. **The like-for-like decode pair is 131 vs 77**:
+the ternary model decodes 1.7x faster than a 4-bit quant of its base on the
+same card, with neither side speculating. Bonsai has its own drafter
+(`BONSAI_SPECULATIVE=1`, needs a converted dspark GGUF) that was not
+enabled — an open item, `brain/todo/3-someday/032-1h-bonsai-dspark-drafter-arm.md`.
+
+Against the bandwidth ceiling (1.8 TB/s): 17 GB of q4_K_M weights allow
+~105 tok/s and Ollama gets 77 (73%); 7.2 GB of PQ2_0 allow ~250 and Bonsai
+gets 131 (52%). Unpacking 2-bit weights costs compute, which is why the
+byte ratio (2.4x) does not turn into the speed ratio (1.7x).
+
+### Arc Pro B60 (NoLlama, OpenVINO 2026.3.1, driver 32.0.101.8805)
+
+| Arm | Decode, free text | Decode, count 1-100 | Prefill (~4.4k tok) | TTFT short | Probes no-think | Probes think | Think tokens / probe |
+|---|---|---|---|---|---|---|---|
+| Qwen3.8-27B int4-ov (Intel export, VLM slot, `--cache-size-gb 3`) | **22.9** | 23.3 | ~1,150 tok/s (3.9 s) | 0.38 s | 21/23 | **23/23** | 96 |
+
+That is 75% of the card's ~30 tok/s ceiling for 15 GB of weights at ~456
+GB/s — the B60 is not underperforming, it has a quarter of the 5090's
+bandwidth and twice Bonsai's bytes to move. Fine for chat (faster than
+reading), slow for thinking mode and agents: the identical thinking probe
+pass took 326 s here and 46 s on the 5090. For agent work on this card the
+MoE models remain the pick (Qwen3-30B-A3B, 50.8 tok/s above). The 7.2 GB
+Bonsai file would fit with 17 GB to spare; it needs the fork's SYCL port.
+
+Two things this arm surfaced, both fixed or recorded the same day:
+
+- **The no-think switch was dead on VLM slots.** The marker only reached
+  `LLMPipeline`'s `ChatHistory`; a VLM turn kept reasoning, and a 600-token
+  "no-think" story budget came back as empty content. The pre-fix run is
+  kept as `bench-results/*PREFIX-nothink-bug*` (14/23 no-think, then every
+  thinking probe 503'd). Fix: `render_nothink_prompt` in `nollama.py`;
+  `TODONT.md` has the approach that did *not* work.
+- **The auto-sized 5 GB KV pool died with `CL_OUT_OF_RESOURCES`** on the
+  34th request; 3 GB ran two full passes clean. `docs/dev/machines.md`.
+
+### CPU, same models
+
+| Arm | Decode, free text | Decode, count 1-100 | Prefill (~4.4k tok) | Probes no-think |
+|---|---|---|---|---|
+| Bonsai 2 PQ2_0, fork CPU build, **Core Ultra 9 285K** (24 threads) | — (older harness) | **6.7** | — (8k context) | 20/23 |
+| Qwen3.8 q4_K_M, Ollama `num_gpu 0`, 285K | 5.2 | 10.8 (MTP) | 29 tok/s (151 s) | 21/23 |
+| Bonsai 2 PQ2_0, fork CPU build, **Ryzen 9 5950X** (16 threads, DDR4, no VNNI) | 2.7 | 2.7 | **3.3 tok/s (1,342 s)** | 20/23 |
+| Qwen3.8-27B int4-ov, NoLlama `--device CPU`, 5950X | not run | | | |
+
+Bonsai's PQ2_0 kernels are compute-bound on CPU: 7.2 GB of weights should
+be 2.4x the base's memory-bound rate and the 285K delivers 1.3x. On the
+Zen 3 Ryzen, without AVX-VNNI, the ternary path drops to 2.7 tok/s decode
+and **prompt processing collapses to 3 tok/s** — the 4.4k-token document
+took 22 minutes to prefill, against 150 s for the base model on the 285K
+and 1.4 s for Bonsai on the 5090. Short prompts (15-43 tokens) hid this at
+12-32 tok/s; only the long one exposed it. Nothing here is an interactive
+route for a dense 27B, and the Ryzen row is a warning: the fork's CPU path
+depends on the instruction set, not just the core count.
+
+The base model on the 5950X CPU was loaded but not measured: 15 GB of
+weights on a 32 GB box in use left 1.5 GB free and Claude Code's own
+memory reaper started killing background shells, so the run was stopped.
+Expect ~3 tok/s from the 285K CPU row scaled by DDR4 bandwidth; measure it
+on an idle box if the number ever matters.
+
+### What the probes say about the distillation
+
+23 short tasks with deterministic checkers (arithmetic, a word problem,
+logic, dates, string reversal, JSON, three code functions run against
+asserts, a regex, SQL, a Norwegian translation, instruction constraints,
+and one tool call). It is a smoke test, not MMLU:
+
+- **With thinking on, Bonsai passed everything on both GPUs (23/23 twice);
+  the base model missed one** (reversing "benchmark") on every stack. On
+  the numbers PrismML publishes the base is ahead; this set is too small to
+  contradict that, and small enough to say the distillation did not break
+  anything a coding agent touches — tool calls, JSON, code, instruction
+  constraints all pass.
+- **With thinking off the two are within one probe** (20-21/23). Both fail
+  string reversal and one multi-step arithmetic item without reasoning;
+  Bonsai additionally miscomputes the 09:40→13:15 duration (235 vs 215) on
+  both CUDA and CPU, so that is the model, not the backend.
+- **Thinking is cheap on these prompts**: ~100 tokens per probe median for
+  both models. The token-count parity is itself a result — a distillation
+  that had learned to ramble would show up here first.
+
+### Reproduce
+
+```powershell
+# Bonsai on the fork (CUDA build; check the launcher prints bin\cuda):
+python scripts\bonsai-bench.py --url http://127.0.0.1:8080 --model bonsai --nothink template_kwargs --label bonsai2-cuda
+# Base model in Ollama, drafter off for the like-for-like decode row:
+python scripts\bonsai-bench.py --url http://127.0.0.1:11434 --model qwen3.8:27b --transport ollama --ollama-opt draft_num_predict=0 --label qwen38-nodraft
+# Base model under NoLlama (B60):
+python scripts\bonsai-bench.py --url http://127.0.0.1:8000 --model auto --nothink nollama --label qwen38-b60
+python scripts\bonsai-bench.py --compare bench-results\bonsai-*.json
+```
+
 ## Why not OpenVINO Model Server (OVMS)?
 
 Intel already ships OVMS — a production-grade OpenVINO inference server.
