@@ -578,14 +578,15 @@ bandwidth-bound — 15.7 GB allow ~115 tok/s, the fork gets 79 (~70%) — and
 Bonsai is not: 7.2 GB allow ~250, it gets 131 (~52%). The hypothesis that
 unpacking 2-bit codes costs compute was tested on cards with far less
 compute per byte of bandwidth (2080 Ti ~21 FLOP/byte, 3060 ~35, 5090
-~59): Bonsai's share of ceiling is 46% on the 2080 Ti, ~68% on the 3060,
-52% on the 5090 — it does not track compute in either direction. The
-control in the same table does: the 2-bit PTQ quants of the base, whose
-dequant is compute-heavy, fall to 29-35% on Turing. So the gap scales
-with bandwidth across three GPU generations, which points at per-layer
-overhead (launches, sync, access pattern, the Q8 activation round-trip),
-not arithmetic. A kernel profile would say which; an issue without one
-would not.
+~59): Bonsai's share of ceiling is 46% on the 2080 Ti, 68% on the 3060,
+52% on the 5090 — not monotonic in compute per byte. The 2-bit PTQ quants
+of the base, whose dequant is compute-heavy, move the same way: 29-35% on
+Turing, 46-57% on Ampere. Every 2-bit kernel loses on Turing and gains on
+Ampere, and PQ2_0 keeps the largest share on every card. So the gap
+follows the GPU generation, not FLOP/byte, which points at per-layer
+overhead (launches, sync, access pattern, the Q8 activation round-trip)
+rather than arithmetic. A kernel profile would say which; an issue without
+one would not.
 
 ### Arc Pro B60 (NoLlama, OpenVINO 2026.3.1, driver 32.0.101.8805)
 
@@ -614,11 +615,16 @@ Two things this arm surfaced, both fixed or recorded the same day:
 - **The auto-sized 5 GB KV pool died with `CL_OUT_OF_RESOURCES`** on the
   34th request; 3 GB ran two full passes clean. `docs/dev/machines.md`.
 
-### RTX 2080 Ti 11 GB (i9-9900K, 16 GB DDR4) — the card the base model does not fit
+### RTX 2080 Ti 11 GB and RTX 3060 12 GB (i9-9900K box) — the cards the base model does not fit
 
-The "cheap card" question — you have 11 GB, which file do you want? — with
-the same fork CUDA build on every row, `-ngl 99 -fa on -c 16384 -np 1`, no
-speculation, 3 runs, on a single-GPU box where the desktop holds 0.3-0.5 GB:
+The "cheap card" question — you have 11 or 12 GB, which file do you want? —
+with the same fork CUDA build on every row, `-ngl 99 -fa on -c 16384 -np
+1`, no speculation, 3 runs. The 3060 was measured as a second card with
+nothing else on it; the 2080 Ti alone in the box with the desktop's 0.3-0.5
+GB. **RTX 3060 12 GB:** Bonsai **33.8 tok/s**, 505 tok/s prefill, 8.9 GB at
+16k and 9.9 GB at 32k, 20/23 and **23/23**; UD-IQ2_XXS 22.9 tok/s, 21/23 and
+20/23; UD-Q2_K_XL 21.1, 21/23 and 22/23 — Bonsai 1.5x the equal-bytes PTQ,
+same pattern as the Turing card below. **RTX 2080 Ti 11 GB:**
 
 | Model | File | VRAM at 16k | Decode, free text | Prefill (4.4k) | Probes no-think | Probes think | Think tok/probe |
 |---|---|---|---|---|---|---|---|
