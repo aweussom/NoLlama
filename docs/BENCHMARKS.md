@@ -661,7 +661,7 @@ thinking off, 2 runs (Vulkan Bonsai: 1), laptop otherwise idle:
 | Arm | Decode, free text | Prompt processing (short prompts) | Probes no-think |
 |---|---|---|---|
 | Bonsai 2 PQ2_0, CPU build, 8 threads | 1.7 | 17-21 tok/s | 20/23 |
-| Bonsai 2 PQ2_0, CPU build, `-t 4` (P-cores only) | 1.9 | 17-21 tok/s | 20/23 |
+| Bonsai 2 PQ2_0, CPU build, `-t 4` (P-cores only; two runs) | 1.8-1.9 | 17-22 tok/s | 20/23 |
 | Bonsai 2 PQ2_0, Vulkan on the 140V (no PQ2_0 kernels) | **1.3** | 3-9 tok/s | 20/23 |
 | Qwen3.8 Q4_K_M, CPU build, 8 threads | 2.2 | 34-42 tok/s | 21/23 |
 | Qwen3.8 Q4_K_M, CPU build, `-t 4` | 2.3 | 36-47 tok/s | 21/23 |
@@ -678,11 +678,11 @@ threads reached ~58% on the same kernel: four P-cores cannot keep
 unpack-then-dot fed, which quantifies "compute-bound" better than any
 desktop row. [INFERRED] that the laptop claim holds on Apple silicon
 (Metal has the kernels; PrismML quotes 47 tok/s on an M5 Max) — no
-M-series was measured here. `-t 4` bought Bonsai 12-35% (per-layer sync
-waiting on E-cores) and Q4_K_M nothing (memory-bound); the Bonsai `-t 4`
-row awaits a rerun because its server log reported 8 threads. Every fork
-row in this section and the ones above ran with `-fa on`. Detail in the
-fork's `bench/README.md`.
+M-series was measured here. `-t 4`, run twice, bought Bonsai a few percent
+on prose and ~30% on predictable text (per-layer sync waiting on E-cores)
+and Q4_K_M nothing (memory-bound): real, modest, does not change the
+picture. Every fork row in this section and the ones above ran with
+`-fa on`. Detail in the fork's `bench/README.md`.
 
 ### CPU, same models, as of `prism-b10685` (2026-09-18) — these rows measure the fork's kernels, not the format
 
@@ -719,7 +719,7 @@ Same binary on both sides of each pair (the fork's `bin\cpu`, `-c 8192`,
 | **Ryzen 9 5950X** (Zen 3: AVX2 only; 16 threads, DDR4) | Bonsai 2 PQ2_0 | 2.7 | **3.3 tok/s (1,342 s)** | 20/23 |
 | | Qwen3.8 Q4_K_M | 2.4 | 27 tok/s (163 s) | 21/23 |
 | **Core i9-9900K** (Coffee Lake: AVX2 only; 8 threads, DDR4) | Bonsai 2 PQ2_0 | 1.3 | not run (short prompts 11-16 tok/s) | 20/23 |
-| **Core Ultra 7 258V** laptop (Lunar Lake: AVX-VNNI, no AVX-512; 4 P + 4 E cores, LPDDR5X) | Bonsai 2 PQ2_0 | 1.7 (1.9 at `-t 4`, rerun pending) | not run (short prompts 17-21 tok/s) | 20/23 |
+| **Core Ultra 7 258V** laptop (Lunar Lake: AVX-VNNI, no AVX-512; 4 P + 4 E cores, LPDDR5X) | Bonsai 2 PQ2_0 | 1.7 (1.8-1.9 at `-t 4`) | not run (short prompts 17-22 tok/s) | 20/23 |
 | | Qwen3.8 Q4_K_M | 2.2 (2.3 at `-t 4`) | not run (short prompts 34-47 tok/s) | 21/23 |
 | 285K, for reference | Qwen3.8 Q4_K_M via Ollama `num_gpu 0`, **MTP drafter on** | 5.2 | 29 tok/s | 21/23 |
 
