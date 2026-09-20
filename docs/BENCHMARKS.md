@@ -543,6 +543,7 @@ PRs for the regex. If a Bonsai number looks wrong, check which
 |---|---|---|---|---|---|---|---|
 | **Bonsai 2 PQ2_0**, fork CUDA build, no drafter | **131** | 131 | **3,135 tok/s** (1.4 s) | 0.11 s | 20/23 | **23/23** | 103 |
 | Qwen3.8 Q4_K_M, **same fork CUDA build** (Ollama's GGUF blob), no drafter | 79 | 79 | 2,860 tok/s (1.5 s) | 0.10 s | 21/23 | **23/23** | 105 |
+| Qwen3.8 **Q8_0**, same fork CUDA build (ggml-org GGUF, 26.6 GB, `-c 16384`), no drafter | 52 | 52 | 2,895 tok/s (1.5 s) | 0.11 s | 21/23 | 22/23 | 99 |
 | Qwen3.8 Q4_K_M, Ollama 0.34, `draft_num_predict=0` | 77 | 77 | 3,021 tok/s (1.5 s) | 0.09 s | 21/23 | 22/23 | 94 |
 | Qwen3.8 Q4_K_M, Ollama 0.34, **MTP drafter on (default)** | 95 | 201 | 2,703 tok/s (1.6 s) | 0.10 s | 21/23 | 22/23 | 94 |
 
@@ -674,8 +675,11 @@ and one tool call). It is a smoke test, not MMLU:
   contradict, and a Q4_K_M baseline is itself a lossy stand-in for the
   base. What the probes do show is **no obvious collapse** on the shapes a
   coding agent produces: tool calls, JSON, code, instruction constraints
-  all pass. A real retention number needs a Q8_0 baseline and a standard
-  suite (GSM8K, EvalPlus, MMLU-Redux), which nobody has run here.
+  all pass. The Q8_0 baseline, run afterwards in the same binary, scored
+  21/23 and 22/23 — it missed the third code function that both Q4_K_M
+  and Bonsai passed — which places the whole set inside its own noise
+  band. A real retention number needs a standard suite (GSM8K, EvalPlus,
+  MMLU-Redux) against that Q8_0 baseline, which nobody has run here.
 - **With thinking off the two are within one probe** (20-21/23). Both fail
   string reversal and one multi-step arithmetic item without reasoning;
   Bonsai additionally miscomputes the 09:40→13:15 duration (235 vs 215) on
