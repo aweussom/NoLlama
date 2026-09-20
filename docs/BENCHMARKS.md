@@ -616,22 +616,42 @@ AVX2/AVX-VNNI PQ2_0 kernels as PR PrismML-Eng/llama.cpp#206, measured
 bit-exact on an i7-13620H (decode 1.3 → 4.2 tok/s, prompt processing
 6.7 → 16 tok/s); our two CPUs are posted there as corroboration.
 
-| Arm | Decode, free text | Decode, count 1-100 | Prefill (~4.4k tok) | Probes no-think |
-|---|---|---|---|---|
-| Bonsai 2 PQ2_0, fork CPU build, **Core Ultra 9 285K** (24 threads) | — (older harness) | **6.7** | — (8k context) | 20/23 |
-| Qwen3.8 q4_K_M, Ollama `num_gpu 0`, 285K | 5.2 | 10.8 (MTP) | 29 tok/s (151 s) | 21/23 |
-| Bonsai 2 PQ2_0, fork CPU build, **Ryzen 9 5950X** (16 threads, DDR4, no VNNI) | 2.7 | 2.7 | **3.3 tok/s (1,342 s)** | 20/23 |
-| Qwen3.8-27B int4-ov, NoLlama `--device CPU`, 5950X | not run | | | |
+Same binary on both sides of each pair (the fork's `bin\cpu`, `-c 8192`,
+`-np 1`, text-only), 2 runs, no thinking:
 
-Bonsai's PQ2_0 kernels are compute-bound on CPU: 7.2 GB of weights should
-be 2.4x the base's memory-bound rate and the 285K delivers 1.3x. On the
-Zen 3 Ryzen, without AVX-VNNI, the ternary path drops to 2.7 tok/s decode
-and **prompt processing collapses to 3 tok/s** — the 4.4k-token document
-took 22 minutes to prefill, against 150 s for the base model on the 285K
-and 1.4 s for Bonsai on the 5090. Short prompts (15-43 tokens) hid this at
-12-32 tok/s; only the long one exposed it. Nothing here is an interactive
-route for a dense 27B, and the Ryzen row is a warning: the fork's CPU path
-depends on the instruction set, not just the core count.
+| CPU | Model | Decode, free text | Prefill (~4.4k tok) | Probes no-think |
+|---|---|---|---|---|
+| **Core Ultra 9 285K** (Arrow Lake: AVX-VNNI, no AVX-512; 24 threads, DDR5) | Bonsai 2 PQ2_0 | **7.2** | 11.2 tok/s (393 s) | 20/23 |
+| | Qwen3.8 Q4_K_M | 4.3 | 42 tok/s (104 s) | 21/23 |
+| **Ryzen 9 5950X** (Zen 3: AVX2 only; 16 threads, DDR4) | Bonsai 2 PQ2_0 | 2.7 | **3.3 tok/s (1,342 s)** | 20/23 |
+| | Qwen3.8 Q4_K_M | 2.4 | 27 tok/s (163 s) | 21/23 |
+| 285K, for reference | Qwen3.8 Q4_K_M via Ollama `num_gpu 0`, **MTP drafter on** | 5.2 | 29 tok/s | 21/23 |
+
+Read down each pair. **Decode:** on Arrow Lake the ternary model is 1.65x
+the 4-bit base in the same binary (the 256-bit VNNI dot doing its job);
+on Zen 3 the two are within 10% of each other, because both are on
+scalar-or-memory-bound paths and Q4_K_M's 15.7 GB sits at that box's
+~50 GB/s DDR4 ceiling anyway. **Prefill is where the gate shows:** Q4_K_M
+prefills the 4.4k-token document 3.8x faster than Bonsai on the 285K
+(42 vs 11 tok/s) and 8x faster on the 5950X (27 vs 3.3), because
+mainline's Q4_K GEMM has an AVX2 path and the fork's PQ2_0 GEMM has only
+the scalar fallback below AVX-512. That is six and a half minutes to first
+token for a 4.4k prompt on a 24-core desktop, twenty-two on the Ryzen; CPU
+Bonsai is a short-chat tool until PR #206 or the AVX-512 tier applies.
+
+Two cautions. Ollama's CPU row runs its MTP drafter and is therefore not a
+runtime comparison; the fork's own Q4_K_M row (4.3) is. And the fork's CPU
+build is itself slower than Ollama's runner on the same GGUF, so absolute
+fork-CPU numbers understate llama.cpp on CPU; the within-binary ratios are
+what this table is for. The base model was also loaded under NoLlama on the
+5950X CPU and stopped before measuring (15 GB of OpenVINO weights on a 32 GB
+box in use left 1.5 GB free); at ~3 tok/s it would not have changed the
+picture.
+
+A Zen 5 box (9950X3D, full AVX-512 VNNI) is the missing row: the only
+consumer CPU class where the fork's *fast* PQ2_0 path applies at all —
+and where upstream reports it crashing at load (Bonsai-demo#182,
+llama.cpp#219). Planned.
 
 The base model on the 5950X CPU was loaded but not measured: 15 GB of
 weights on a 32 GB box in use left 1.5 GB free and Claude Code's own
