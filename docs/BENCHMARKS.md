@@ -539,13 +539,18 @@ PRs for the regex. If a Bonsai number looks wrong, check which
 
 ### RTX 5090 (285K box, driver 616.92)
 
-| Arm | Decode, free text | Decode, count 1-100 | Prefill (4,411 tok) | TTFT short | Probes no-think | Probes think | Think tokens / probe |
-|---|---|---|---|---|---|---|---|
-| **Bonsai 2 PQ2_0**, fork CUDA build, no drafter | **131** | 131 | **3,135 tok/s** (1.4 s) | 0.11 s | 20/23 | **23/23** | 103 |
-| Qwen3.8 Q4_K_M, **same fork CUDA build** (Ollama's GGUF blob), no drafter | 79 | 79 | 2,860 tok/s (1.5 s) | 0.10 s | 21/23 | **23/23** | 105 |
-| Qwen3.8 **Q8_0**, same fork CUDA build (ggml-org GGUF, 26.6 GB, `-c 16384`), no drafter | 52 | 52 | 2,895 tok/s (1.5 s) | 0.11 s | 21/23 | 22/23 | 99 |
-| Qwen3.8 Q4_K_M, Ollama 0.34, `draft_num_predict=0` | 77 | 77 | 3,021 tok/s (1.5 s) | 0.09 s | 21/23 | 22/23 | 94 |
-| Qwen3.8 Q4_K_M, Ollama 0.34, **MTP drafter on (default)** | 95 | 201 | 2,703 tok/s (1.6 s) | 0.10 s | 21/23 | 22/23 | 94 |
+Contexts: the fork rows ran `-c 65536`, except Q8_0 at `-c 16384` to fit
+32 GB beside 26.6 GB of weights; the Ollama rows `num_ctx 16384`. KV size
+moves decode by less than the run-to-run spread here. Short-prompt TTFT
+was 0.09-0.11 s on every row and is omitted.
+
+| Arm | Decode, free text | Decode, count 1-100 | Prefill (4,411 tok) | Probes no-think | Probes think | Think tokens / probe |
+|---|---|---|---|---|---|---|
+| **Bonsai 2 PQ2_0**, fork CUDA build, no drafter (none exists for Bonsai 2) | **131** | 131 | **3,135 tok/s** (1.4 s) | 20/23 | **23/23** | 103 |
+| Qwen3.8 Q4_K_M, **same fork CUDA build** (Ollama's GGUF blob), no drafter | 79 | 79 | 2,860 tok/s (1.5 s) | 21/23 | **23/23** | 105 |
+| Qwen3.8 **Q8_0**, same fork CUDA build (ggml-org GGUF, 26.6 GB), no drafter | 52 | 52 | 2,895 tok/s (1.5 s) | 21/23 | 22/23 | 99 |
+| Qwen3.8 Q4_K_M, Ollama 0.34, `draft_num_predict=0` | 77 | 77 | 3,021 tok/s (1.5 s) | 21/23 | 22/23 | 94 |
+| Qwen3.8 Q4_K_M, Ollama 0.34, **MTP drafter on (default)** | 95 | 201 | 2,703 tok/s (1.6 s) | 21/23 | 22/23 | 94 |
 
 **The like-for-like pair is the first two rows: same binary, same flags,
 no speculation on either side, 131 vs 79.** The ternary model decodes
@@ -557,24 +562,35 @@ and this row is the answer). The fork is mainline llama.cpp plus extra
 types, so any standard GGUF runs in it; that is what makes the same-binary
 row possible.
 
-Read the two Ollama rows together. Ollama runs Qwen3.8 with the model's
-multi-token-prediction drafter by default (`ollama show` lists
-`draft_num_predict 4`; the server log reports ~4.3 accepted tokens per
-step). On a maximally predictable output (counting to 100) that is 2.6x;
-on free prose it is 1.23x. Bonsai has its own drafter
-(`BONSAI_SPECULATIVE=1`, needs a converted dspark GGUF) that was not
-enabled — an open item, `brain/todo/3-someday/032-1h-bonsai-dspark-drafter-arm.md`.
+**The as-shipped pair is also in the table.** Bonsai 2 ships with no
+drafter: the model repo carries only the two ternary bands, F16 and the
+projectors, and the author of Bonsai-demo#196 confirms no dspark drafter
+exists for it (the Bonsai-1 drafter gets 0.7% acceptance). So Bonsai's
+as-shipped row is the 131. Qwen3.8 through Ollama ships with the
+multi-token-prediction drafter on (`ollama show` lists `draft_num_predict
+4`; the log reports ~4.3 accepted tokens per step): 95 on free prose, 201
+on a maximally predictable output. `BONSAI_SPECULATIVE=1` has nothing to
+load for this model.
 
-Against the bandwidth ceiling (1.8 TB/s): 17 GB of q4_K_M weights allow
-~105 tok/s and Ollama gets 77 (73%); 7.2 GB of PQ2_0 allow ~250 and Bonsai
-gets 131 (52%). Unpacking 2-bit weights costs compute, which is why the
-byte ratio (2.4x) does not turn into the speed ratio (1.7x).
+**The PQ2_0 CUDA kernel leaves ~120 tok/s on the table.** Against the
+5090's ~1.8 TB/s the 4-bit base is close to bandwidth-bound — 15.7 GB
+allow ~115 tok/s, the fork gets 79 (~70%) — and Bonsai is not: 7.2 GB
+allow ~250, it gets 131 (~52%). The format delivers the byte reduction;
+the kernel turns only part of it into tokens, because unpacking 2-bit
+codes for the tensor cores costs compute that Q4_K's kernels optimised
+away long ago. Same shape as the CPU gate below, on GPU. The consumer-card
+rows (2080 Ti, 3060: far less compute per GB/s) decide whether that cost
+is fixed or scales — if Bonsai's share of its ceiling falls further there,
+the gap widens on exactly the cards the cheap-hardware pitch is about.
+An upstream issue once those rows are in.
 
 ### Arc Pro B60 (NoLlama, OpenVINO 2026.3.1, driver 32.0.101.8805)
 
-| Arm | Decode, free text | Decode, count 1-100 | Prefill (~4.4k tok) | TTFT short | Probes no-think | Probes think | Think tokens / probe |
-|---|---|---|---|---|---|---|---|
-| Qwen3.8-27B int4-ov (Intel export, VLM slot, `--cache-size-gb 3`) | **22.9** | 23.3 | ~1,150 tok/s (3.9 s) | 0.38 s | 21/23 | **23/23** | 96 |
+| Arm | Decode, free text | Decode, count 1-100 | Prefill (~4.4k tok) | Probes no-think | Probes think | Think tokens / probe |
+|---|---|---|---|---|---|---|
+| Qwen3.8-27B int4-ov (Intel export, VLM slot, `--cache-size-gb 3`) | **22.9** | 23.3 | ~1,150 tok/s (3.9 s) | 21/23 | **23/23** | 96 |
+
+(Short-prompt TTFT 0.38 s here against ~0.1 s on the 5090.)
 
 That is 75% of the card's ~30 tok/s ceiling for 15 GB of weights at ~456
 GB/s — the B60 is not underperforming, it has a quarter of the 5090's
@@ -595,7 +611,10 @@ Two things this arm surfaced, both fixed or recorded the same day:
 - **The auto-sized 5 GB KV pool died with `CL_OUT_OF_RESOURCES`** on the
   34th request; 3 GB ran two full passes clean. `docs/dev/machines.md`.
 
-### CPU, same models — these rows measure the fork's kernels, not the format
+### CPU, same models, as of `prism-b10685` (2026-09-18) — these rows measure the fork's kernels, not the format
+
+**Dated on purpose**: PR PrismML-Eng/llama.cpp#206 adds AVX2/AVX-VNNI
+PQ2_0 kernels; once it ships, the scalar-path findings below are history.
 
 **Read the CPU rows as "what PrismML's CPU build does on this instruction
 set", never as "ternary is slow on CPU".** The fork's PQ2_0 CPU path is
@@ -681,9 +700,14 @@ and one tool call). It is a smoke test, not MMLU:
   band. A real retention number needs a standard suite (GSM8K, EvalPlus,
   MMLU-Redux) against that Q8_0 baseline, which nobody has run here.
 - **With thinking off the two are within one probe** (20-21/23). Both fail
-  string reversal and one multi-step arithmetic item without reasoning;
-  Bonsai additionally miscomputes the 09:40→13:15 duration (235 vs 215) on
-  both CUDA and CPU, so that is the model, not the backend.
+  string reversal and one multi-step arithmetic item without reasoning.
+- **The one real retention finding: clock arithmetic.** Minutes from 09:40
+  to 13:15, no thinking: Bonsai answers **235** (correct 215) on the CUDA
+  build, the 285K CPU build and the 5950X CPU build — the same wrong number
+  three times, greedy, so it is the weights, not a backend or sampler.
+  Every Qwen3.8 arm (Q4_K_M in the fork, Q8_0, both Ollama rows, OpenVINO
+  int4 on the B60) gets 215; with thinking on, Bonsai gets it too. One
+  data point, reproducible, and the kind PrismML can act on.
 - **Thinking is cheap on these prompts**: ~100 tokens per probe median for
   both models. The token-count parity is itself a result — a distillation
   that had learned to ramble would show up here first.
