@@ -655,11 +655,17 @@ thinking off, 2 runs (Vulkan Bonsai: 1), laptop otherwise idle:
 and its iGPU row is below its CPU row** — Vulkan has no PQ2_0 kernels, so
 the generic fallback on Xe2 loses to the AVX-VNNI dot on four P-cores. The
 base model has a real Vulkan path and an OpenVINO path and both beat every
-Bonsai row, at 4 tok/s. Nothing here is usable for a dense 27B; the "runs
-on your laptop" claim is a Mac/Metal claim until the SYCL port, Vulkan
-kernels or #206 land. `-t 4` bought Bonsai 12-35% (per-layer sync waiting
-on E-cores) and Q4_K_M nothing (memory-bound) — [INFERRED] for the Bonsai
-`-t 4` row, whose server log still reported 8 threads; see the fork README.
+Bonsai row, at 4 tok/s. Nothing here is usable for a dense 27B. Bonsai's
+1.7-1.9 tok/s is ~12% of a generous bandwidth ceiling where the 285K's 24
+threads reached ~58% on the same kernel: four P-cores cannot keep
+unpack-then-dot fed, which quantifies "compute-bound" better than any
+desktop row. [INFERRED] that the laptop claim holds on Apple silicon
+(Metal has the kernels; PrismML quotes 47 tok/s on an M5 Max) — no
+M-series was measured here. `-t 4` bought Bonsai 12-35% (per-layer sync
+waiting on E-cores) and Q4_K_M nothing (memory-bound); the Bonsai `-t 4`
+row awaits a rerun because its server log reported 8 threads. Every fork
+row in this section and the ones above ran with `-fa on`. Detail in the
+fork's `bench/README.md`.
 
 ### CPU, same models, as of `prism-b10685` (2026-09-18) — these rows measure the fork's kernels, not the format
 
