@@ -578,14 +578,14 @@ bandwidth-bound — 15.7 GB allow ~115 tok/s, the fork gets 79 (~70%) — and
 Bonsai is not: 7.2 GB allow ~250, it gets 131 (~52%). The hypothesis that
 unpacking 2-bit codes costs compute was tested on cards with far less
 compute per byte of bandwidth (2080 Ti ~21 FLOP/byte, 3060 ~35, 5090
-~59): Bonsai's share of ceiling is 46% on the 2080 Ti, 68% on the 3060,
-52% on the 5090 — not monotonic in compute per byte. The 2-bit PTQ quants
-of the base, whose dequant is compute-heavy, move the same way: 29-35% on
-Turing, 46-57% on Ampere. Every 2-bit kernel loses on Turing and gains on
-Ampere, and PQ2_0 keeps the largest share on every card. So the gap
-follows the GPU generation, not FLOP/byte, which points at per-layer
-overhead (launches, sync, access pattern, the Q8 activation round-trip)
-rather than arithmetic. A kernel profile would say which; an issue without
+~59): Bonsai's share of ceiling is 46% on the 2080 Ti (Turing), 68% on
+the 3060 (Ampere), ~87% on the 4060 (Ada), 52% on the 5090 (Blackwell) —
+not monotonic in compute per byte, and the newest card is not the best at
+it. The 2-bit PTQ quants of the base, whose dequant is compute-heavy,
+move the same way: 29-35% on Turing, 46-57% on Ampere, near ceiling on
+Ada. So the gap follows the GPU generation, not FLOP/byte, which points at
+per-layer overhead (launches, sync, access pattern, the Q8 activation
+round-trip) rather than arithmetic. A kernel profile would say which; an issue without
 one would not.
 
 ### Arc Pro B60 (NoLlama, OpenVINO 2026.3.1, driver 32.0.101.8805)
@@ -624,7 +624,16 @@ nothing else on it; the 2080 Ti alone in the box with the desktop's 0.3-0.5
 GB. **RTX 3060 12 GB:** Bonsai **33.8 tok/s**, 505 tok/s prefill, 8.9 GB at
 16k and 9.9 GB at 32k, 20/23 and **23/23**; UD-IQ2_XXS 22.9 tok/s, 21/23 and
 20/23; UD-Q2_K_XL 21.1, 21/23 and 22/23 — Bonsai 1.5x the equal-bytes PTQ,
-same pattern as the Turing card below. **RTX 2080 Ti 11 GB:**
+same pattern as the Turing card below. **RTX 4060 8 GB** (second card,
+clean): PQ2_0 fits text-only at 8k (7.5 GB, 33 tok/s, 609 tok/s prefill);
+the 5.9 GB **PTQ1_0** band fits with the projector at 16k (7.7 GB), 30.6
+tok/s, 303 tok/s prefill, and scores **the same as PQ2_0** (20/23, 23/23);
+the base at 1-bit-class PTQ (UD-IQ1_M, 6.7 GB) runs at 27 tok/s but
+collapses to **18/23 and 19/23**, four probes returning empty after the
+thinking budget ran out — the first tier where QAT ternary beats PTQ on
+quality at equal memory, not just on speed. PQ2_0 reaches ~87% of the
+4060's bandwidth ceiling, the highest share of any card. **RTX 2080 Ti
+11 GB:**
 
 | Model | File | VRAM at 16k | Decode, free text | Prefill (4.4k) | Probes no-think | Probes think | Think tok/probe |
 |---|---|---|---|---|---|---|---|
