@@ -10,7 +10,8 @@
 %%         ALL-CAPS nodes = prose annotations.
 %% Palette: route (blue) = protocol consumers, gen (green) = backend/worker,
 %%          client (yellow) = wire frames, warn (orange) = annotations.
-%% covers: nollama.py:_apply_tuning,_tuning_for,_model_family,_apply_thinking_switch,_no_think_requested,stream_tokens,stream_vlm_tokens,_reset_vlm_state,_vlm_penalty_guard,_is_placeholder_bounds_error,_note_poisoned,_is_poisoned_context_error,stream_llm,stream_vlm,_sse_stream,_ollama_stream_chat,_ollama_stream_generate,generate_llm,generate_vlm,cancel,explain_genai_error,_AtemStreamFilter,_AtemPlainFilter,_ThinkSplitter,_split_think,_ToolCallGate,_prompt_preseeds_think
+%% Updated 2026-09-18: VLM slots get the no-think switch too, via a pre-rendered prompt.
+%% covers: nollama.py:_apply_tuning,_tuning_for,_model_family,_apply_thinking_switch,_no_think_requested,_nothink_render_ok,render_nothink_prompt,preseeded_for,stream_tokens,stream_vlm_tokens,_reset_vlm_state,_vlm_penalty_guard,_is_placeholder_bounds_error,_note_poisoned,_is_poisoned_context_error,stream_llm,stream_vlm,_sse_stream,_ollama_stream_chat,_ollama_stream_generate,generate_llm,generate_vlm,cancel,explain_genai_error,_AtemStreamFilter,_AtemPlainFilter,_ThinkSplitter,_split_think,_ToolCallGate,_prompt_preseeds_think
 flowchart TB
   stream_tokens["DeviceSlot.stream_tokens<br/>SEAM between backend and protocol.<br/>Owns: worker thread, lock, binding the<br/>caller's per-request cancel token to<br/>slot._cancel INSIDE the lock, _stream_error.<br/>A token already set at lock time skips<br/>generate (client left while queued).<br/>Yields str chunk, or None after
   'heartbeat' quiet seconds"]
@@ -23,7 +24,9 @@ flowchart TB
   think_switch --> apply_tuning
   apply_tuning["_apply_tuning<br/>clamp to the FAMILY's measured limits<br/>(model-tuning.json, keyed on config.json<br/>model_type). Only ever LOWERS."]
   apply_tuning --> worker
-  stream_vlm_tokens --> worker
+  stream_vlm_tokens --> vlm_think_switch
+  vlm_think_switch["render_nothink_prompt (handler, text-only turns)<br/>Tokenizer.apply_chat_template(raw_messages,<br/>extra_context enable_thinking=false), passed<br/>as raw_prompt=True so the seam sets<br/>gen.apply_chat_template=False. Armed at load<br/>by _nothink_render_ok only if a dummy render<br/>ends in a CLOSED block. preseeded_for() tells<br/>the splitter which tail this turn has.<br/>generate_vlm takes the same path"]
+  vlm_think_switch --> worker
 
   penalty_guard["_vlm_penalty_guard (image turns only)<br/>Some VLM exports put image placeholders<br/>outside 0..vocab_size. genai's repetition<br/>-penalty transformer walks the PROMPT ids<br/>and asserts on them, so every image turn died<br/>while text turns worked. First failure sets a<br/>per-slot flag, warns once, and retries with<br/>repetition_penalty = 1.0; later image turns<br/>skip the penalty up front. Text turns keep it"]
   reset_state["_reset_vlm_state<br/>on a throwing VLM generate, once the poisoned<br/>class is ruled out: finish_chat() to reconverge<br/>the attention mask with tokenized_history, so one<br/>failure does not wedge every later request"]
@@ -146,9 +149,15 @@ flowchart TB
   a thinking model on a small budget returns EMPTY content - SmolLM3-3B on
   NPU 4 did that for OpenCode's title, 3/3 deterministic (TODO.md).
   The prose is left in the history anyway: for Muse Glimmer it IS the
-  native control. THE VLM PATH IS NOT COVERED - VLMPipeline takes a
-  flattened prompt string, which has no extra_context hook."]
+  native control. THE VLM PATH HAS NO ChatHistory HOOK - VLMPipeline takes
+  a flattened prompt string - so the handler renders the prompt itself with
+  the same extra_context (vlm_think_switch). VLMPipeline.set_chat_template
+  was tried first and throws 'Chat mode is not supported' on the
+  prefix-caching backend. Before the fix, Qwen3.8-27B on a B60 VLM slot
+  spent a 600-token 'no-think' story budget entirely inside think and
+  returned empty content (2026-09-18, scripts/bonsai-bench.py)."]
   think_switch -.-> NOTHINK
+  vlm_think_switch -.-> NOTHINK
 
   TUNING["THE CALLER IS OFTEN US. The web UI sent repetition_penalty 1.1 to
   every model for three months to break thinking-loops on one of them, and it
@@ -165,7 +174,7 @@ flowchart TB
   classDef client fill:#ffffcc,stroke:#b3b300,color:#000
   classDef warn fill:#fec,stroke:#a60,color:#000
   class _sse_stream,stream_llm,tool_stream,_ollama_stream_chat,_ollama_stream_generate,generate_llm route
-  class stream_tokens,stream_vlm_tokens,opt_stream_tokens,worker,atem,splitter,gate,penalty_guard,reset_state,think_switch,apply_tuning,nonstream gen
+  class stream_tokens,stream_vlm_tokens,opt_stream_tokens,worker,atem,splitter,gate,penalty_guard,reset_state,think_switch,vlm_think_switch,apply_tuning,nonstream gen
   class poison_gate route
   class cancel,_stream_error,poisoned client
   class FINALLY,CANCELLIMIT,ORDER,RETRYSAFE,WEDGEUNPROVEN,NOTHINK,TUNING,EVERYPATH warn

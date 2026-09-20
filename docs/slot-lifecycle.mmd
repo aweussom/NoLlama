@@ -1,6 +1,7 @@
 %% Slot lifecycle: backend pick, load, prefix cache, prewarm, idle unload.
 %% Drawn 2026-08-19 from nollama.py @ 85e796f.
 %% Updated 2026-09-01: --gpu-large-alloc manual override of the alloc gate (issue #24).
+%% Updated 2026-09-18: load probes the template for the no-think render (VLM slots).
 %% Updated 2026-09-13: KV pool auto-size is device-typed (GPU takes the larger of
 %%   headroom-reserve and headroom/3; CPU keeps the fraction) and rounds; load
 %%   progress heartbeat added around the build.
@@ -58,7 +59,8 @@ flowchart TB
 
   cb_pipe --> _LoadDone
   _LoadDone["_LoadProgress.done<br/>stops ticker, _record_load_time writes<br/>.load-times.json for the NEXT run's estimate.<br/>NOT called on a raise - a failed duration<br/>would poison the estimate"]
-  _LoadDone --> warmup["warmup<br/>5-token generate; ready or error"]
+  _LoadDone --> template_probe["template probe, via pipe.get_tokenizer()<br/>_prompt_preseeds_think: does the template open<br/>think itself? (Qwen3.5/3.8: yes)<br/>_nothink_render_ok, VLM only: does<br/>enable_thinking=false render a CLOSED block?<br/>Feeds _ThinkSplitter and render_nothink_prompt"]
+  template_probe --> warmup["warmup<br/>5-token generate; ready or error"]
   npu_pipe --> _LoadDone
   plain_pipe --> _LoadDone
   cb_fallback --> _LoadDone
@@ -219,7 +221,7 @@ flowchart TB
   classDef client fill:#ffffcc,stroke:#b3b300,color:#000
   classDef warn fill:#fec,stroke:#a60,color:#000
   class _gpu_keepalive,main,_slot_class,_verify_weights_integrity,_resolve_kv_pool,_preflight_memory,alloc_gate,_gpu_large_alloc_props,pipebuild,npu_arch,_prewarm_slot,_idle_watchdog,_load_in_background route
-  class load,optimum_load,npu_pipe,npu_warn,cb_pipe,plain_pipe,cb_fallback,warmup,ready,ensure_loaded gen
+  class load,optimum_load,npu_pipe,npu_warn,cb_pipe,plain_pipe,cb_fallback,template_probe,warmup,ready,ensure_loaded gen
   class embed_load,embed_warm,embed_ready gen
   class _LoadProgress,_LoadDone client
   class loaderr,unload,poisoned_slot client

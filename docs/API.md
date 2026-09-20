@@ -258,6 +258,21 @@ token by token, then the parsed `tool_calls` delta and
 get the pre-2026-08-30 shape (tags inside `content`) for a client that
 depends on it. The Ollama API (`/api/chat`) is unaffected either way.
 
+#### Turning thinking off
+
+There is no `enable_thinking` field in the OpenAI request shape, so NoLlama
+reads the switch off a **system** message: any system message containing
+`Reasoning strength: minimal` (the web UI's no-think checkbox sends
+`Respond directly and concisely, with no internal reasoning preamble.
+Reasoning strength: minimal.`) makes the server render the chat template
+with `enable_thinking=false`, which pre-closes the think block before the
+model writes a token. Works on LLM slots and, since 2026-09-18, on VLM
+slots for text-only turns (Qwen3, Qwen3.8, SmolLM3 templates honour it;
+Muse Glimmer reads the prose itself). A user message quoting the phrase
+does not trigger it. Before the VLM fix, Qwen3.8-27B on a VLM slot kept
+reasoning through the marker and a 600-token no-think budget could come
+back as empty `content`.
+
 ### Embeddings (RAG)
 
 `--embed-model-dir DIR` loads a text-embedding model into its own slot, so

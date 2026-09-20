@@ -1853,6 +1853,10 @@ class DeviceSlot:
         self.kv_pool_gb = 0              # resolved KV pool for THIS slot (_resolve_kv_pool)
         self._atem = False               # Muse Glimmer channel stream needs translating
         self.think_preseeded = False     # chat template opens <think> in the generation prompt (Qwen3.5/3.8)
+        # VLM slots only: True when the tokenizer can render a no-think prompt
+        # (enable_thinking=false as extra context) that ends in a CLOSED think
+        # block — see _nothink_render_ok / render_nothink_prompt.
+        self._nothink_ok = False
         self._rep_penalty_breaks_images = False  # set once this model proves it (see _vlm_penalty_guard)
 
     def load(self, model_dir):
@@ -2000,6 +2004,11 @@ class DeviceSlot:
         # [OBSERVED 2026-08-30, 2026.3.0 + Qwen3.8 main-branch IR].
         get_tok = getattr(self.pipe, "get_tokenizer", None)
         self.think_preseeded = _prompt_preseeds_think(get_tok() if get_tok else None)
+        self._nothink_ok = (_nothink_render_ok(get_tok())
+                            if (get_tok and self.model_type == "vlm") else False)
+        if self._nothink_ok:
+            print(f"  [{self.device_name}] no-think switch: pre-rendered prompt "
+                  f"(VLMPipeline takes no ChatHistory)", flush=True)
 
     def _resolve_kv_pool(self, vlm):
         """Set self.kv_pool_gb — the KV-cache pool for this slot's CB backend.
@@ -2197,6 +2206,45 @@ class DeviceSlot:
             self.load(self.model_dir)
             self.warmup()
 
+    def render_nothink_prompt(self, raw_messages, images):
+        """The chat template rendered with enable_thinking=false, or None.
+
+        Why: the one way to close the think channel on a VLM slot (see
+        _nothink_render_ok). Rendering the real roles is also a better
+        prompt than the flattened single user turn the pipeline otherwise
+        gets — but only no-think turns take this path, so the two shapes
+        coexist; unify them once image tags are verified to survive (below).
+
+        In: the request's role/content messages and its image tensors. Out:
+        the rendered prompt string to pass with raw_prompt=True, or None when
+        the switch is unavailable, the render fails, or images are present —
+        [INFERRED] `<ov_genai_image_N>` tags in a pre-rendered prompt should
+        still be picked up by the embedder, but it is untested, so an image
+        turn keeps the old prose-only behaviour until someone runs it.
+        """
+        if not self._nothink_ok or images:
+            return None
+        try:
+            return str(self.pipe.get_tokenizer().apply_chat_template(
+                raw_messages, True, extra_context=_NOTHINK_CONTEXT))
+        except Exception as e:
+            print(f"{datetime.now():%H:%M:%S} -- [{self.device_name}] no-think render "
+                  f"failed ({e}); falling back to the pipeline's template", flush=True)
+            return None
+
+    def preseeded_for(self, raw_prompt):
+        """Whether THIS turn's prompt ends inside an open <think> block.
+
+        Why: `think_preseeded` describes the template's default. A prompt
+        pre-rendered by render_nothink_prompt ends in a CLOSED block instead,
+        and a splitter told to start inside a block would wait for a </think>
+        that never comes and file the whole answer under reasoning_content.
+
+        In: whether this turn's prompt was pre-rendered. Out: bool for
+        _ThinkSplitter / _split_think. Unchanged for LLM slots.
+        """
+        return self.think_preseeded and not raw_prompt
+
     def _vlm_generate_once(self, text_prompt, images, gen):
         """One VLMPipeline.generate call, images optional.
 
@@ -2309,14 +2357,19 @@ class DeviceSlot:
         except Exception:
             pass
 
-    def generate_vlm(self, text_prompt, images, gen):
+    def generate_vlm(self, text_prompt, images, gen, raw_prompt=False):
         """VLM generate — images optional.
 
         Retries once without the repetition penalty when the model turns out
         to encode image placeholders out of vocab; see _vlm_penalty_guard.
         A poisoned driver context takes the slot out of service instead, and
         does it before any other recovery runs — see the handler below.
+        `raw_prompt` says text_prompt is already a rendered chat prompt
+        (render_nothink_prompt), so the pipeline must not template it again;
+        the caller pairs it with preseeded_for().
         """
+        if raw_prompt:
+            gen.apply_chat_template = False
         with self.lock:
             self._vlm_penalty_guard(gen, images)
             try:
@@ -2506,7 +2559,8 @@ class DeviceSlot:
                 return
             yield token
 
-    def stream_vlm_tokens(self, text_prompt, images, gen, heartbeat, tag="", cancel=None):
+    def stream_vlm_tokens(self, text_prompt, images, gen, heartbeat, tag="", cancel=None,
+                          raw_prompt=False):
         """VLM twin of stream_tokens — same contract, over VLMPipeline.
 
         Why a separate seam: VLMPipeline.generate takes prompt+images, not a
@@ -2540,6 +2594,8 @@ class DeviceSlot:
                     if cancel.is_set():
                         return  # client gone while we were queued
                     self._cancel = cancel
+                    if raw_prompt:
+                        gen.apply_chat_template = False  # already rendered, see generate_vlm
                     self._vlm_penalty_guard(gen, images)
                     kwargs = dict(prompt=text_prompt, generation_config=gen,
                                   streamer=streamer_callback)
@@ -2591,19 +2647,23 @@ class DeviceSlot:
             if tail:
                 yield tail
 
-    def stream_vlm(self, text_prompt, images, gen, completion_id, created, t0):
+    def stream_vlm(self, text_prompt, images, gen, completion_id, created, t0,
+                   raw_prompt=False):
         """VLM generate — SSE streaming. Protocol layer over stream_vlm_tokens().
 
         Same frames as stream_llm (keep-alive on None, reasoning_content for
         <think> spans, wall-clock TTFT on the first token). It used to abort
         after 180 quiet seconds with no keep-alive, which on a big prompt
         ended the stream mid-prefill; now it pings like the LLM path.
+        `raw_prompt` reaches both the seam (no re-templating) and the splitter
+        (preseeded_for), which must agree or the answer is filed as reasoning.
         """
         cancel = threading.Event()
         yield from self._sse_stream(
             self.stream_vlm_tokens(text_prompt, images, gen, heartbeat=HEARTBEAT_SECS,
-                                   cancel=cancel),
-            completion_id, created, t0, cancel, tag="VLM ")
+                                   cancel=cancel, raw_prompt=raw_prompt),
+            completion_id, created, t0, cancel, tag="VLM ",
+            preseeded=self.preseeded_for(raw_prompt))
 
     def stream_llm(self, raw_messages, gen, completion_id, created, t0):
         """LLM generate — SSE streaming. Protocol layer over stream_tokens()."""
@@ -2612,7 +2672,7 @@ class DeviceSlot:
             self.stream_tokens(raw_messages, gen, heartbeat=HEARTBEAT_SECS, cancel=cancel),
             completion_id, created, t0, cancel)
 
-    def _sse_stream(self, tokens, completion_id, created, t0, cancel, tag=""):
+    def _sse_stream(self, tokens, completion_id, created, t0, cancel, tag="", preseeded=None):
         """Turn a token seam into OpenAI SSE frames — shared by stream_llm/stream_vlm.
 
         Why one body: the two paths differed only in which seam fed them, and
@@ -2623,13 +2683,15 @@ class DeviceSlot:
         _ThinkSplitter; the client-disconnect safety net (finally:
         _cancel.set()) lives HERE, not in the seam — see stream_tokens.
 
-        In: a stream_tokens-shaped generator. Ends with finish_reason
-        stop / cancelled / error, then [DONE]; the log line prints after.
+        In: a stream_tokens-shaped generator; `preseeded` overrides the
+        slot default for this turn (stream_vlm passes preseeded_for()). Ends
+        with finish_reason stop / cancelled / error, then [DONE]; the log line
+        prints after.
         """
         token_count = 0
         was_cancelled = False
         done = False  # set only after [DONE]; False in finally means the client left
-        splitter = _ThinkSplitter(self.think_preseeded)
+        splitter = _ThinkSplitter(self.think_preseeded if preseeded is None else preseeded)
 
         def frame(delta, finish=None):
             return "data: " + json.dumps({
@@ -2937,6 +2999,44 @@ def _prompt_preseeds_think(tokenizer, hf=False):
     except Exception:
         return False
     return str(rendered).rstrip().endswith("<think>")
+
+
+_NOTHINK_CONTEXT = {"enable_thinking": False}
+
+
+def _nothink_render_ok(tokenizer):
+    """True when this VLM's tokenizer renders a no-think prompt that closes the think block.
+
+    Why: VLMPipeline.generate takes a prompt *string* and applies the chat
+    template itself, so there is no ChatHistory to carry `enable_thinking`
+    the way _apply_thinking_switch does on the LLM path. The lever left is to
+    render the template ourselves — Tokenizer.apply_chat_template takes the
+    same extra_context — and hand the pipeline the finished string with
+    `apply_chat_template=False` (render_nothink_prompt). [OBSERVED 2026-09-18,
+    Qwen3.8-27B-int4-ov on an Arc Pro B60 VLM slot, genai 2026.3.1] with the
+    prose marker alone every "no-think" turn still opened with 119-2491
+    chars of reasoning and a 600-token story budget was spent inside <think>,
+    returning empty content.
+
+    Why not VLMPipeline.set_chat_template: it throws "Chat mode is not
+    supported" (continuous_batching_adapter.hpp:153) on the prefix-caching
+    backend every GPU/CPU VLM slot runs on [OBSERVED 2026-09-18, same box].
+
+    Verified by rendering one dummy turn: only a result ending in a *closed*
+    block counts, so a template without the switch degrades to the old
+    prose-only behaviour rather than to a broken prompt.
+
+    In: a genai Tokenizer (pipe.get_tokenizer()) or None. Out: bool. Never
+    raises.
+    """
+    if tokenizer is None:
+        return False
+    try:
+        rendered = tokenizer.apply_chat_template([{"role": "user", "content": "hi"}],
+                                                 True, extra_context=_NOTHINK_CONTEXT)
+    except Exception:
+        return False
+    return str(rendered).rstrip().endswith("</think>")
 
 
 class _ThinkSplitter:
@@ -3392,12 +3492,13 @@ class OptimumSlot(DeviceSlot):
             raise self._stream_error
         return "".join(chunks).strip()
 
-    def generate_vlm(self, text_prompt, images, gen):
+    def generate_vlm(self, text_prompt, images, gen, raw_prompt=False):
         """Refuse loudly: the routes reject images first (model_type is 'llm'),
         so reaching this means a routing bug — fail, don't improvise."""
         raise RuntimeError("vision path not enabled on the optimum backend yet")
 
-    def stream_vlm(self, text_prompt, images, gen, completion_id, created, t0):
+    def stream_vlm(self, text_prompt, images, gen, completion_id, created, t0,
+                   raw_prompt=False):
         """Refuse loudly — same contract as generate_vlm above."""
         raise RuntimeError("vision path not enabled on the optimum backend yet")
 
@@ -3858,12 +3959,18 @@ def _sse_tool_stream(slot, raw_messages, gen, tools, completion_id, created, t0,
 
     cancel = threading.Event()  # this request's token — see stream_tokens
     if vlm is not None:
+        # vlm = (text_prompt, images, raw_prompt): a pre-rendered no-think
+        # prompt must not be templated again; the LLM seam has no such case
+        # because it reads the switch off raw_messages itself.
+        raw_prompt = vlm[2] if len(vlm) > 2 else False
         tokens = slot.stream_vlm_tokens(vlm[0], vlm[1], gen, heartbeat=HEARTBEAT_SECS,
-                                        cancel=cancel)
+                                        cancel=cancel, raw_prompt=raw_prompt)
+        preseeded = slot.preseeded_for(raw_prompt)
     else:
         tokens = slot.stream_tokens(raw_messages, gen, heartbeat=HEARTBEAT_SECS,
                                     cancel=cancel)
-    splitter, gate = _ThinkSplitter(getattr(slot, "think_preseeded", False)), _ToolCallGate()
+        preseeded = getattr(slot, "think_preseeded", False)
+    splitter, gate = _ThinkSplitter(preseeded), _ToolCallGate()
     token_count = 0
     was_cancelled = False
     done = False  # set only after [DONE]; False in finally means the client left
@@ -4470,25 +4577,34 @@ def chat_completions():
 
     # --- VLM path ---
     if slot.model_type == "vlm":
+        # The LLM path reads the no-think marker off raw_messages inside its
+        # seam; the VLM seam gets a prompt string, so the switch is applied
+        # here by rendering that string ourselves (render_nothink_prompt).
+        raw_prompt = False
+        if _no_think_requested(raw_messages):
+            rendered = slot.render_nothink_prompt(raw_messages, images)
+            if rendered is not None:
+                text_prompt, raw_prompt = rendered, True
         # Tool turns are buffered like the LLM path's (structured tool_calls
         # need the whole generation); images alongside tools are allowed — a
         # screenshot plus tool specs is a legitimate agent turn.
         if stream and tools_active:
             return Response(
                 _sse_tool_stream(slot, raw_messages, gen, tools, completion_id,
-                                 created, t0, vlm=(text_prompt, images)),
+                                 created, t0, vlm=(text_prompt, images, raw_prompt)),
                 mimetype="text/event-stream",
                 headers={"X-Device": slot.device_name, "X-Model": slot.model_name},
             )
         if stream:
             return Response(
-                slot.stream_vlm(text_prompt, images, gen, completion_id, created, t0),
+                slot.stream_vlm(text_prompt, images, gen, completion_id, created, t0,
+                                raw_prompt=raw_prompt),
                 mimetype="text/event-stream",
                 headers={"X-Device": slot.device_name, "X-Model": slot.model_name},
             )
 
         try:
-            text = slot.generate_vlm(text_prompt, images, gen)
+            text = slot.generate_vlm(text_prompt, images, gen, raw_prompt=raw_prompt)
         except Exception as e:
             print(f"{datetime.now():%H:%M:%S} !! [{slot.device_name}] VLM error: {e}", flush=True)
             return openai_error(f"Inference failed: {e}", "server_error", 500)
@@ -4505,7 +4621,8 @@ def chat_completions():
                       f"{len(tool_calls)} tool call(s): "
                       f"{', '.join(tc['function']['name'] for tc in tool_calls)}",
                       flush=True)
-        message, finish_reason = _assistant_message(text, tool_calls, slot.think_preseeded)
+        message, finish_reason = _assistant_message(text, tool_calls,
+                                                    slot.preseeded_for(raw_prompt))
 
         resp = jsonify({
             "id": completion_id, "object": "chat.completion",

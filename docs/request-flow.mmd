@@ -1,6 +1,7 @@
 %% Request routing and generation-path selection, both API surfaces.
 %% Drawn 2026-08-19 from nollama.py @ 85e796f (source read, paths verified in code).
 %% Updated 2026-08-30: tool turns stream (issue #36); _sse_replay removed, _assistant_message added.
+%% Updated 2026-09-18: VLM no-think turns pre-render the prompt (render_nothink_prompt) before the seams.
 %% Legend: solid = normal path, dashed = refused/degraded path,
 %%         ALL-CAPS nodes = prose annotations.
 %% Palette: route (blue) = request handling, gen (green) = generation paths,
@@ -54,6 +55,12 @@ flowchart TB
   _maybe_capture_prewarm -->|"stream + tools (LLM or VLM)"| _sse_tool_stream
   _maybe_capture_prewarm -->|non-stream| generate_blocking
 
+  _maybe_capture_prewarm -->|"VLM + no-think marker in a<br/>SYSTEM message, text-only"| render_nothink_prompt
+  render_nothink_prompt["render_nothink_prompt<br/>tokenizer.apply_chat_template(raw_messages,<br/>enable_thinking=false) replaces the flattened<br/>text_prompt; raw_prompt=True rides along so the<br/>VLM seam skips its own template and the splitter<br/>starts OUTSIDE a think block (preseeded_for).<br/>LLM slots do this inside the seam instead"]
+  render_nothink_prompt --> stream_vlm
+  render_nothink_prompt --> _sse_tool_stream
+  render_nothink_prompt --> generate_blocking
+
   _sse_tool_stream --> parse_tool_calls
   generate_blocking -->|tools active| parse_tool_calls
 
@@ -78,6 +85,6 @@ flowchart TB
   classDef client fill:#ffffcc,stroke:#b3b300,color:#000
   classDef warn fill:#fec,stroke:#a60,color:#000
   class chat_completions,ollama_chat,ollama_generate,ollama_v1_chat_completions,parse_messages,_route_request,_tools_supported,prepare_messages_for_tools,_maybe_capture_prewarm,pathpick route
-  class stream_llm,stream_vlm,_sse_tool_stream,generate_blocking,parse_tool_calls gen
+  class stream_llm,stream_vlm,_sse_tool_stream,generate_blocking,parse_tool_calls,render_nothink_prompt gen
   class openai_client,ollama_client,refuse400,refuse503 client
   class GATED,NPUGATE warn
