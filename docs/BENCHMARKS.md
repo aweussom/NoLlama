@@ -719,6 +719,8 @@ Same binary on both sides of each pair (the fork's `bin\cpu`, `-c 8192`,
 | **Ryzen 9 5950X** (Zen 3: AVX2 only; 16 threads, DDR4) | Bonsai 2 PQ2_0 | 2.7 | **3.3 tok/s (1,342 s)** | 20/23 |
 | | Qwen3.8 Q4_K_M | 2.4 | 27 tok/s (163 s) | 21/23 |
 | **Core i9-9900K** (Coffee Lake: AVX2 only; 8 threads, DDR4) | Bonsai 2 PQ2_0 | 1.3 | not run (short prompts 11-16 tok/s) | 20/23 |
+| **Core Ultra 7 258V** laptop (Lunar Lake: AVX-VNNI, no AVX-512; 4 P + 4 E cores, LPDDR5X) | Bonsai 2 PQ2_0 | 1.7 (1.9 at `-t 4`, rerun pending) | not run (short prompts 17-21 tok/s) | 20/23 |
+| | Qwen3.8 Q4_K_M | 2.2 (2.3 at `-t 4`) | not run (short prompts 34-47 tok/s) | 21/23 |
 | 285K, for reference | Qwen3.8 Q4_K_M via Ollama `num_gpu 0`, **MTP drafter on** | 5.2 | 29 tok/s | 21/23 |
 
 Read down each pair. **Decode:** on Arrow Lake the ternary model is 1.65x
