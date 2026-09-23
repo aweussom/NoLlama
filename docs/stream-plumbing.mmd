@@ -11,7 +11,7 @@
 %% Palette: route (blue) = protocol consumers, gen (green) = backend/worker,
 %%          client (yellow) = wire frames, warn (orange) = annotations.
 %% Updated 2026-09-18: VLM slots get the no-think switch too, via a pre-rendered prompt.
-%% covers: nollama.py:_apply_tuning,_tuning_for,_model_family,_apply_thinking_switch,_no_think_requested,_nothink_render_ok,render_nothink_prompt,preseeded_for,stream_tokens,stream_vlm_tokens,_reset_vlm_state,_vlm_penalty_guard,_is_placeholder_bounds_error,_note_poisoned,_is_poisoned_context_error,stream_llm,stream_vlm,_sse_stream,_ollama_stream_chat,_ollama_stream_generate,generate_llm,generate_vlm,cancel,explain_genai_error,_AtemStreamFilter,_AtemPlainFilter,_ThinkSplitter,_split_think,_ToolCallGate,_prompt_preseeds_think
+%% covers: nollama.py:_apply_tuning,_tuning_for,_model_family,_apply_thinking_switch,_no_think_requested,_nothink_render_ok,render_nothink_prompt,preseeded_for,stream_tokens,stream_vlm_tokens,_reset_vlm_state,_vlm_penalty_guard,_is_placeholder_bounds_error,_note_poisoned,_is_poisoned_context_error,stream_llm,stream_vlm,_sse_stream,_ollama_stream_chat,_ollama_stream_generate,generate_llm,generate_vlm,cancel,explain_genai_error,_AtemStreamFilter,_AtemPlainFilter,_ThinkSplitter,_split_think,_ToolCallGate,_prompt_preseeds_think,_pythonic_calls,_strip_tool_markup
 flowchart TB
   stream_tokens["DeviceSlot.stream_tokens<br/>SEAM between backend and protocol.<br/>Owns: worker thread, lock, binding the<br/>caller's per-request cancel token to<br/>slot._cancel INSIDE the lock, _stream_error.<br/>A token already set at lock time skips<br/>generate (client left while queued).<br/>Yields str chunk, or None after
   'heartbeat' quiet seconds"]
@@ -98,7 +98,9 @@ flowchart TB
   opt_stream_tokens --> generate_llm
 
   splitter["_ThinkSplitter / _split_think<br/>think spans -> reasoning_content deltas,<br/>answer -> content; tag prefixes held back<br/>across chunk boundaries; empty block dropped.<br/>_prompt_preseeds_think (at load, via the<br/>pipeline's own tokenizer) starts it inside a<br/>block for templates that open think themselves.<br/>--think-in-content restores the old shape"]
-  gate["_ToolCallGate<br/>content streams until a tool-call opener<br/>(any syntax parse_tool_calls knows);<br/>held from there, parsed at the end"]
+  gate["_ToolCallGate<br/>content streams until a tool-call opener<br/>(any syntax parse_tool_calls knows, incl.<br/>LFM2.5 &lt;|tool_call_start|&gt;);<br/>held from there, parsed at the end"]
+  gate --> scrub["_strip_tool_markup<br/>held text that parsed to NO call still<br/>reaches the user: markers out, prose kept<br/>(a bare &lt;tool_call&gt; was rendered, 2026-09-23)"]
+  gate --> pyc["_pythonic_calls<br/>LFM2.5 writes a PYTHON LIST of calls;<br/>ast.parse, never eval, literals only"]
   _sse_stream --> splitter
   tool_stream --> splitter
   tool_stream --> gate

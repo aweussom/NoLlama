@@ -28,6 +28,7 @@ Usage:
 __version_date__ = "2026-09-18"
 
 import argparse
+import ast
 import base64
 import hashlib
 import io
@@ -1574,14 +1575,91 @@ _ATEM_PARAM_RE = re.compile(
 #   Llama 3.x : <|python_tag|>{"name": ..., "parameters": {...}}  (';'-separated)
 #   DeepSeek  : <｜tool▁calls▁begin｜><｜tool▁call▁begin｜>function<｜tool▁sep｜>NAME
 #               ```json\n{...}\n```<｜tool▁call▁end｜><｜tool▁calls▁end｜>
+#   LFM2.5    : <|tool_call_start|>[name(arg='v', n=1)]<|tool_call_end|>
+#               A PYTHON LIST, not JSON. Liquid's models write Pythonic
+#               calls by default [DOCUMENTED, LiquidAI/LFM2.5-8B-A1B card];
+#               prose may follow the closing token.
 _MISTRAL_RE = re.compile(r"\[TOOL_CALLS\]")
 _PYTHON_TAG_RE = re.compile(r"<\|python_tag\|>")
+_LFM2_RE = re.compile(r"<\|tool_call_start\|>(.*?)<\|tool_call_end\|>", re.DOTALL)
 _DS_BEGIN = "<｜tool▁calls▁begin｜>"
 _DS_CALL_RE = re.compile(
     r"<｜tool▁call▁begin｜>\s*\w+\s*<｜tool▁sep｜>\s*([^\n`]+?)\s*"
     r"```(?:json)?\s*(\{.*?\})\s*```",
     re.DOTALL,
 )
+
+
+def _strip_tool_markup(text):
+    """Remove tool-call markup from text that is about to be shown to a user.
+
+    Why: the gate holds from the first opener to the end of the turn, and when
+    nothing parses out of it the held text is emitted as the answer — markup
+    included. A real session rendered a bare `<tool_call>` twice and a stray
+    `TokenName` into the assistant's reply [OBSERVED 2026-09-23, Qwen3-14B under
+    OpenCode], which makes a working model look broken and is the sort of thing
+    that arrives as a screenshot in an issue.
+
+    Dropping the whole held block instead would hide a real failure: the prose
+    around the markup is often the model's actual answer. So the markers go and
+    the words stay.
+
+    In: the held text. Out: the same text without the opener/closer tokens of
+    every format parse_tool_calls knows, collapsed blank lines, stripped. An
+    empty result means there was nothing but markup, and the caller emits
+    nothing at all.
+    """
+    for marker in ("<tool_call>", "</tool_call>", "<|tool_call_start|>",
+                   "<|tool_call_end|>", "<|python_tag|>", "[TOOL_CALLS]",
+                   "<atem:function_calls>", "</atem:function_calls>",
+                   _DS_BEGIN, "<｜tool▁calls▁end｜>"):
+        text = text.replace(marker, "")
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+def _pythonic_calls(source):
+    """Read `[name(arg='v', n=1), other()]` into (name, args) pairs.
+
+    Why not eval(): the text comes from a model, and a tool-call parser that
+    executes it is a remote-code-execution hole. ast.parse builds the tree
+    without running anything, and only literal arguments survive — an argument
+    like `open('x').read()` parses fine and is dropped here.
+
+    Why it exists: LFM2.5 writes Pythonic calls by default, and a model
+    ignoring our JSON prompt is the normal case, not the exception. Without
+    this, a model that calls tools correctly looks like one that only talks
+    [OBSERVED 2026-09-23, LFM2.5-8B under OpenCode: every call emitted, none
+    parsed, and the probe reported "never called a tool"].
+
+    In: the text between the special tokens, brackets optional. Out: a list of
+    (name, {arg: value}) — empty when nothing parses, so the caller falls
+    through to the next format. Positional arguments are dropped: tool schemas
+    are keyword-shaped and guessing an order is worse than reporting none.
+    """
+    src = source.strip()
+    if not src:
+        return []
+    if not src.startswith("["):
+        src = "[" + src + "]"
+    try:
+        tree = ast.parse(src, mode="eval")
+    except (SyntaxError, ValueError):
+        return []
+    body = tree.body
+    elements = body.elts if isinstance(body, (ast.List, ast.Tuple)) else [body]
+    out = []
+    for node in elements:
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+            continue
+        args = {}
+        for kw in node.keywords:
+            if kw.arg is None:
+                continue
+            try:
+                args[kw.arg] = ast.literal_eval(kw.value)
+            except (ValueError, SyntaxError):
+                continue
+        out.append((node.func.id, args))
+    return out
 
 
 def _tool_param_types(tools):
@@ -1882,6 +1960,15 @@ def parse_tool_calls(text, tools):
             name, args = _extract_name_args(obj)
             if name:
                 add(name, args)
+        if tool_calls:
+            return content, tool_calls
+
+    # LFM2.5: a Python list of calls between special tokens.
+    m = _LFM2_RE.search(text)
+    if m:
+        content = (text[:m.start()] + text[m.end():]).strip()
+        for name, args in _pythonic_calls(m.group(1)):
+            add(name, args)
         if tool_calls:
             return content, tool_calls
 
@@ -3301,7 +3388,7 @@ class _ToolCallGate:
     """
 
     _OPENERS = ("<tool_call>", "<function=", "<atem:function_calls>",
-                "[TOOL_CALLS]", "<|python_tag|>", _DS_BEGIN)
+                "[TOOL_CALLS]", "<|python_tag|>", "<|tool_call_start|>", _DS_BEGIN)
 
     def __init__(self):
         """Fresh gate, one per generation."""
@@ -4148,8 +4235,9 @@ def _sse_tool_stream(slot, raw_messages, gen, tools, completion_id, created, t0,
                                              "function": tc["function"]}]})
             yield frame({}, "tool_calls")
         else:
-            if gate.held.strip():
-                yield frame({"content": gate.held})  # opener that never became a call
+            salvaged = _strip_tool_markup(gate.held)
+            if salvaged.strip():
+                yield frame({"content": salvaged})  # opener that never became a call
             yield frame({}, "cancelled" if was_cancelled else "stop")
         yield "data: [DONE]\n\n"
         done = True

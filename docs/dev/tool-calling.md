@@ -34,7 +34,20 @@ ignores our prompt and falls back to whatever it was trained on:
 - Mistral `[TOOL_CALLS]`
 - Llama `<|python_tag|>`
 - DeepSeek `<｜tool▁calls▁begin｜>` blocks
+- **LFM2.5 `<|tool_call_start|>[name(arg='v')]<|tool_call_end|>`** — a Python
+  list, not JSON, parsed with `ast` and never `eval` (`_pythonic_calls`).
+  Liquid's models write Pythonic calls by default, and without this a model
+  that calls tools correctly reads as one that only talks: LFM2.5-8B emitted
+  every call and the agent probe reported "never called a tool"
+  [OBSERVED 2026-09-23]
 - bare-JSON fallback
+
+**When nothing parses, the markup is stripped before the text is shown**
+(`_strip_tool_markup`). The gate holds from the first opener to the end of the
+turn, so an opener that never becomes a call used to reach the user verbatim —
+a real session rendered two bare `<tool_call>` markers into the assistant's
+reply [OBSERVED 2026-09-23, Qwen3-14B]. The prose is kept, the markers go, and
+a held block that was *only* markup emits nothing.
 
 See `render_tools_prompt` / `parse_tool_calls`.
 

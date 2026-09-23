@@ -208,6 +208,38 @@ def test_tool_turn_error_frame():
     assert "[error: " in joined(deltas, "content")
 
 
+def test_lfm2_pythonic_tool_call_is_parsed():
+    raw = ("<|tool_call_start|>[bash(command='ls -la', workdir='C:\\devel')]"
+           "<|tool_call_end|>Checking the directory.")
+    content, calls = nollama.parse_tool_calls(raw, TOOLS)
+    assert len(calls) == 1
+    assert calls[0]["function"]["name"] == "bash"
+    assert json.loads(calls[0]["function"]["arguments"])["command"] == "ls -la"
+    assert content == "Checking the directory."
+
+
+def test_lfm2_call_with_no_arguments():
+    _, calls = nollama.parse_tool_calls("<|tool_call_start|>[list_files()]<|tool_call_end|>", TOOLS)
+    assert len(calls) == 1 and calls[0]["function"]["arguments"] == "{}"
+
+
+def test_pythonic_parser_never_executes_anything():
+    # A tool-call parser that eval()s model output is an RCE hole. The call
+    # parses as a tree; its non-literal argument must simply be dropped.
+    _, calls = nollama.parse_tool_calls(
+        "<|tool_call_start|>[bash(command=open('/etc/passwd').read())]<|tool_call_end|>", TOOLS)
+    assert len(calls) == 1
+    assert json.loads(calls[0]["function"]["arguments"]) == {}
+
+
+def test_unparsed_tool_markup_never_reaches_the_user():
+    # A real session rendered bare <tool_call> markers into the assistant's
+    # reply (2026-09-23, Qwen3-14B). The prose must survive, the markup not.
+    assert nollama._strip_tool_markup("<tool_call>\n\n<tool_call>\n\nI will read it.") == "I will read it."
+    assert nollama._strip_tool_markup("<tool_call>") == ""
+    assert nollama._strip_tool_markup("a plain answer") == "a plain answer"
+
+
 def test_tool_turn_vlm_path_uses_vlm_seam():
     (deltas, finish), slot = run_tool_stream(["hi ", CALL], vlm=("prompt", []))
     assert finish == "tool_calls" and joined(deltas, "content") == "hi "
