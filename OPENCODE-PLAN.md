@@ -129,6 +129,41 @@ Two harness lessons, recorded because both produced a false negative first:
   recovered, in both arms. Use it to measure plumbing, never to judge whether
   agentic coding works here.
 
+### Which models can actually drive OpenCode, 2026-09-23
+
+[OBSERVED 2026-09-23, 258V laptop / 140V iGPU, OpenVINO 2026.4, OpenCode 1.18.30,
+`opencode run` on a two-test fixture, pinned KV pool] Criteria fixed before the
+runs: PASS = finishes unaided, tests green, under ten minutes.
+
+| Model | On disk | Verdict | How it behaves |
+|---|---|---|---|
+| `Qwen3-Coder-30B-A3B-int4` | 16 GB | **PASS** | 333 s, correct fix, tests green |
+| `Qwen3-14B-int4` | 9.1 GB | **PARTIAL** | Correct fix in 5 turns with real tool calls, still going at 9 min |
+| `Qwen2.5-Coder-14B-int4` | 7.9 GB | **FAIL** | Narrates tool use, fakes a call block in markdown, hands the task back |
+| `Qwen2.5-Coder-7B-int4` | 4.2 GB | **FAIL** | Never calls a tool; writes instructions to the user |
+| `Qwen3-8B-int4` | 4.6 GB | **FAIL** | Invents a path (`src/calc.py`), never recovers |
+
+**Coding ability is not the binding constraint — tool-calling training is.** The
+2.5-Coder family writes fine Python and cannot drive an agent loop; the 14B was
+fast enough at 6-8 tok/s with TTFT under 1.2 s, and still failed. That is the
+whole gap between "a coder model" and "an agent model", and it is why the
+`agent` flag now comes off both 2.5-Coder entries in `models.json`.
+
+**So there is no comfortable 16 GB answer.** Qwen3-14B is 9.1 GB before a KV
+pool, and NoLlama's own warning on an 8 GB model with a 4 GB pool is explicit:
+`~21k tokens — agent prompts (20k+) will exhaust it`. A 16 GB box can hold the
+model or a usable cache, not both.
+
+Two harness facts, recorded because each cost a run:
+
+- **`opencode run` hangs at init after `opencode.json` changes.** Three times
+  today: no request ever reaches the server, its own log stops right after
+  `init`, and a plain retry with the same config works. Anyone editing a
+  provider config will meet this.
+- **The KV auto-sizer over-commits on a shared-memory iGPU.** It took 12 GB for
+  an 8 GB model, driving free RAM to zero on a 32 GB box. Pin it with
+  `--cache-size-gb` on any iGPU run.
+
 ## Economics to measure, not assert
 
 Distilling a 3k-token block on the NPU costs its prefill plus ~200 tokens of

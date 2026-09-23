@@ -26,7 +26,9 @@
             "hf_id": "aweussom/LFM2.5-1.2B-Instruct-int4-cw-ov",
             "source": "pre-exported",
             "est_size_gb": 1,
-            "npu_arch_deny": ["4000"],
+            "npu_arch_deny": [
+                "4000"
+            ],
             "npu_only": true,
             "notes": "Tested on 285K NPU (NPU 3, Arrow Lake): 38.8 tok/s — fastest verified NPU model. NPU-only build (fails CPU/GPU, see model card). WARNING: on Lunar Lake (Core Ultra 200V, NPU 4) it produces word salad at full speed — NPU drivers 32.0.100.4778 and .5540, OpenVINO 2026.3.0/2026.3.1/2026.5-nightly all alike, Intel's own LFM2.5 exports too — a driver update does not fix it (verified 2026-09-01; see TODONT). Arrow Lake / Meteor Lake NPUs only until that is fixed."
         },
@@ -133,24 +135,23 @@
             "name": "Qwen2.5-Coder 14B (INT4)",
             "hf_id": "OpenVINO/Qwen2.5-Coder-14B-Instruct-int4-ov",
             "source": "pre-exported",
-            "agent": true,
             "est_size_gb": 8,
-            "notes": "Recommended for VS Code Copilot Chat / tool calling (--vscode-compat). Fits 16GB with KV headroom. Emits Hermes-style <tool_call> JSON, handled by parse_tool_calls. Newer Qwen3-Coder exists only as 30B-A3B (17GB, falls back to CPU on 16GB), so this is the best coder that fits."
+            "notes": "Recommended for VS Code Copilot Chat / tool calling (--vscode-compat). Fits 16GB with KV headroom. Emits Hermes-style <tool_call> JSON, handled by parse_tool_calls. Newer Qwen3-Coder exists only as 30B-A3B (17GB, falls back to CPU on 16GB), so this is the best coder that fits. NOT an agent model: verified 2026-09-23 on a 140V with OpenCode 1.18.30 — it narrates tool use ('[run the tests]') and emits a fake tool-call block in markdown instead of calling anything, then hands the task back. Two real bash calls in a whole session. Speed was fine (TTFT 0.3-1.2s, 6-8 tok/s); tool training is what it lacks. Fine for chat and code completion."
         },
         {
             "name": "Qwen2.5-Coder 7B (INT4)",
             "hf_id": "OpenVINO/Qwen2.5-Coder-7B-Instruct-int4-ov",
             "source": "pre-exported",
-            "agent": true,
             "est_size_gb": 5,
-            "notes": "Lighter Copilot/tool-calling option. Faster than the 14B, weaker on multi-step agent loops. Same Hermes tool-call format."
+            "notes": "Lighter Copilot/tool-calling option. Faster than the 14B, weaker on multi-step agent loops. Same Hermes tool-call format. NOT an agent model: verified 2026-09-23, same harness — it never called a tool at all, it wrote instructions to the user in a markdown bash block. Fine for chat and code completion."
         },
         {
             "name": "Qwen3 14B (INT4)",
             "hf_id": "OpenVINO/Qwen3-14B-int4-ov",
             "source": "pre-exported",
-            "est_size_gb": 8,
-            "notes": "Great reasoning. Sweet spot."
+            "est_size_gb": 9,
+            "notes": "Great reasoning. Sweet spot. Drives OpenCode, but slowly: verified 2026-09-23 on a 140V — correct fix to a two-test fixture in 5 turns with real tool calls, still running at 9 minutes when the run was cut. 9.1 GB on disk plus a KV pool, so it is marginal on a 16 GB box. A thinking model: 500-1000 tokens per turn.",
+            "agent": true
         },
         {
             "name": "Phi 4 (INT4)",

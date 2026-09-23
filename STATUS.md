@@ -40,6 +40,7 @@ Working state is `brain/next/` (needs Tommy), `brain/todo/` (startable cold) and
 | NPU generation gate: arch `4000` hides LFM2, simulated `3720` keeps it, GPU drops it as `npu_only`; 10/10 test modules; `check-docs -Render` ALL OK | 2026-09-18 |
 | Runtime floor moved to OpenVINO **2026.4** (stable since 2026-09-16). Laptop and B60 both upgraded; 10/10 test modules after fixing a test double that had been failing since 3e9a918 on both boxes. Intel's re-exported gemma-4-E4B int8 segfaults on 2026.3.1 and runs on 2026.4, where its prefix cache works: ~13k-char prefix 10.3 s cold then 1.4 / 0.9 s | 2026-09-23 |
 | OpenCode completes a real task on the 140V with `Qwen3-Coder-30B-A3B-int4`: 333 s, correct fix, tests green — TTFT 0.2–0.7 s cached against 16–28 s on a new suffix. The CPU side-model split is a **dGPU** recipe: 1.6 s idle, 40 s while an iGPU prefills | 2026-09-23 |
+| Agent-capable models, measured: `Qwen3-Coder-30B-A3B` PASS, `Qwen3-14B` PARTIAL (correct but 9 min), `Qwen2.5-Coder-14B`/`-7B` and `Qwen3-8B` FAIL — they narrate or fake tool calls. Tool training, not coding ability, is the constraint | 2026-09-23 |
 
 ## Built, not yet proven
 
