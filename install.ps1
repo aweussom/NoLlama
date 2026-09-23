@@ -272,7 +272,17 @@ for dev in core.get_available_devices():
             # big MoE models must fit entirely in GPU memory (see TODONT.md).
             try: caps = core.get_property(dev, 'OPTIMIZATION_CAPABILITIES')
             except: caps = []
-            out['GPU'] = {'id': dev, 'name': full, 'xmx': 'GPU_HW_MATMUL' in caps}
+            # DEVICE_TYPE decides whether the CPU is a free lane. On a
+            # discrete card it is: the side-model split measured well on the
+            # B60. On an integrated one the CPU shares the package with the
+            # GPU, and the same 128-token side request went from 1.6 s idle
+            # to 40 s while the iGPU prefilled (2026-09-23, 140V).
+            try: kind = 'discrete' if 'DISCRETE' in str(core.get_property(dev, 'DEVICE_TYPE')).upper() else 'integrated'
+            except: kind = 'unknown'
+            try: mem_gb = round(core.get_property(dev, 'GPU_DEVICE_TOTAL_MEM_SIZE') / 2**30, 1)
+            except: mem_gb = 0
+            out['GPU'] = {'id': dev, 'name': full, 'xmx': 'GPU_HW_MATMUL' in caps,
+                          'type': kind, 'mem_gb': mem_gb}
     elif dev in ('NPU', 'CPU'):
         out[dev] = {'id': dev, 'name': full}
         if dev == 'NPU':
@@ -302,6 +312,14 @@ function Get-NpuGenLabel {
 
 $HasNPU = $null -ne $DeviceInfo.NPU
 $HasGPU = $null -ne $DeviceInfo.GPU
+$IsDiscreteGPU = $HasGPU -and $DeviceInfo.GPU.type -eq "discrete"
+$SystemRamGB = [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB)
+# On an integrated GPU the "GPU memory" is system RAM, so a model competes
+# with the OS, the user's applications and the loader's own staging copy.
+# 8 GB goes to the OS and the applications the person is actually using; a
+# 16 GB model with a 5 GB pool on a 32 GB laptop left 1-2 GB free with
+# ordinary apps open (2026-09-23, 140V), which is where paging starts.
+$UsableModelGB = if ($IsDiscreteGPU) { $DeviceInfo.GPU.mem_gb } else { [math]::Max(0, $SystemRamGB - 8) }
 
 Write-Host ""
 if ($HasNPU) {
@@ -312,6 +330,12 @@ if ($HasNPU) {
 if ($HasGPU) {
     $gpuSuffix = if ($DeviceInfo.GPU.id -ne "GPU") { " [$($DeviceInfo.GPU.id)]" } else { "" }
     Write-Host "  [+] GPU$($gpuSuffix): $($DeviceInfo.GPU.name)" -ForegroundColor Green
+    if ($IsDiscreteGPU) {
+        Write-Host "      Discrete, $($DeviceInfo.GPU.mem_gb) GB of its own memory" -ForegroundColor DarkGray
+    } else {
+        Write-Host "      Integrated: its memory IS system RAM ($SystemRamGB GB total), so a model" -ForegroundColor DarkGray
+        Write-Host "      competes with everything else you run. Budgeting $UsableModelGB GB for models." -ForegroundColor DarkGray
+    }
     if ($DeviceInfo.GPU.xmx) {
         Write-Host "      XMX: yes — large MoE models can stream experts from disk (OpenVINO 2026.3+)" -ForegroundColor DarkGray
     } else {
@@ -389,6 +413,30 @@ if ($SkipModel) {
     Write-Host ""
     Write-Host "=== Install complete (no model) ===" -ForegroundColor Yellow
     Pop-Location; exit 0
+}
+
+# Say whether a model fits the budget worked out at detection, and why not.
+#
+# Why annotate instead of filtering: a hidden option is a fact withheld. The
+# user is entitled to know that the 17 GB model exists and what it would take.
+# $UsableModelGB is VRAM on a discrete card and (system RAM - 8 GB) on an
+# integrated one, where the model, the KV pool and the OS share the same
+# memory.
+function Get-FitTag {
+    param([double]$SizeGB)
+    if ($script:UsableModelGB -le 0 -or $SizeGB -le 0) { return "" }
+    # Weights are not the whole cost: the prompt cache is what makes a second
+    # turn fast, and it scales with the model (2-4 GB in practice). A tag that
+    # counted weights alone would wave through a model that then has no cache.
+    $poolGB  = [math]::Min(4, [math]::Max(2, [math]::Round($SizeGB / 3)))
+    $needGB  = $SizeGB + $poolGB
+    if ($needGB -gt $script:UsableModelGB) {
+        return "  [WON'T FIT: ~$needGB GB with a cache, you have ~$($script:UsableModelGB) GB]"
+    }
+    if ($needGB -gt ($script:UsableModelGB - 2)) {
+        return "  [TIGHT: ~$needGB GB with a cache — close the browser]"
+    }
+    return ""
 }
 
 # ---------------------------------------------------------------------------
@@ -477,7 +525,8 @@ function Show-ModelMenu {
             $i = $items.Count
             Write-Host "    $i. $($od.Name)" -NoNewline
             Write-Host "  ($($od.SizeGB) GB)" -ForegroundColor DarkGray -NoNewline
-            Write-Host "  Already on disk" -ForegroundColor DarkGray
+            Write-Host "  Already on disk" -ForegroundColor DarkGray -NoNewline
+            Write-Host (Get-FitTag $od.SizeGB) -ForegroundColor Yellow
         }
         Write-Host ""
     }
@@ -488,8 +537,10 @@ function Show-ModelMenu {
             $items += $dm
             $dlTag = if ($dm.Source -eq "pre-exported") { "download" } else { "convert" }
             $i = $items.Count
+            $fit = Get-FitTag $dm.SizeGB
             Write-Host "    $i. $($dm.Name)" -NoNewline
             Write-Host "  (~$($dm.SizeGB) GB, $dlTag)" -ForegroundColor DarkGray -NoNewline
+            if ($fit) { Write-Host $fit -ForegroundColor Yellow -NoNewline }
             Write-Host "  $($dm.Notes)" -ForegroundColor DarkGray
         }
     }
@@ -812,12 +863,29 @@ switch ($useKey) {
             Install-Primary $sel $dev; $StartArgs += @("--prewarm", "prewarm.json", "--vscode-compat", "--idle-timeout", "0"); $isAgent = $true
             # The two-server recipe (docs/AGENTS.md): OpenCode sends a small
             # "title" request beside every turn; on one server it queues in
-            # front of the turn. A second NoLlama on the NPU (CPU when absent)
-            # takes it — and opencode.json points OpenCode's small_model there.
-            $smallDev = if ($HasNPU) { "NPU" } else { "CPU" }
+            # front of the turn. A second NoLlama takes it, and opencode.json
+            # points OpenCode's small_model there.
+            #
+            # Only offered on a DISCRETE GPU. Measured 2026-09-23 on a 140V:
+            # the same 128-token side request runs in 1.6 s with the box idle
+            # and 40 s while the iGPU prefills, because an integrated GPU
+            # shares its package with the CPU. The NPU is not the alternative
+            # either — it cannot hold a coding session at all (4k prompt cap,
+            # no tool calling). So on an iGPU the split trades a 5-second
+            # request on the coder for a 40-second one, and we do not ask.
+            $smallDev = "CPU"
+            if (-not $IsDiscreteGPU -or $dev -eq "CPU") {
+                Write-Host ""
+                Write-Host "  Single server: on an integrated GPU a second model on the CPU is starved while" -ForegroundColor DarkGray
+                Write-Host "  the GPU prefills (measured: a side request goes 1.6s -> 40s). OpenCode's side" -ForegroundColor DarkGray
+                Write-Host "  requests will use the coder itself. See docs/AGENTS.md." -ForegroundColor DarkGray
+                $OpenCodeArgs = @{ CoderDir = (Get-InstalledDirName $sel); CoderDevice = $dev; Mode = "two-servers" }
+                break
+            }
             Write-Host ""
-            Write-Host "  OpenCode sends a small side request with every turn. A second, small model on the $smallDev" -ForegroundColor Cyan
-            Write-Host "  keeps it off the coder's queue (Enter to skip; docs/AGENTS.md explains)." -ForegroundColor DarkGray
+            Write-Host "  OpenCode sends a small side request with every turn. A second, small model on the CPU" -ForegroundColor Cyan
+            Write-Host "  keeps it off the coder's queue — worth it here because your GPU is discrete, so the" -ForegroundColor DarkGray
+            Write-Host "  CPU is genuinely free (Enter to skip; docs/AGENTS.md explains)." -ForegroundColor DarkGray
             # Models flagged small_model come first. A side-request slot wants a
             # model that ANSWERS, not the best reasoner: a thinking model spends
             # the whole side-request budget in <think> and can return empty
