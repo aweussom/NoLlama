@@ -37,13 +37,6 @@
             "est_size_gb": 2,
             "small_model": true,
             "notes": "Proven. Smaller and faster than Qwen3 8B, lower quality. BEST CHOICE for OpenCode's small_model slot on the NPU: no thinking channel at all, so it cannot spend a side-request's budget reasoning. Verified 2026-09-13 on NPU 4 (140V laptop), bare genai: a correct session title 3/3, deterministic, 3.2-3.6s; loads in 41s against SmolLM3-3B's 84-101s."
-        },
-        {
-            "name": "DeepSeek R1 Distill 1.5B (INT4-CW)",
-            "hf_id": "OpenVINO/DeepSeek-R1-Distill-Qwen-1.5B-int4-cw-ov",
-            "source": "pre-exported",
-            "est_size_gb": 1,
-            "notes": "Tested: works but terrible quality. Smoke-test/dev use only."
         }
     ],
     "gpu_vlm": [

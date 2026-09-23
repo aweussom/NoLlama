@@ -233,7 +233,10 @@ tables below are all 140 W.
 | Mistral-7B-Instruct-v0.3 int4-cw **(NPU)** | 10.5 | 5.05 s |
 
 Both NPU entries load and answer correctly — the two longest-standing
-"Untested" rows in issue #24. Note the NPU's ~4–5 s TTFT against the iGPU's
+"Untested" rows in issue #24. Intel has since withdrawn the
+DeepSeek-R1-Distill int4-cw exports (1.5B and 7B alike return HTTP 401 as of
+2026-09-23), so that row cannot be re-run from the Hub; the measurement
+stands, the download does not. Note the NPU's ~4–5 s TTFT against the iGPU's
 0.1–1.0 s: that is the NPU's fixed prompt-compile cost, and it is why the
 NPU suits short prompts and the GPU suits agent loops.
 

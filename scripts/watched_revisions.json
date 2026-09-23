@@ -1,6 +1,127 @@
 {
+  "BAAI/bge-m3": {
+    "lastModified": "2024-07-03",
+    "sha": "5617a9f61b028005a4858fdac845db406aefb181"
+  },
+  "OpenVINO/DeepSeek-R1-Distill-Qwen-1.5B-int4-cw-ov": {
+    "gone": 401,
+    "lastModified": "",
+    "sha": ""
+  },
+  "OpenVINO/Muse-Glimmer-30B-int4-ov": {
+    "lastModified": "2026-08-21",
+    "sha": "53a0450269262f068d5b39088faf79379efb0656"
+  },
+  "OpenVINO/Phi-3.5-mini-instruct-int4-cw-ov": {
+    "lastModified": "2026-06-18",
+    "sha": "dc27b4e451118b1e82c159a839476df02797837a"
+  },
+  "OpenVINO/Phi-4-reasoning-int4-ov": {
+    "lastModified": "2025-07-25",
+    "sha": "95c3cc5aad7ced3bbffad3b36d4d4d45c5843ced"
+  },
+  "OpenVINO/Qwen2.5-Coder-14B-Instruct-int4-ov": {
+    "lastModified": "2025-08-21",
+    "sha": "7083d68370fe5f8ac99ae67327008c1ed11e87c9"
+  },
+  "OpenVINO/Qwen2.5-Coder-7B-Instruct-int4-ov": {
+    "lastModified": "2025-08-21",
+    "sha": "25d797085dbbe41b1aa8d32bc9ab1e35b7ac10f4"
+  },
+  "OpenVINO/Qwen3-14B-int4-ov": {
+    "lastModified": "2026-06-11",
+    "sha": "f66026cfbcb3dac3e26d24f208a6bb79ab4b0754"
+  },
+  "OpenVINO/Qwen3-30B-A3B-Instruct-2507-int4-ov": {
+    "lastModified": "2026-04-07",
+    "sha": "9268a085a48d496cce87d569f008975258bb70df"
+  },
+  "OpenVINO/Qwen3-8B-int4-cw-ov": {
+    "lastModified": "2026-02-24",
+    "sha": "27ae5b116eb7e6df79bac2ca7b7c0c9f63f79cb7"
+  },
+  "OpenVINO/Qwen3-Coder-30B-A3B-Instruct-int4-ov": {
+    "lastModified": "2026-04-07",
+    "sha": "21140c68a63012da511fe50656319e00be2f6542"
+  },
+  "OpenVINO/Qwen3-VL-8B-Instruct-int4-ov": {
+    "lastModified": "2026-05-13",
+    "sha": "f3d0bc7e798a324a7cbb017de566f84d25cea0a4"
+  },
+  "OpenVINO/Qwen3-VL-8B-Instruct-int8-ov": {
+    "lastModified": "2026-05-13",
+    "sha": "b4c7ae8b276be0e539fb46f484bcd964cbeca23e"
+  },
+  "OpenVINO/Qwen3.5-4B-int4-ov": {
+    "lastModified": "2026-06-12",
+    "sha": "d481b7fd22e6d2cfedef12e534973dbb3f32c690"
+  },
+  "OpenVINO/Qwen3.8-27B-int4-ov": {
+    "lastModified": "2026-08-21",
+    "sha": "1842e0d32ae0b9307b7e0579874b400af47e70e2"
+  },
+  "OpenVINO/gemma-4-26b-a4b-it-int4-ov": {
+    "lastModified": "2026-09-17",
+    "sha": "4e5885c3f03844f5887982def09708bdc9f53f7a"
+  },
+  "OpenVINO/gemma-4-E2B-it-int4-ov": {
+    "lastModified": "2026-09-17",
+    "sha": "7cd9ccd5beddc5522462891b2d44668fe898cbfd"
+  },
   "OpenVINO/gemma-4-E4B-it-int8-ov": {
     "lastModified": "2026-09-17",
     "sha": "c6b5ecbd721709e06add7072ed323d9469062271"
+  },
+  "OpenVINO/phi-4-int4-ov": {
+    "lastModified": "2025-05-26",
+    "sha": "f6c99763c4968b33f9c891fa9769ba56f156dd22"
+  },
+  "OpenVINO/whisper-base-int8-ov": {
+    "lastModified": "2026-05-13",
+    "sha": "0606293f0511136ada21755a265492f623a934b8"
+  },
+  "OpenVINO/whisper-medium-int8-ov": {
+    "lastModified": "2026-05-13",
+    "sha": "8d43cce846729381f56bd45a1c70925cee2222ff"
+  },
+  "OpenVINO/whisper-small-int8-ov": {
+    "lastModified": "2026-08-27",
+    "sha": "5b831719e093f86e1970be663e524fe001489f9b"
+  },
+  "aweussom/LFM2.5-1.2B-Instruct-int4-cw-ov": {
+    "lastModified": "2026-09-01",
+    "sha": "3cfbf8170042aacd162107b8ef1555ad9d33ead6"
+  },
+  "aweussom/Qwen2.5-VL-3B-Instruct-int8-ov": {
+    "lastModified": "2026-08-06",
+    "sha": "d4e819a0f52037baf72de9aed262b1aab6ca1b91"
+  },
+  "aweussom/Qwen3-30B-A3B-Thinking-2507-int4-ov": {
+    "lastModified": "2026-08-09",
+    "sha": "ecc85a542739d83e3c071a32909eb1169ba4d832"
+  },
+  "aweussom/SmolLM3-3B-int4-cw-ov": {
+    "lastModified": "2026-08-06",
+    "sha": "eab16b2618a078b93f2fdd6d14a77b919592b41b"
+  },
+  "aweussom/SmolLM3-3B-int8-cw-ov": {
+    "lastModified": "2026-08-06",
+    "sha": "e6cbbfdd8574ed5155c6f919eb475e742023c8dd"
+  },
+  "aweussom/gemma-4-E4B-it-int8-ov": {
+    "lastModified": "2026-08-21",
+    "sha": "c99fd09885daf23c6e24e4fbd9f0d6e0838e9184"
+  },
+  "intfloat/multilingual-e5-base": {
+    "lastModified": "2026-04-02",
+    "sha": "d128750597153bb5987e10b1c3493a34e5a4502a"
+  },
+  "nomic-ai/nomic-embed-text-v1.5": {
+    "lastModified": "2026-04-07",
+    "sha": "e9b6763023c676ca8431644204f50c2b100d9aab"
+  },
+  "sentence-transformers/all-MiniLM-L6-v2": {
+    "lastModified": "2026-06-01",
+    "sha": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"
   }
 }

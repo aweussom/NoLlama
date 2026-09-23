@@ -14,6 +14,10 @@ New ids are reported; the snapshot is updated so you're not re-pinged. On the
 very first run the snapshot is empty, so it just establishes a baseline silently
 (no issue) — only genuinely *new* models after that trigger a notification.
 
+Second, independent trigger: every model NoLlama actually serves (every hf_id in
+models.json) plus the hand-written REVISION_WATCH list is polled for a changed
+commit. A re-upload keeps its id forever, so the diff above can never see one.
+
 No third-party deps (urllib only), so the GitHub Action needs no pip install.
 
 Outputs (for GitHub Actions, via $GITHUB_OUTPUT):
@@ -35,9 +39,12 @@ REPO = HERE.parent
 SEEN_FILE = HERE / "seen_models.json"
 REVISIONS_FILE = HERE / "watched_revisions.json"
 
-# Published models we are waiting on a *fix* for. Key is the repo id, value is
-# why — it goes verbatim into the issue, so write it for whoever reads that
-# issue in three months, not for today.
+# Published models we are waiting on a *fix* for, on top of everything in
+# models.json (which is watched automatically — see watched_repos()). Key is the
+# repo id, value is why — it goes verbatim into the issue, so write it for
+# whoever reads that issue in three months, not for today. List a model here
+# only when there is a specific thing to check when it moves; "we ship it" is
+# already covered.
 REVISION_WATCH = {
     "OpenVINO/gemma-4-E4B-it-int8-ov":
         "its IR has no fused SDPA op, so it silently gets no prefix caching. "
@@ -88,18 +95,63 @@ def fetch_revision(mid):
 
     In: a full repo id. Out: {"sha", "lastModified"}, or None if the repo is
     unreachable — callers must treat None as "no news", never as a change,
-    or a flaky network turns into a false fix report.
+    or a flaky network turns into a false fix report. A 401/403/404 is the
+    exception: that is the Hub saying the repo is gone, gated or renamed,
+    which is news in itself, so it comes back as {"gone": <status>} instead
+    of None. [DOCUMENTED] the Hub answers 401 for a deleted repo as well as
+    a private one, deliberately, so the two cannot be told apart from
+    outside (huggingface.co/docs/hub, repository visibility).
     """
     url = f"{API}/{mid}?blobs=false"
     req = urllib.request.Request(url, headers={"User-Agent": "nollama-model-watch"})
     try:
         with urllib.request.urlopen(req, timeout=60) as r:
             d = json.load(r)
-    except (urllib.error.URLError, urllib.error.HTTPError,
-            ValueError, TimeoutError) as e:
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403, 404):
+            print(f"WARN: watched repo {mid} is unreachable (HTTP {e.code})",
+                  file=sys.stderr)
+            return {"sha": "", "lastModified": "", "gone": e.code}
+        print(f"WARN: failed to fetch revision {mid}: {e}", file=sys.stderr)
+        return None
+    except (urllib.error.URLError, ValueError, TimeoutError) as e:
         print(f"WARN: failed to fetch revision {mid}: {e}", file=sys.stderr)
         return None
     return {"sha": d.get("sha") or "", "lastModified": (d.get("lastModified") or "")[:10]}
+
+
+def watched_repos():
+    """Every repo whose commit we want to hear about, with the reason why.
+
+    Why: a re-upload keeps the repo id, so the id diff can never see one —
+    and the models NoLlama actually ships are exactly the ones where a
+    silent re-export changes what users get. Intel re-exported nine gemma-4
+    repos on 2026-09-17 and only the one hand-listed id was noticed; two of
+    the others were models we serve.
+
+    In: nothing (reads models.json). Out: {repo id: reason}. A hand-written
+    REVISION_WATCH reason wins over the generic one, so a model with a
+    specific thing to check keeps saying what to check.
+    """
+    generic = ("NoLlama serves this model (it is in `models.json`), so a "
+               "re-upload changes what users get. Re-download and run "
+               "`--scan` before trusting it — the id and the card stay the "
+               "same either way.")
+    repos = {}
+    try:
+        data = json.loads(MODELS_JSON.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        print(f"WARN: cannot read models.json: {e}", file=sys.stderr)
+        data = {}
+    for entries in data.values():
+        if not isinstance(entries, list):
+            continue
+        for e in entries:
+            mid = e.get("hf_id")
+            if mid:
+                repos[mid] = generic
+    repos.update(REVISION_WATCH)
+    return repos
 
 
 def check_revisions():
@@ -113,7 +165,8 @@ def check_revisions():
     establishing a baseline.
 
     In: nothing. Out: a list of markdown lines (empty when nothing moved).
-    Rewrites the snapshot as a side effect.
+    Rewrites the snapshot as a side effect. A repo new to the watch list is
+    baselined silently — its first sighting is not a re-upload.
     """
     try:
         before = json.loads(REVISIONS_FILE.read_text(encoding="utf-8"))
@@ -121,13 +174,21 @@ def check_revisions():
         before = {}
 
     lines, after = [], dict(before)
-    for mid, why in REVISION_WATCH.items():
+    for mid, why in watched_repos().items():
         now = fetch_revision(mid)
         if not now:
             continue
         after[mid] = now
-        was = before.get(mid)
-        if was and was.get("sha") and was["sha"] != now["sha"]:
+        was = before.get(mid) or {}
+        if now.get("gone"):
+            if not was.get("gone"):
+                lines.append(
+                    f"- [`{mid}`](https://huggingface.co/{mid}) is **no longer "
+                    f"downloadable** (HTTP {now['gone']}) — deleted, renamed or "
+                    f"gated. Anyone installing it now gets an error. "
+                    f"Watched because: {why}")
+            continue
+        if was.get("sha") and was["sha"] != now["sha"]:
             lines.append(
                 f"- [`{mid}`](https://huggingface.co/{mid}) was re-uploaded "
                 f"({was['sha'][:7]} → {now['sha'][:7]}, {now['lastModified']}). "
@@ -240,18 +301,19 @@ def emit_issue(new_ids, current, revision_notes):
             "|---|---|---|---|---|---|---|\n" + "\n".join(rows))
 
     if revision_notes:
-        headline.append(f"{len(revision_notes)} re-upload(s)")
+        headline.append(f"{len(revision_notes)} re-upload(s)/removal(s)")
         sections.append(
-            "### Watched model re-uploaded\n\n"
-            "A model we were waiting on a fix for has a new commit. Verify "
-            "before believing it is fixed — re-download and check `--scan`, "
+            "### Watched model re-uploaded or removed\n\n"
+            "A model we watch has a new commit, or has stopped being "
+            "downloadable. Verify before believing a re-upload is a fix — re-download and check `--scan`, "
             "don't trust the commit alone.\n\n" + "\n".join(revision_notes))
 
     body = "\n\n---\n\n".join(sections) + (
         "\n\n_Watched orgs: OpenVINO (ready-to-run), Qwen (upstream Coder/VL/Omni), "
         "nvidia (Nemotron), meta-models (Muse Glimmer). "
         "To add one, drop it into the matching block of `models.json`. "
-        "Watched revisions live in `REVISION_WATCH` in this script._")
+        "Re-uploads are watched for every model in `models.json`, plus the "
+        "extras in `REVISION_WATCH` in this script._")
 
     TITLE_FILE.write_text(f"Model watch: {' and '.join(headline)}", encoding="utf-8")
     BODY_FILE.write_text(body, encoding="utf-8")
@@ -305,7 +367,7 @@ def main():
     emit_issue(new_ids, current, revision_notes)
     for mid in new_ids:
         print(f"  new: {mid}")
-    for mid in REVISION_WATCH:
+    for mid in watched_repos():
         if any(mid in note for note in revision_notes):
             # ASCII only: this runs on a Windows console too, where the
             # note's own arrow glyph would raise UnicodeEncodeError.

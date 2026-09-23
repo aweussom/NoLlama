@@ -123,13 +123,12 @@ it, trust the message, not the folder listing.
 ### Model won't load? Run the canary first
 
 Before debugging anything else, establish whether the problem is **your
-model** or **your stack**. The registry's smallest model is a ~1 GB
-known-good canary — output quality is terrible, that's not the point;
-it loads everywhere:
+model** or **your stack**. Phi-3.5-mini is the canary — ~2 GB, no thinking
+channel, and it loads on NPU, GPU and CPU alike:
 
 ```powershell
-.\download-model.ps1 OpenVINO/DeepSeek-R1-Distill-Qwen-1.5B-int4-cw-ov
-python nollama.py --model-dir "~/models/DeepSeek-R1-Distill-Qwen-1.5B-int4-cw-ov" --device NPU   # or GPU / CPU
+.\download-model.ps1 OpenVINO/Phi-3.5-mini-instruct-int4-cw-ov
+python nollama.py --model-dir "~/models/Phi-3.5-mini-instruct-int4-cw-ov" --device NPU   # or GPU / CPU
 ```
 
 - **Canary loads, your model doesn't** → the stack is healthy; the model
