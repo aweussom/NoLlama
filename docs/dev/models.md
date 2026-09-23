@@ -97,6 +97,17 @@ hands the work back sounds exactly like one that did it.
 **Only tier 2 promotes a model to `"agent": true` in `models.json`.**
 Qwen2.5-Coder-14B writes valid Python at 6-8 tok/s and cannot call a tool
 [OBSERVED 2026-09-23]; tier 1 would have passed it.
+
+**A tier-2 FAIL counts only once the model has run in its own tool dialect.**
+Our default rendering speaks Qwen3-Coder XML to every model;
+`--tool-template native` renders the model's own template. Neither dialect
+rescued the 16 GB candidates [OBSERVED 2026-09-23, 140V, OpenVINO 2026.4,
+transcripts in `bench/agent-probe/`]:
+
+| model | Qwen-XML | native | how it fails, both ways |
+|---|---|---|---|
+| `LFM2.5-8B-A1B-int4` | 0/2 | 0/2 | invents paths (`/workspace/...`); native also sends `file_path` against a `filePath` schema, repeatedly after the error names the key |
+| `Qwen3-8B-int4-cw` | 0/2 | 0/2 | invents `src/calc.py` in every run; native also overwrote the test file |
    ```
 
    Any count above zero can cache; `> 0` is the predicate, **not** one per

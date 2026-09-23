@@ -1,0 +1,56 @@
+
+=== NoLlama 2026-09-18-ced2ce2 log opened 2026-09-23 22:43:31 ===
+  tool turns: native chat template (--tool-template)
+
+  Devices:
+    CPU: Intel(R) Core(TM) Ultra 7 258V
+    GPU: Intel(R) Arc(TM) 140V GPU (16GB) (iGPU)
+    NPU: Intel(R) AI Boost
+
+  NoLlama 2026-09-18-ced2ce2 starting on port 8000...
+  Web UI (chat):  http://localhost:8000/
+  OpenAI API:     http://localhost:8000/v1
+  Ollama API:     disabled
+  Idle unload after 1800s of inactivity
+  OpenAI API on port 8000
+  [GPU] Detected: LLM (Qwen3-8B-int4-cw)
+  [GPU] KV pool 7 GB ~ 50k tokens for this model (144 KB/token)
+  [GPU] Loading...
+  [GPU] still loading... 5s (first load of this model - timing it for next time)
+  [GPU] prefix caching on (7 GB KV pool, auto-sized — pin with --cache-size-gb)
+  [GPU] loaded in 10s
+  [GPU] Warmup... done (5.0s)
+
+================================================
+  NoLlama ready
+    GPU  : Qwen3-8B-int4-cw (LLM) -- Intel(R) Arc(TM) 140V GPU (16GB) (iGPU)
+    API  : http://localhost:8000  (OpenAI)
+================================================
+
+
+22:43:51 <- [GPU] 2250 chars, max_tokens=16384 (stream)
+
+22:43:54 <- [GPU] 39346 chars, max_tokens=16384 (stream)
+22:44:54 -> [GPU] 1164 tokens in 63.5s (18.3 tok/s, TTFT 585ms)
+22:45:39 -> [GPU] 493 tokens in 104.8s (4.7 tok/s, TTFT 75006ms)
+22:45:39 -> [GPU] 1 tool call(s): bash
+
+22:45:41 <- [GPU] 39764 chars, max_tokens=16384 (stream)
+22:45:59 -> [GPU] 263 tokens in 18.3s (14.4 tok/s, TTFT 759ms)
+22:45:59 -> [GPU] 1 tool call(s): glob
+
+22:46:01 <- [GPU] 39980 chars, max_tokens=16384 (stream)
+22:46:19 -> [GPU] 241 tokens in 17.8s (13.5 tok/s, TTFT 626ms)
+22:46:19 -> [GPU] 1 tool call(s): read
+
+22:46:20 <- [GPU] 40329 chars, max_tokens=16384 (stream)
+22:46:44 -> [GPU] 314 tokens in 23.3s (13.5 tok/s, TTFT 900ms)
+
+22:46:48 <- [GPU] 2409 chars, max_tokens=16384 (stream)
+
+22:46:51 <- [GPU] 39505 chars, max_tokens=16384 (stream)
+22:56:55 -> [GPU] 10211 tokens in 607.4s (16.8 tok/s, TTFT 510ms)
+22:58:17 -> [GPU] 1326 tokens in 685.6s (1.9 tok/s, TTFT 604137ms)
+22:58:17 -> [GPU] 6 tool call(s): task, glob, read, edit, write, bash
+
+22:58:18 <- [GPU] 32764 chars, max_tokens=16384 (stream)

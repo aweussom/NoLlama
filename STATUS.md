@@ -58,13 +58,15 @@ Working state is `brain/next/` (needs Tommy), `brain/todo/` (startable cold) and
 | `Qwen3-30B-A3B-int4` | 15.2 GB | passes the fix task by hand (2.5 min) |
 | `Qwen3-14B-int4` | 9.1 GB | completes in **18 min**, writes a syntax error on the way — flag removed |
 | `Qwen2.5-Coder-14B` / `-7B` | — | **retired from the registry** (TODONT): narrate tool use, never call |
-| `Qwen3-8B-int4` | 4.6 GB | invents paths, never recovers |
-| `LFM2.5-8B-A1B-int4` | 4.2 GB | **unknown** — its 0/2 was our parser (T-036) |
+| `Qwen3-8B-int4` | 4.6 GB | invents paths, never recovers — in its native dialect too |
+| `LFM2.5-8B-A1B-int4` | 4.2 GB | **FAIL** 0/2 in both dialects — invents paths |
 
 **A 32 GB machine has one agent model. A 16 GB machine has none**, and the
-installer now says so rather than offering one that fails. LFM2.5-8B-A1B is the
-open question: 4.2 GB, ~1B active, 48 KB/token KV, and it needs 30 minutes of
-re-running to settle.
+installer now says so rather than offering one that fails. The small candidates
+are exhausted: re-run in their own tool dialect (`--tool-template native`,
+2026-09-23) they fail exactly as before. The remaining 16 GB route is the
+passing model itself with experts streamed from disk — T-037, which needs the
+laptop rebooted as a 16 GB machine to mean anything.
 
 ## Built, not yet proven
 
