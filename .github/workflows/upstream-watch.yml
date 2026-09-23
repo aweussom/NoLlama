@@ -1,0 +1,57 @@
+name: Upstream Watch
+
+# Polls the upstream PRs and issues NoLlama is blocked on (OpenVINO ternary
+# support, today) and opens a GitHub Issue when one actually moves — merged,
+# closed, reopened, out of draft. Comment traffic is ignored on purpose.
+# State lives in scripts/watched_upstream.json, committed back so you're
+# never re-pinged. Edit the WATCH list in scripts/upstream_watch.py.
+
+on:
+  schedule:
+    - cron: "20 7 * * 1"   # Mondays 07:20 UTC, after the model watch
+  workflow_dispatch:        # manual "Run workflow" button
+
+permissions:
+  contents: write           # commit the updated snapshot
+  issues: write             # open the notification issue
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Check watched upstream items
+        id: scan
+        env:
+          GH_TOKEN: ${{ github.token }}   # raises the API rate limit
+        run: python scripts/upstream_watch.py
+
+      - name: Ensure label exists
+        if: steps.scan.outputs.new == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh label create upstream-watch --color D4C5F9 --description "Upstream PR/issue state changes" 2>/dev/null || true
+
+      - name: Open issue
+        if: steps.scan.outputs.new == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create \
+            --title "$(cat scripts/.upstream_title)" \
+            --body-file scripts/.upstream_body.md \
+            --label upstream-watch
+
+      - name: Commit updated snapshot
+        if: steps.scan.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add scripts/watched_upstream.json
+          git diff --cached --quiet || git commit -m "upstream-watch: update snapshot"
+          git push

@@ -1,0 +1,23 @@
+{
+  "openvinotoolkit/openvino#37457": {
+    "draft": false,
+    "kind": "issues",
+    "merged": false,
+    "state": "open",
+    "title": "[Feature Request]: Please add model."
+  },
+  "openvinotoolkit/openvino#38026": {
+    "draft": false,
+    "kind": "pull",
+    "merged": false,
+    "state": "open",
+    "title": "[GGUF FE] Add Q1_0 (binary, 1-bit) quantization support"
+  },
+  "openvinotoolkit/openvino#38076": {
+    "draft": false,
+    "kind": "pull",
+    "merged": false,
+    "state": "open",
+    "title": "[Core] Fix Concat::evaluate segfault for sub-byte types (#38057)"
+  }
+}
