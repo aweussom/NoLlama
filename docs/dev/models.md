@@ -72,6 +72,31 @@ Both found while re-exporting `google/gemma-4-E4B-it` to check an Intel IR.
 
    ```bash
    python nollama.py --scan <dir>   # Prefix caching : yes — N fused SDPA ops
+
+### Two probes, and which question each answers
+
+`bare-probe.py` establishes that the runtime can run the model at all, and is
+the standing order before anything else. After that there are two, and using
+the cheap one to answer the expensive question is the mistake to avoid.
+
+| Probe | Cost | Answers | Cannot answer |
+|---|---|---|---|
+| `scripts/pelican-probe.py` | one request, seconds | is this model any good | whether it can drive a tool loop |
+| `scripts/agent-probe.ps1` | two OpenCode tasks, minutes | can it drive OpenCode, on this hardware | how good the prose or code is |
+
+Tier 1 is Simon Willison's pelican-on-a-bicycle prompt, verbatim, because the
+value is the published corpus to compare against. It runs against any
+OpenAI-compatible URL, so the whole registry can go through it in minutes —
+including a server on another box.
+
+Tier 2 builds a throwaway project with two failing tests and decides pass/fail
+by **running the tests**, never by reading the transcript. That matters because
+the failure it catches reads like success: a model that narrates tool use and
+hands the work back sounds exactly like one that did it.
+
+**Only tier 2 promotes a model to `"agent": true` in `models.json`.**
+Qwen2.5-Coder-14B writes valid Python at 6-8 tok/s and cannot call a tool
+[OBSERVED 2026-09-23]; tier 1 would have passed it.
    ```
 
    Any count above zero can cache; `> 0` is the predicate, **not** one per
