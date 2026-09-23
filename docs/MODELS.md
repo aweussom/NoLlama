@@ -9,15 +9,17 @@ the proven models per role on a Core Ultra laptop (NPU + ARC iGPU):
 |---|---|---|---|---|
 | Chat | **NPU chat** | Qwen3 8B (INT4-CW) | `OpenVINO/Qwen3-8B-int4-cw-ov` | ~5 GB |
 | Vision | **GPU vision** | Qwen3-VL 8B (INT8) | `OpenVINO/Qwen3-VL-8B-Instruct-int8-ov` | ~9 GB |
-| Coding agent | **GPU/CPU coder** | Qwen2.5-Coder 7B (INT4) | `OpenVINO/Qwen2.5-Coder-7B-Instruct-int4-ov` | ~5 GB |
+| Coding agent | **GPU coder** | Qwen3-Coder 30B-A3B (INT4) | `OpenVINO/Qwen3-Coder-30B-A3B-Instruct-int4-ov` | ~17 GB |
 
 Qwen3 8B is the best-quality text model verified on the NPU. Qwen3-VL 8B
 is the matching vision model — the INT8 build keeps fine detail (OCR,
 small numbers) and fits a 16 GB ARC; drop to the ~6 GB INT4 build
 (`…-int4-ov`) if you're tight on VRAM. For **coding agents** (VS Code Copilot
-Chat, OpenCode, Goose), pick the "Coding agent" use-case and a **Qwen2.5-Coder** model —
-7B for snappy turns, 14B for stronger multi-step work; it runs on the GPU, or on
-the CPU (which beats a weak iGPU on strong desktops). All are pre-exported — **no
+Chat, OpenCode, Goose), pick the "Coding agent" use-case: **Qwen3-Coder 30B-A3B**
+where 32 GB of RAM allows it, **Qwen3-14B** on smaller machines. Both are verified
+to drive a real OpenCode task; the Qwen2.5-Coder models were removed from the menu
+because they cannot — they write valid Python and then narrate tool use instead of
+calling tools (`TODONT.md`). All are pre-exported — **no
 conversion step**, though the multi-GB download still takes a while — and returning
 users see them flagged **"Already on disk"** (those link instantly).
 

@@ -495,6 +495,40 @@ Re-evaluate if: a Gemma vision model shows *systematic* divergence between
 the CB and plain paths on the same inputs -- multi-image, long-context, or
 the audio path, none of which were exercised here.
 
+## Qwen2.5-Coder as the installer's coding-agent model (2026-09-23)
+
+Idea: the 7B and 14B Qwen2.5-Coder INT4 exports are small, fast and
+code-specialised — the obvious pick for an agent on modest hardware, and they
+were the installer's recommendation for months.
+
+**Verdict:** removed from `models.json` and from the recommendation table. They
+cannot drive an agent loop.
+
+**Why not.** Both through the same OpenCode task on a 140V (`agent-probe.ps1`,
+two failing tests to repair):
+
+- **7B:** never called a tool at all. It emitted a markdown ```bash block and
+  wrote instructions to the *user* — "This command will run the tests... you
+  will need to identify the issues in calc.py and fix them."
+- **14B:** two real bash calls, then narrated the rest in brackets
+  (`[run the tests]`, `[fix calc.py based on test failures]`), emitted a fake
+  tool-call block as markdown, and handed the task back: "Please review the test
+  failures and provide the necessary corrections."
+
+Neither is a speed problem: the 14B ran at 6-8 tok/s with TTFT under 1.2 s and
+still failed. **Tool-calling training is the constraint, not coding ability or
+tokens per second** — which is why the cheap SVG probe cannot decide this, since
+both models draw a perfectly reasonable pelican.
+
+**What replaces them:** `Qwen3-Coder-30B-A3B-int4` (verified on two boxes) and
+`Qwen3-14B-int4` (verified, slower). Below ~9 GB of model we currently have no
+agent-capable option at all, and the installer says so rather than offering one
+that fails.
+
+**Caveat on the evidence:** measured on one machine. A second box was planned
+and skipped as not worth the time, since these models are superseded regardless.
+If someone wants them back, re-run `scripts/agent-probe.ps1` before arguing.
+
 ## Gemma 4 E4B for agent serving on OpenVINO 2026.3 (2026-08-21)
 
 Idea: `OpenVINO/gemma-4-E4B-it-int8-ov` is the sweet spot on paper -- reads
