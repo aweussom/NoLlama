@@ -47,6 +47,13 @@ exports. The tell is static — count the ops in the language model's `.xml`:
 | `gemma-4-26b-a4b-it-int4-ov` | 30 (= layers) | 0 | builds |
 | `gemma-4-E4B-it-int8-ov` | **0** | **42** | **refuses** |
 
+Intel re-exported that IR on 2026-09-17 and it now reads 42 SDPA / 0 SoftMax
+-- the defect is fixed [OBSERVED 2026-09-23, `--scan` on the current Hub
+copy]. It is not usable yet: the re-export is built with OpenVINO 2026.4.0
+and segfaults on load under 2026.3.1, on GPU and CPU alike, while loading
+fine on the 2026.5 nightly. `models.json` still ships our re-export. See
+`TODONT.md`.
+
 **`--scan` reports this** (`Prefix caching : yes — N fused SDPA ops`, or a
 `NO` with the reason), so the check no longer needs doing by hand. The
 equivalent by hand:

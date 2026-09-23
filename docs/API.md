@@ -90,8 +90,9 @@ matmul+softmax cannot cache at all, and says so:
 
 Nothing in a model's name, size, precision or geometry reveals this, and
 until you see it you have no way to know: Intel's own
-`OpenVINO/gemma-4-E4B-it-int8-ov` has the defect while its two siblings do
-not (openvino.genai#4343). On a `NO` model every turn re-prefills the whole
+`OpenVINO/gemma-4-E4B-it-int8-ov` had the defect while its two siblings did
+not (openvino.genai#4343; fixed in Intel's 2026-09-17 re-export, which in
+turn needs a 2026.4+ runtime). On a `NO` model every turn re-prefills the whole
 prompt — fine for one-shot vision, wrong for an agent loop.
 
 Don't read the count as "one per layer". That holds for dense models, but

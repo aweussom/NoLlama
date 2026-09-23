@@ -298,7 +298,9 @@ Three things in that table are worth more than their row:
 - **`gemma-4-E4B-it-int8` was Intel's published build**, whose IR has no
   fused SDPA op and therefore gets no prefix caching at all — a defect Intel
   confirmed on 2026-08-31 (openvino.genai#4343). The number above is honest
-  for that artifact, and `models.json` ships our re-export instead. See
+  for that artifact, and `models.json` ships our re-export instead. Intel
+  re-exported it on 2026-09-17 with the SDPA ops present, but that build
+  needs a 2026.4+ runtime, so the row stands until we move. See
   `docs/dev/prefix-cache.md`.
 - **fp16 is never worth it here.** Both fp16 entries are 3–4x slower than the
   int4 of the same weights, on a memory-bound iGPU where the extra precision

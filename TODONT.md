@@ -516,6 +516,20 @@ cannot perform the SDPAToPagedAttention transformation.
 NoLlama degrades correctly (warning at load, `kv_pool_gb` null in
 `/health`, prewarm skips the slot) -- it simply cannot cache.
 
+**Update 2026-09-23 -- Intel re-exported it, and it still is not usable
+here.** Intel re-uploaded the whole gemma-4 family on 2026-09-17. The new
+`OpenVINO/gemma-4-E4B-it-int8-ov` carries 42 fused SDPA ops and 0 SoftMax and
+`--scan` reports `Prefix caching : yes`, so the export defect below is
+genuinely fixed. But the new IR is built with **OpenVINO 2026.4.0**, and on
+the 2026.3.1 runtime NoLlama ships it **segfaults on load** -- bare
+openvino_genai, NoLlama absent, on GPU *and* CPU [OBSERVED 2026-09-23, 258V
+laptop]. The 2026.5 nightly loads the same directory and answers text and
+image correctly, and the *old* Intel IR still loads on 2026.3.1 on the same
+box, so the variable is the IR's export version, not the machine or the
+install. `models.json` keeps our re-export until NoLlama ships a runtime of
+2026.4 or newer; revisit then, because Intel's build was ~2.2x faster on a
+cold turn.
+
 **It is an export defect, and we proved it by re-exporting.** The same
 `google/gemma-4-E4B-it` weights, same INT8 precision, current stack
 (optimum-intel 2.2.0.dev0, transformers 5.5.4, OpenVINO 2026.3) produce 42
