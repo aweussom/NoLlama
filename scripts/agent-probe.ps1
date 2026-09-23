@@ -159,6 +159,20 @@ function Invoke-Task {
     $elapsed = (Get-Date) - $started
     $verdict = if ($timedOut) { "TIMEOUT" } elseif ((& $Verify) -eq $true) { "PASS" } else { "FAIL" }
     Pop-Location
+
+    # Did the agent stay inside its sandbox? Qwen3-30B-A3B wrote a correct
+    # apply_tax() into the NoLlama repo root instead of the fixture directory
+    # (2026-09-23) -- the code was fine, the destination was not, and a
+    # `git add -A` then committed the model's output. A probe that lets the
+    # subject write into the repo it is being run from is a hazard, so this
+    # says so loudly rather than leaving it to be noticed in a diff.
+    $strays = @(git -C $PSScriptRoot/.. status --porcelain -- calc.py tests/ 2>$null |
+                Where-Object { $_ -match 'calc\.py|test_calc\.py' })
+    if ($strays) {
+        Write-Host "  !! the agent wrote OUTSIDE its workdir, into this repo:" -ForegroundColor Red
+        $strays | ForEach-Object { Write-Host "     $_" -ForegroundColor Red }
+        Write-Host "     clean these up before committing anything." -ForegroundColor Red
+    }
     [PSCustomObject]@{ Task = $Label; Verdict = $verdict; Seconds = [int]$elapsed.TotalSeconds; Log = $log }
 }
 

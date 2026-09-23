@@ -175,7 +175,7 @@
             "hf_id": "OpenVINO/Qwen3-30B-A3B-Instruct-2507-int4-ov",
             "source": "pre-exported",
             "est_size_gb": 17,
-            "notes": "Best quality. Needs >32 GB RAM (shared with system). Verified 2026-08-09 on 285K CPU via CB backend (smoke test). 262k context — holds a whole novel with --cache-size-gb 12. NOT an agent model: the plain 30B-A3B chat MoE scored 0/2 on the OpenCode probe (2026-09-23, 140V, both tasks failed in 2-3 minutes rather than timing out). Same size and speed class as the Coder variant, which passes — tool training is the difference, not capacity. Its pelican SVG renders but does not compose: the head faces away from its own beak.",
+            "notes": "Best quality. Needs >32 GB RAM (shared with system). Verified 2026-08-09 on 285K CPU via CB backend (smoke test). 262k context — holds a whole novel with --cache-size-gb 12. NOT an agent model: the plain 30B-A3B chat MoE scored 0/2 on the OpenCode probe (2026-09-23, 140V, both tasks failed in 2-3 minutes rather than timing out). Same size and speed class as the Coder variant, which passes — tool training is the difference, not capacity. It fails by writing to the WRONG PROJECT: the feature task produced a correct apply_tax() and saved it into the server's own repo rather than the fixture directory. Its pelican SVG renders but does not compose: the head faces away from its own beak.",
             "agent": false
         },
         {
