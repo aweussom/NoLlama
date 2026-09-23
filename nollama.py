@@ -4698,8 +4698,6 @@ def chat_completions():
 ollama_app = Flask("NoLlama-Ollama")
 ollama_app.config["MAX_CONTENT_LENGTH"] = MAX_REQUEST_BYTES
 
-OLLAMA_PORT = 11434
-
 
 @ollama_app.before_request
 def _debug_ollama():
