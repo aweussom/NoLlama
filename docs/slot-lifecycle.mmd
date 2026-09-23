@@ -13,7 +13,7 @@
 %%         ALL-CAPS nodes = prose annotations.
 %% Palette: route (blue) = decisions, gen (green) = live pipeline states,
 %%          client (yellow) = external effects, warn (orange) = annotations.
-%% covers: nollama.py:_gpu_keepalive,_keepalive_eligible,_LoadProgress,_load_time_key,_remembered_load_time,_record_load_time,main,needs_optimum,is_vlm,_verify_weights_integrity,_resolve_kv_pool,_preflight_memory,_preflight_verdict,_largest_weight_tensor_bytes,_gpu_large_alloc_props,npu_arch_warning,load,warmup,_prewarm_slot,_idle_watchdog,ensure_loaded,unload,_load_in_background
+%% covers: nollama.py:_gpu_keepalive,_keepalive_eligible,_LoadProgress,_load_time_key,_remembered_load_time,_record_load_time,main,needs_optimum,is_vlm,_verify_weights_integrity,_resolve_kv_pool,_gpu_is_integrated,_preflight_memory,_preflight_verdict,_largest_weight_tensor_bytes,_gpu_large_alloc_props,npu_arch_warning,load,warmup,_prewarm_slot,_idle_watchdog,ensure_loaded,unload,_load_in_background
 %% (_slot_class is nested inside main and invisible to the checker's AST scan
 %%  — its box below is covered via main.)
 flowchart TB
@@ -31,7 +31,7 @@ flowchart TB
   _verify_weights_integrity -.->|"truncated / missing .bin"| loaderr["RuntimeError, plain-English;<br/>'another process using the NPU?'<br/>hint SUPPRESSED for this class"]
   _verify_weights_integrity --> _resolve_kv_pool
 
-  _resolve_kv_pool["_resolve_kv_pool<br/>pin via --cache-size-gb, else auto from<br/>headroom = budget - weights*1.1.<br/>GPU: max(headroom - 2 GB, headroom/3)<br/>CPU: headroom/3 ONLY<br/>ROUNDED, floor 2 GB, cap 64k tokens"]
+  _resolve_kv_pool["_resolve_kv_pool<br/>pin via --cache-size-gb, else auto from<br/>headroom = budget - weights*1.1.<br/>DISCRETE GPU: max(headroom - 2 GB, headroom/3)<br/>iGPU + CPU: headroom/3, capped so weights+pool<br/>leave 8 GB of system RAM<br/>ROUNDED, floor 2 GB, cap 64k tokens"]
   _resolve_kv_pool --> _preflight_memory["_preflight_memory<br/>never blocks: _preflight_verdict says<br/>fits (silent) / tight (info, within the<br/>estimate's own 5% slack) / over (WARNING,<br/>hint typed iGPU vs dGPU); logs pool
   token capacity"]
   _preflight_memory --> _LoadProgress
@@ -190,6 +190,7 @@ flowchart TB
   WATCH A MODEL WITHOUT GQA: Phi-3.5-mini has kv_heads == heads, 384 KB per
   token against the 30B coder's 96 KB, so the 64k cap alone is 24 GB. A
   small model is not automatically a small pool."]
+  _resolve_kv_pool --> _gpu_is_integrated["_gpu_is_integrated<br/>ov::device::type. Integrated means the<br/>'GPU budget' IS system RAM: a ceiling,<br/>not a reservation. Unknown =&gt; integrated,<br/>because guessing discrete swaps a laptop"]
   _resolve_kv_pool -.-> POOLSTABLE
 
   EVICTION["WINDOWS EVICTS A DISCRETE GPU'S VRAM ON IDLE, and NoLlama is not

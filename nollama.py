@@ -487,6 +487,28 @@ def _device_mem_bytes(device_name, device_id):
     return None
 
 
+def _gpu_is_integrated(device_id):
+    """Whether a GPU shares system RAM rather than having its own.
+
+    Why it decides the KV pool: a discrete card's budget is dedicated, so
+    spending nearly all of it costs the machine nothing. An integrated GPU's
+    "budget" is a slice of the same RAM the OS, the editor and the loader's
+    own staging copy are using, so the same arithmetic starves the box. The
+    auto-sizer read 25.3 GiB on a 32 GB laptop, chose a 12 GiB pool for an
+    8 GiB model, and put 32 GB through the pagefile [OBSERVED 2026-09-23,
+    140V]. [DOCUMENTED] ov::device::type reports Type.INTEGRATED/DISCRETE.
+
+    In: an OpenVINO device id ("GPU", "GPU.1"). Out: True when integrated,
+    False when discrete, and True when the property is missing — the safe
+    default is the conservative one, because guessing "discrete" is what
+    swaps a laptop.
+    """
+    try:
+        return "DISCRETE" not in str(ov.Core().get_property(device_id, "DEVICE_TYPE")).upper()
+    except Exception:
+        return True
+
+
 # Compiled-model caches OpenVINO writes INSIDE the model dir on first GPU
 # load (optimum-intel defaults CACHE_DIR to <model>/model_cache). The .blob
 # mirrors the weights, so counting it doubles the apparent model size and
@@ -2026,14 +2048,21 @@ class DeviceSlot:
         pool that cannot hold prompt + max_tokens lets one request evict
         its own prefix mid-generation (TODONT.md).
 
-        **CPU keeps the flat share only.** There the "budget" is the whole
-        machine's RAM, shared with the OS and whatever else is running, so
-        a 2 GiB reserve is not a margin, it is a claim on everything: it
-        asked for 27.8 GiB of a 32 GB box and only the token cap stopped it
-        [OBSERVED 2026-09-13, B60 + Phi-3.5-mini]. A GPU budget is
-        dedicated, or on an iGPU a carve-out the driver already sized
-        against the OS — which is what makes the reserve safe there and not
-        here.
+        **CPU and integrated GPUs keep the flat share only.** There the
+        "budget" is the whole machine's RAM, shared with the OS and whatever
+        else is running, so a 2 GiB reserve is not a margin, it is a claim on
+        everything: it asked for 27.8 GiB of a 32 GB box and only the token
+        cap stopped it [OBSERVED 2026-09-13, B60 + Phi-3.5-mini].
+
+        An earlier version of this note claimed an iGPU's budget was "a
+        carve-out the driver already sized against the OS", and used the
+        discrete branch for it. That was wrong: the carve-out is a ceiling,
+        not a reservation, and every byte spent under it comes out of the
+        same RAM. Sizing a 12 GiB pool for an 8 GiB model on a 32 GB laptop
+        drove free memory to zero and pushed 32 GB through the pagefile
+        [OBSERVED 2026-09-23, 140V + Qwen2.5-Coder-14B]. Integrated GPUs now
+        take the CPU path, and are additionally capped so that weights and
+        pool together leave AUTO_KV_HOST_RESERVE_GB for the machine.
 
         Either way the reserve/fraction exists because the CB backend grows
         into the pool and prefix-cached blocks are never released, so a long
@@ -2078,11 +2107,21 @@ class DeviceSlot:
         # only the token cap stopped it. A GPU budget is dedicated (or, on an
         # iGPU, a carve-out the driver already sized against the OS), so there
         # the fixed reserve is the right shape. CPU keeps the fraction.
-        if self.device_name == "GPU":
+        shared_ram = (self.device_name == "CPU" or
+                      (self.device_name == "GPU" and _gpu_is_integrated(self.device_id)))
+        if not shared_ram:
             pool = max(headroom / gib - AUTO_KV_RESERVE_GB,
                        headroom / AUTO_KV_HEADROOM_SHARE / gib)
         else:
             pool = headroom / AUTO_KV_HEADROOM_SHARE / gib
+            # Second cap, and the one that actually protects a laptop: the
+            # weights and the pool live in the same RAM as the OS. The device
+            # budget can exceed what the machine can spare -- an iGPU happily
+            # reports 25.3 GiB on a 32 GB box.
+            ram = _system_ram_bytes()
+            if ram:
+                spare = (ram - weights * 1.1) / gib - AUTO_KV_HOST_RESERVE_GB
+                pool = min(pool, spare)
         per_tok = _kv_bytes_per_token(self.model_dir)
         if per_tok:
             pool = min(pool, AUTO_KV_TOKENS * per_tok / gib)
@@ -3833,6 +3872,12 @@ AUTO_KV_RESERVE_GB = 2  # working space left unused after the pool on a large bu
                         # compile scratch, the runtime's own buffers, and the fact
                         # that prefix-cached blocks are never released. Preferred over
                         # the flat share below whenever it yields the bigger pool.
+AUTO_KV_HOST_RESERVE_GB = 8  # left for the OS, the user's applications and the loader's
+                             # own staging copy when the pool comes out of system RAM
+                             # (CPU slots, and integrated GPUs where "GPU memory" IS RAM).
+                             # 8 GiB is measured: a 16 GiB model with a 5 GiB pool on a
+                             # 32 GB laptop left 1-2 GB free with ordinary apps open, which
+                             # is where paging starts [OBSERVED 2026-09-23, 140V].
 AUTO_KV_HEADROOM_SHARE = 3  # auto takes at most 1/(this) of what's left after weights —
                             # iGPU "device memory" and the CPU pool are the same RAM the
                             # agent's own compilers and tests run in

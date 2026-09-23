@@ -119,13 +119,21 @@ stable across restarts and reloads.
 
 | device | rule |
 |---|---|
-| GPU (discrete or iGPU) | larger of `headroom - 2 GB` (`AUTO_KV_RESERVE_GB`) and `headroom / 3` (`AUTO_KV_HEADROOM_SHARE`) |
-| CPU | `headroom / 3` only |
+| GPU, **discrete** | larger of `headroom - 2 GB` (`AUTO_KV_RESERVE_GB`) and `headroom / 3` (`AUTO_KV_HEADROOM_SHARE`) |
+| GPU, **integrated** | `headroom / 3`, **and** capped so weights + pool leave `AUTO_KV_HOST_RESERVE_GB` (8 GB) of system RAM |
+| CPU | same as an integrated GPU — the budget is the machine's RAM |
 
-A GPU budget is dedicated, or on an iGPU a carve-out the driver already
-sized against the OS, so a fixed reserve is safe. **On CPU the budget is the
-machine's entire RAM**, shared with the OS and everything else running —
-there a 2 GB reserve is not a margin, it is a claim on the whole box.
+A discrete card's budget is dedicated, so a fixed reserve is safe there.
+**Everywhere else the budget is the machine's own RAM**, shared with the OS,
+the user's applications and the loader's staging copy.
+
+This doc previously said an iGPU's budget was "a carve-out the driver already
+sized against the OS" and grouped it with discrete cards. That was wrong, and
+it shipped: the carve-out is a *ceiling*, not a reservation. On a 32 GB laptop
+reporting a 25.3 GB GPU budget, an 8 GB model auto-sized a **12 GB** pool,
+free RAM went to zero and 32 GB went through the pagefile [OBSERVED
+2026-09-23, 140V]. The same case now sizes 6 GB. A user hit this before we
+did — it is what "everything is slow and the disk is busy" looks like.
 
 **Why the reserve exists on GPU** (changed 2026-09-13): the flat third alone
 under-spends a large budget badly. On the 140V — 25.3 GB budget, 15.2 GB of
