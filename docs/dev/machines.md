@@ -208,6 +208,7 @@ Ollama, ComfyUI and the drivers are still ask-first.
 | GPU | Intel Arc 140V iGPU — **~25.5 GB budget**, not the stock 16 GB (Intel Shared GPU Memory Override is on) |
 | NPU | yes — **NPU 4, `DEVICE_ARCHITECTURE=4000`.** The newer generation, and not the better one for every model |
 | Drivers | GPU `32.0.101.8991` (released 2026-08-24), NPU `32.0.100.5540` (released 2026-08-20) — **both installed 2026-09-14**, so anything measured here from 2026-09-15 is on a one-day-old stack |
+| venvs | `venv` — **OpenVINO 2026.4.0 + genai 2026.4.0.0, upgraded from 2026.3.1 on 2026-09-23**; `venv-nightly` (2026.5.0 nightly). Anything measured here before that date is a 2026.3.1 number |
 
 **WSL and Docker: hands off.** The owner needs this machine to work and is
 unwilling to have WSL messed with on it. That is a hard constraint, not a
