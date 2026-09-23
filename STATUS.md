@@ -64,9 +64,9 @@ Working state is `brain/next/` (needs Tommy), `brain/todo/` (startable cold) and
 **A 32 GB machine has one agent model. A 16 GB machine has none**, and the
 installer now says so rather than offering one that fails. The small candidates
 are exhausted: re-run in their own tool dialect (`--tool-template native`,
-2026-09-23) they fail exactly as before. The remaining 16 GB route is the
-passing model itself with experts streamed from disk — T-037, which needs the
-laptop rebooted as a 16 GB machine to mean anything.
+2026-09-23) they fail exactly as before. MoE offload is out for
+interactive agents (`TODONT.md`). What is left is `Qwen3-14B` with Shared GPU
+Memory Override raised on the 16 GB box, ~12 GB on the iGPU — T-036.
 
 ## Built, not yet proven
 

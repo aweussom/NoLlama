@@ -529,6 +529,32 @@ that fails.
 and skipped as not worth the time, since these models are superseded regardless.
 If someone wants them back, re-run `scripts/agent-probe.ps1` before arguing.
 
+## MoE offload as the 16 GB route to an agent model (2026-09-23)
+
+Idea: `Qwen3-Coder-30B-A3B` is the one model that passes the agent probe, and
+it is 16.3 GB. `--offload-ratio` ~65 would hold ~5-6 GB resident and fit a
+16 GB Lunar Lake, same XMX iGPU as our 140V.
+
+**Verdict:** not pursued. Offload is a batch-job tool, not an interactive one.
+
+**Why not.** Prefill touches every expert, so each prefill chunk re-streams the
+offloaded set, and an agent prefills on every turn — the tool output is new
+suffix every time. Measured on this 140V with `Qwen3-30B-A3B` (same
+architecture): a 10.6k-token prompt, about one OpenCode first turn, took
+**138 s TTFT at ratio 30** and decoded at 7.7 tok/s [OBSERVED 2026-08-09]. That
+run was served from the Windows file cache with the SSD idle; a 16 GB box
+needs roughly double the ratio and cannot cache a 16 GB file, so every number
+gets worse, not better. At 15-30 turns per task, that is well past half an
+hour for a two-test fix that takes 333 s resident.
+
+**Not measured at ratio 65**, deliberately: the only faithful rig is this
+laptop booted to 16 GB (`bcdedit truncatememory`), which on a BitLocker'd
+business laptop trips recovery. The 138 s is the concrete failure. If a
+16 GB owner reports otherwise, the probe is `scripts/agent-probe.ps1`.
+
+**What replaces it:** `Qwen3-14B-int4` with Shared GPU Memory Override raised
+— dense, 9.1 GB, no streaming. T-036.
+
 ## Gemma 4 E4B for agent serving on OpenVINO 2026.3 (2026-08-21)
 
 Idea: `OpenVINO/gemma-4-E4B-it-int8-ov` is the sweet spot on paper -- reads
