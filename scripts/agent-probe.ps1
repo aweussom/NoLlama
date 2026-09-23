@@ -127,22 +127,39 @@ function Invoke-Task {
     git checkout -q . 2>$null
     Remove-Item -Recurse -Force (Join-Path $Dir "__pycache__"), (Join-Path $Dir "tests\__pycache__") -ErrorAction SilentlyContinue
     $log = Join-Path $Dir "$Label.log"
-    $sw = [Diagnostics.Stopwatch]::StartNew()
-    $job = Start-Job -ScriptBlock {
-        param($d, $p, $l)
-        Set-Location $d
-        & opencode run $p *> $l
-    } -ArgumentList $Dir, $Prompt, $log
-    $done = Wait-Job $job -Timeout $TimeoutSec
-    $sw.Stop()
-    if (-not $done) { Stop-Job $job -ErrorAction SilentlyContinue; $verdict = "TIMEOUT" }
-    else {
-        Receive-Job $job -ErrorAction SilentlyContinue | Out-Null
-        $verdict = if ((& $Verify) -eq $true) { "PASS" } else { "FAIL" }
+    # Start-Process, not Start-Job: PowerShell jobs are refused outright where
+    # an application-control policy pins the system-wide language mode
+    # ("Cannot start job. The language mode for this session is incompatible
+    # with the system-wide language mode" -- 2026-09-23, 258V laptop), and both
+    # test machines run such a policy.
+    # Start-Process needs an executable. On Windows `opencode` resolves to an
+    # npm .ps1 shim, and launching a script as a process fails with "%1 is not
+    # a valid Win32 application" -- which reads like a broken install rather
+    # than a wrong launcher, so dispatch through the right interpreter.
+    $cmd = Get-Command opencode -ErrorAction Stop
+    $started = Get-Date
+    $file, $argv = switch -Wildcard ($cmd.Source) {
+        "*.ps1" { "pwsh",     @("-NoProfile", "-File", $cmd.Source, "run", $Prompt) }
+        "*.cmd" { "cmd.exe",  @("/c", $cmd.Source, "run", $Prompt) }
+        "*.bat" { "cmd.exe",  @("/c", $cmd.Source, "run", $Prompt) }
+        default { $cmd.Source, @("run", $Prompt) }
     }
-    Remove-Job $job -Force -ErrorAction SilentlyContinue
+    $proc = Start-Process -FilePath $file -ArgumentList $argv `
+        -WorkingDirectory $Dir -NoNewWindow -PassThru `
+        -RedirectStandardOutput $log -RedirectStandardError "$log.err"
+    # Cmdlets only, no .NET method calls on the Process object: a machine
+    # strict enough to refuse Start-Job may also be in ConstrainedLanguage,
+    # where methods on System.Diagnostics.Process are not callable.
+    Wait-Process -Id $proc.Id -Timeout $TimeoutSec -ErrorAction SilentlyContinue
+    $timedOut = $false
+    if (Get-Process -Id $proc.Id -ErrorAction SilentlyContinue) {
+        Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+        $timedOut = $true
+    }
+    $elapsed = (Get-Date) - $started
+    $verdict = if ($timedOut) { "TIMEOUT" } elseif ((& $Verify) -eq $true) { "PASS" } else { "FAIL" }
     Pop-Location
-    [PSCustomObject]@{ Task = $Label; Verdict = $verdict; Seconds = [int]$sw.Elapsed.TotalSeconds; Log = $log }
+    [PSCustomObject]@{ Task = $Label; Verdict = $verdict; Seconds = [int]$elapsed.TotalSeconds; Log = $log }
 }
 
 # --- run -------------------------------------------------------------------
@@ -184,6 +201,21 @@ foreach ($r in $results) {
     $color = switch ($r.Verdict) { "PASS" { "Green" } "TIMEOUT" { "Yellow" } default { "Red" } }
     Write-Host ("  {0,-8} {1,-8} {2,5}s   {3}" -f $r.Task, $r.Verdict, $r.Seconds, $r.Log) -ForegroundColor $color
 }
+# Keep the transcripts. The first run of this script printed log paths and
+# then deleted them with the workdir, so a 0/2 result could not be explained
+# afterwards -- and HOW a model fails is the whole output of this probe.
+$keepDir = Join-Path (Get-Location) "benchgent-probe"
+New-Item -ItemType Directory -Path $keepDir -Force | Out-Null
+$stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+$safeModel = ($Model -replace '[^A-Za-z0-9._-]', '_')
+foreach ($r in $results) {
+    if (Test-Path $r.Log) {
+        $dest = Join-Path $keepDir "$stamp-$safeModel-$($r.Task).log"
+        Copy-Item $r.Log $dest -Force
+        $r.Log = $dest
+    }
+}
+
 $passed = @($results | Where-Object { $_.Verdict -eq "PASS" }).Count
 Write-Host ""
 Write-Host "  $passed/$($results.Count) passed for $Model" -ForegroundColor Cyan

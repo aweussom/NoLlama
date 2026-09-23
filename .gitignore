@@ -10,6 +10,8 @@ start.ps1
 __pycache__/
 *.pyc
 bench-results/
+bench/pelicans/
+bench/agent-probe/
 scripts/.watch_title
 scripts/.watch_body.md
 scripts/.upstream_title

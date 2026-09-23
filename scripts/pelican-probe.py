@@ -119,8 +119,10 @@ def main():
             continue
         svg = extract_svg(text)
         safe = re.sub(r"[^A-Za-z0-9._-]", "_", model)
-        tok = usage.get("completion_tokens")
-        rate = f", {tok / wall:.1f} tok/s" if tok else ""
+        # NoLlama answers -1 when the runtime did not report usage, and a
+        # negative token count printed as a rate reads like a broken server.
+        tok = usage.get("completion_tokens") or 0
+        rate = f", {tok / wall:.1f} tok/s" if tok > 0 and wall > 0 else ""
         if svg is None:
             (out / f"{stamp}-{safe}.txt").write_text(text, encoding="utf-8")
             print(f"  {model:<44} NO SVG  {wall:6.1f}s{rate}  (answer saved as .txt)")

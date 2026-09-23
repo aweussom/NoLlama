@@ -90,7 +90,22 @@ $cfg = [ordered]@{
     provider = $providers
     model = $model
 }
-if ($smallRef) { $cfg["small_model"] = $smallRef }
+# small_model is only set where a side model measurably helps: a CPU slot
+# beside a DISCRETE GPU. Measured 2026-09-23 on a 140V -- the same 128-token
+# side request takes 1.6 s with the box idle and 40 s while an integrated GPU
+# prefills, because the CPU shares the package. The NPU is not the answer
+# either: it cannot hold a coding session, and pointing small_model at an NPU
+# slot is what shipped before this.
+#
+# The model stays DECLARED in `models` either way, so it can still be selected
+# by hand in OpenCode -- this only stops us choosing it automatically.
+if ($smallRef -and $SmallDevice -eq "CPU") {
+    $cfg["small_model"] = $smallRef
+} elseif ($smallRef) {
+    Write-Host "[i] small_model left unset: a side model on the $SmallDevice does not pay" -ForegroundColor DarkGray
+    Write-Host "    off here (docs/AGENTS.md). $smallRef is still selectable by hand." -ForegroundColor DarkGray
+    $smallRef = $null
+}
 # The two knobs that keep a weak model's tool fan-out from flooding the pool
 # (OPENCODE-PLAN.md arm 0: 27 reads, 1.49 M chars). Free to change.
 $cfg["tool_output"] = [ordered]@{ max_lines = 300; max_bytes = 12288 }
