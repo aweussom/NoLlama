@@ -25,6 +25,16 @@ Tool specs from the request's `tools` array are rendered into a system
 prompt (Qwen3-Coder native format); the model's emitted call is parsed back
 into OpenAI/Ollama `tool_calls`.
 
+**That one dialect is spoken to every model** — tool list, the model's own
+prior calls, and tool results (as `user` turns in `<tool_response>`).
+`--tool-template native` (experimental, OpenAI endpoint, genai LLM slots)
+renders the model's own `chat_template.jinja` instead: LFM2.5 gets
+`List of tools: [...]`, Pythonic call history and a `tool` role; Qwen3 gets
+Hermes JSON. Rendered with sandboxed jinja2 directly, because transformers
+4.57 cannot load LFM2.5's tokenizer config and genai's
+`apply_chat_template(tools=)` rendered its history as generic JSON
+[OBSERVED 2026-09-23]. Whether this changes agent verdicts is T-036's A/B.
+
 `parse_tool_calls` recognizes several native formats, because a model often
 ignores our prompt and falls back to whatever it was trained on:
 

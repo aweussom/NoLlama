@@ -55,8 +55,9 @@ class FakeSlot:
         self.last_ttft_ms = None
         self.think_preseeded = preseeded
 
-    def stream_tokens(self, raw_messages, gen, heartbeat, tag="", cancel=None):
+    def stream_tokens(self, raw_messages, gen, heartbeat, tag="", cancel=None, prompt=None):
         self.last_cancel = cancel  # the consumer's own token; its finally sets THIS one
+        self.last_prompt = prompt  # signature tracks DeviceSlot.stream_tokens
         for t in self._tokens:
             yield t
         self._stream_error = self._error
@@ -159,9 +160,11 @@ def test_gate_prose_with_angle_brackets_passes():
 
 # --- _sse_tool_stream ----------------------------------------------------------
 
-def run_tool_stream(tokens, tools=TOOLS, error=None, vlm=None):
-    slot = FakeSlot(tokens, error)
-    frames = list(_sse_tool_stream(slot, [], None, tools, "id", 0, 0.0, vlm=vlm))
+def run_tool_stream(tokens, tools=TOOLS, error=None, vlm=None, native_prompt=None,
+                    preseeded=False):
+    slot = FakeSlot(tokens, error, preseeded=preseeded)
+    frames = list(_sse_tool_stream(slot, [], None, tools, "id", 0, 0.0, vlm=vlm,
+                                   native_prompt=native_prompt))
     return collect(frames), slot
 
 
@@ -250,6 +253,79 @@ def test_tool_turn_vlm_path_threads_raw_prompt():
     (_, finish), slot = run_tool_stream(["hi ", CALL], vlm=("prompt", [], True))
     assert finish == "tool_calls"
     assert slot.last_raw_prompt is True
+
+
+def test_native_prompt_reaches_the_seam():
+    (_, finish), slot = run_tool_stream(["hi ", CALL], native_prompt="<|im_start|>x")
+    assert finish == "tool_calls"
+    assert slot.last_prompt == "<|im_start|>x"
+
+
+def test_native_prompt_decides_preseeding_not_the_slot():
+    # The slot's template preseeds <think>; this render does not, so the
+    # answer must stay content rather than be swallowed as reasoning.
+    (deltas, _), _ = run_tool_stream(["plain answer"], native_prompt="...assistant\n",
+                                     preseeded=True)
+    assert joined(deltas, "content") == "plain answer"
+    (deltas, _), _ = run_tool_stream(["mulling</think>answer"],
+                                     native_prompt="...assistant\n<think>\n")
+    assert joined(deltas, "reasoning_content") == "mulling"
+    assert joined(deltas, "content") == "answer"
+
+
+# A cut-down LFM2.5 template: Pythonic call history, a native tool role, the
+# HF-only {% generation %} tag, and an enable_thinking switch.
+MINI_TEMPLATE = (
+    "{{ bos_token }}{% if tools %}<|im_start|>system\nList of tools: {{ tools | tojson }}"
+    "<|im_end|>\n{% endif %}"
+    "{% for m in messages %}<|im_start|>{{ m.role }}\n"
+    "{% if m.role == 'assistant' %}{% generation %}{{ m.content }}"
+    "{% for tc in m.tool_calls or [] %}<|tool_call_start|>[{{ tc.function.name }}("
+    "{% for k, v in tc.function.arguments.items() %}{{ k }}={{ v | tojson }}{% endfor %}"
+    ")]<|tool_call_end|>{% endfor %}{% endgeneration %}"
+    "{% else %}{{ m.content }}{% endif %}<|im_end|>\n{% endfor %}"
+    "{% if add_generation_prompt %}<|im_start|>assistant\n"
+    "{% if not enable_thinking %}<think></think>{% endif %}{% endif %}")
+
+
+def _template_dir(tmp, template=MINI_TEMPLATE):
+    """A model dir holding only a chat template and a bos token."""
+    os.makedirs(tmp, exist_ok=True)
+    with open(os.path.join(tmp, "chat_template.jinja"), "w", encoding="utf-8") as f:
+        f.write(template)
+    with open(os.path.join(tmp, "tokenizer_config.json"), "w", encoding="utf-8") as f:
+        json.dump({"bos_token": {"content": "<|startoftext|>"}}, f)
+    nollama._NATIVE_TEMPLATES.pop(tmp, None)
+    return tmp
+
+
+def test_native_render_speaks_the_models_dialect():
+    import tempfile
+    d = _template_dir(os.path.join(tempfile.mkdtemp(), "m"))
+    msgs = [{"role": "user", "content": [{"type": "text", "text": "weather?"}]},
+            {"role": "assistant", "content": None, "tool_calls": [
+                {"id": "c1", "type": "function",
+                 "function": {"name": "get_weather", "arguments": '{"city": "Oslo"}'}}]},
+            {"role": "tool", "tool_call_id": "c1", "content": "sunny"}]
+    out = nollama.render_native_tool_prompt(d, msgs, TOOLS)
+    assert out.startswith("<|startoftext|><|im_start|>system\nList of tools: [")
+    assert "<|im_start|>user\nweather?<|im_end|>" in out            # parts flattened
+    assert '[get_weather(city="Oslo")]' in out                      # args decoded once
+    assert "<|im_start|>tool\nsunny<|im_end|>" in out               # native tool role
+    assert out.endswith("<|im_start|>assistant\n")                  # thinking stays on
+
+
+def test_native_render_honours_no_think_and_falls_back():
+    import tempfile
+    d = _template_dir(os.path.join(tempfile.mkdtemp(), "m"))
+    msgs = [{"role": "system", "content": nollama.NO_THINK_MARKER},
+            {"role": "user", "content": "hi"}]
+    assert nollama.render_native_tool_prompt(d, msgs, TOOLS).endswith("<think></think>")
+    empty = tempfile.mkdtemp()                                      # no template at all
+    assert nollama.render_native_tool_prompt(empty, msgs, TOOLS) is None
+    broken = _template_dir(os.path.join(tempfile.mkdtemp(), "b"),
+                           "{{ raise_exception('no tools here') }}")
+    assert nollama.render_native_tool_prompt(broken, msgs, TOOLS) is None
 
 
 def test_tool_turn_legacy_flag_keeps_think_in_content():

@@ -1861,6 +1861,126 @@ def prepare_messages_for_tools(messages, tools):
     return out
 
 
+TOOL_TEMPLATE = "ours"  # --tool-template: "ours" (Qwen3-Coder XML for all) or "native"
+_NATIVE_TEMPLATES = {}  # model_dir -> (compiled template, bos, eos), or None if unusable
+
+
+def _load_native_template(model_dir):
+    """Compile a model's own chat template for tool turns, cached per dir.
+
+    Why jinja2 directly and not transformers: AutoTokenizer in the pinned
+    transformers 4.57 refuses tokenizer configs written by transformers 5
+    ("TokenizersBackend does not exist") — LFM2.5's is one [OBSERVED
+    2026-09-23]. And not genai's Tokenizer.apply_chat_template: given
+    LFM2.5's template with tools it rendered the call history and results as
+    generic JSON instead of the template's <|tool_call_start|> and `tool`
+    role [OBSERVED 2026-09-23, genai 2026.4]. Rendering the jinja ourselves
+    is what HF does: sandboxed env, trim/lstrip blocks, a tojson filter,
+    raise_exception. `{% generation %}` is an HF-only tag marking assistant
+    spans for training masks; it is stripped, not emulated.
+
+    In: a model directory. Out: (template, bos, eos) or None when the dir has
+    no chat_template.jinja and no chat_template in tokenizer_config.json, or
+    it does not compile — the caller falls back to our rendering.
+    """
+    if model_dir in _NATIVE_TEMPLATES:
+        return _NATIVE_TEMPLATES[model_dir]
+    import jinja2
+    import jinja2.ext
+    from jinja2.sandbox import ImmutableSandboxedEnvironment
+    result = None
+    try:
+        cfg_path = os.path.join(model_dir, "tokenizer_config.json")
+        cfg = {}
+        if os.path.exists(cfg_path):
+            with open(cfg_path, encoding="utf-8") as f:
+                cfg = json.load(f)
+        jinja_path = os.path.join(model_dir, "chat_template.jinja")
+        if os.path.exists(jinja_path):
+            with open(jinja_path, encoding="utf-8") as f:
+                src = f.read()
+        else:
+            src = cfg.get("chat_template")
+        if isinstance(src, str) and src:
+            src = re.sub(r"\{%-?\s*(end)?generation\s*-?%\}", "", src)
+            env = ImmutableSandboxedEnvironment(trim_blocks=True, lstrip_blocks=True,
+                                                extensions=[jinja2.ext.loopcontrols])
+
+            def raise_exception(message):
+                raise jinja2.exceptions.TemplateError(message)
+
+            env.filters["tojson"] = (lambda x, ensure_ascii=False, indent=None,
+                                     separators=None, sort_keys=False:
+                                     json.dumps(x, ensure_ascii=ensure_ascii, indent=indent,
+                                                separators=separators, sort_keys=sort_keys))
+            env.globals["raise_exception"] = raise_exception
+
+            def special(key):
+                v = cfg.get(key)
+                return (v.get("content") if isinstance(v, dict) else v) or ""
+
+            result = (env.from_string(src), special("bos_token"), special("eos_token"))
+    except Exception as e:
+        print(f"  !! native tool template unusable in {model_dir}: {e}", flush=True)
+        result = None
+    _NATIVE_TEMPLATES[model_dir] = result
+    return result
+
+
+def render_native_tool_prompt(model_dir, messages, tools):
+    """Render a tool turn in the model's own dialect, or None to fall back.
+
+    Why: prepare_messages_for_tools speaks Qwen3-Coder XML to every model —
+    tool list, prior calls and results alike. Qwen3-Coder is the one model
+    that passed the agent probe; LFM2.5 (Pythonic calls, native `tool` role)
+    and Qwen3 (Hermes JSON) were trained on different shapes and read their
+    own history in a foreign one from turn two on. This is the A/B arm that
+    tests whether that costs them the task (T-036).
+
+    In: the model dir, the request's OpenAI messages and tools. Content
+    parts are flattened to text, tool_call arguments decoded from their JSON
+    string to a mapping (templates `tojson` a mapping but pass a string
+    through verbatim, which double-encodes), and the web UI's no-think
+    marker becomes enable_thinking=False. Out: the full prompt string, to be
+    generated with apply_chat_template off; None if the model has no usable
+    template or the render raised — logged, never fatal.
+    """
+    loaded = _load_native_template(model_dir)
+    if loaded is None:
+        return None
+    template, bos, eos = loaded
+    msgs = []
+    for msg in messages:
+        m = dict(msg)
+        content = m.get("content")
+        if isinstance(content, list):
+            m["content"] = "".join(p.get("text", "") for p in content
+                                   if isinstance(p, dict) and p.get("type") == "text")
+        elif content is None:
+            m["content"] = ""
+        if m.get("tool_calls"):
+            calls = []
+            for tc in m["tool_calls"]:
+                fn = dict(tc.get("function") or {})
+                args = fn.get("arguments")
+                if isinstance(args, str):
+                    try:
+                        fn["arguments"] = json.loads(args or "{}")
+                    except ValueError:
+                        pass
+                calls.append({**tc, "function": fn})
+            m["tool_calls"] = calls
+        msgs.append(m)
+    try:
+        return template.render(messages=msgs, tools=tools, add_generation_prompt=True,
+                               bos_token=bos, eos_token=eos,
+                               enable_thinking=not _no_think_requested(messages))
+    except Exception as e:
+        print(f"{datetime.now():%H:%M:%S} -- native tool render failed ({e}); "
+              f"using the Qwen-XML rendering", flush=True)
+        return None
+
+
 def parse_tool_calls(text, tools):
     """Extract tool calls from generated text.
 
@@ -2616,7 +2736,7 @@ class DeviceSlot:
             text = atem.feed(text) + atem.close()
         return text
 
-    def generate_llm(self, raw_messages, gen):
+    def generate_llm(self, raw_messages, gen, prompt=None):
         """LLM generate — non-streaming.
 
         Why the try/except around one call: this is the only LLM path that
@@ -2626,14 +2746,20 @@ class DeviceSlot:
         the process [OBSERVED 2026-09-12, issue #38]. The error still
         propagates; _note_poisoned only records it.
 
-        In: OpenAI-shaped messages and a GenerationConfig. Out: the answer
-        text; raises whatever genai raised, slot marked out of service first
-        if the context is gone.
+        In: OpenAI-shaped messages and a GenerationConfig; `prompt`, when
+        given, is an already-rendered chat prompt (render_native_tool_prompt)
+        and is generated as-is with the pipeline's template off. Out: the
+        answer text; raises whatever genai raised, slot marked out of service
+        first if the context is gone.
         """
-        history = ovg.ChatHistory()
-        for msg in raw_messages:
-            history.append({"role": msg["role"], "content": msg["content"]})
-        _apply_thinking_switch(history, raw_messages)
+        if prompt is not None:
+            gen.apply_chat_template = False
+            history = prompt
+        else:
+            history = ovg.ChatHistory()
+            for msg in raw_messages:
+                history.append({"role": msg["role"], "content": msg["content"]})
+            _apply_thinking_switch(history, raw_messages)
         _apply_tuning(gen, self)
         with self.lock:
             try:
@@ -2688,7 +2814,7 @@ class DeviceSlot:
         """
         self._cancel.set()
 
-    def stream_tokens(self, raw_messages, gen, heartbeat, tag="", cancel=None):
+    def stream_tokens(self, raw_messages, gen, heartbeat, tag="", cancel=None, prompt=None):
         """Low-level token stream — the seam between backend and protocol.
 
         Yields str (a decoded text chunk) as soon as one exists, or None when
@@ -2722,11 +2848,20 @@ class DeviceSlot:
         consumers. The safety net MUST stay in the consumers: a generator's
         finally also runs on normal exhaustion, which would make
         was_cancelled read True on every completed stream.
+
+        `prompt`, when given, is an already-rendered chat prompt
+        (render_native_tool_prompt): generated as-is, template off, and
+        raw_messages is then ignored. OptimumSlot's twin has no such
+        parameter; the caller only passes it to a genai slot.
         """
-        history = ovg.ChatHistory()
-        for msg in raw_messages:
-            history.append({"role": msg["role"], "content": msg["content"]})
-        _apply_thinking_switch(history, raw_messages)
+        if prompt is not None:
+            gen.apply_chat_template = False
+            history = prompt
+        else:
+            history = ovg.ChatHistory()
+            for msg in raw_messages:
+                history.append({"role": msg["role"], "content": msg["content"]})
+            _apply_thinking_switch(history, raw_messages)
         _apply_tuning(gen, self)
 
         token_queue = Queue()
@@ -4152,7 +4287,7 @@ def _assistant_message(text, tool_calls, preseeded=False):
 
 
 def _sse_tool_stream(slot, raw_messages, gen, tools, completion_id, created, t0,
-                     vlm=None):
+                     vlm=None, native_prompt=None):
     """Token-streamed tool turn: text flows live, the call block is parsed at the end.
 
     Why: agent clients send tools on every request, so buffering tool turns
@@ -4167,6 +4302,11 @@ def _sse_tool_stream(slot, raw_messages, gen, tools, completion_id, created, t0,
     vlm: (text_prompt, images) when the slot is a VLM — same frames, fed by
     stream_vlm_tokens. If the opener never became a call, the held text is
     released as content before finishing (the gate's false-alarm case).
+
+    native_prompt: an LLM turn already rendered in the model's own dialect
+    (--tool-template native). It is generated as-is, and whether it opens
+    <think> is read off the prompt itself — the slot's think_preseeded
+    describes the pipeline's template, not this render.
     """
     def frame(delta, finish=None):
         return "data: " + json.dumps({
@@ -4184,6 +4324,10 @@ def _sse_tool_stream(slot, raw_messages, gen, tools, completion_id, created, t0,
         tokens = slot.stream_vlm_tokens(vlm[0], vlm[1], gen, heartbeat=HEARTBEAT_SECS,
                                         cancel=cancel, raw_prompt=raw_prompt)
         preseeded = slot.preseeded_for(raw_prompt)
+    elif native_prompt is not None:
+        tokens = slot.stream_tokens(raw_messages, gen, heartbeat=HEARTBEAT_SECS,
+                                    cancel=cancel, prompt=native_prompt)
+        preseeded = native_prompt.rstrip().endswith("<think>")
     else:
         tokens = slot.stream_tokens(raw_messages, gen, heartbeat=HEARTBEAT_SECS,
                                     cancel=cancel)
@@ -4741,12 +4885,19 @@ def chat_completions():
     # render tool specs into the prompt and (later) parse calls back out; on
     # NPU/CPU the request is answered as a plain chat turn.
     tools_active = bool(tools) and _tools_supported(slot)
+    native_prompt = None
     if tools_active:
         try:
             text_prompt, images, raw_messages = parse_messages(
                 prepare_messages_for_tools(messages, tools), max_dim)
         except Exception as e:
             return openai_error(f"Failed to parse request: {e}")
+        # --tool-template native: genai LLM slots only. A VLM prompt carries
+        # image tags the renderer does not know, and OptimumSlot's seam takes
+        # messages, not a prompt string.
+        if (TOOL_TEMPLATE == "native" and slot.model_type == "llm"
+                and not isinstance(slot, OptimumSlot) and slot.model_dir):
+            native_prompt = render_native_tool_prompt(slot.model_dir, messages, tools)
     elif tools:
         print(f"{datetime.now():%H:%M:%S} -- [{slot.device_name}] "
               f"tools ignored (GPU-only feature)", flush=True)
@@ -4867,14 +5018,16 @@ def chat_completions():
     # doesn't trip the client's idle watchdog (see _sse_tool_stream).
     if stream and tools_active:
         return Response(
-            _sse_tool_stream(slot, raw_messages, gen, tools, completion_id, created, t0),
+            _sse_tool_stream(slot, raw_messages, gen, tools, completion_id, created, t0,
+                             native_prompt=native_prompt),
             mimetype="text/event-stream",
             headers={"X-Device": slot.device_name, "X-Model": slot.model_name},
         )
 
     # Non-streaming (with or without tools): one blocking generate + JSON reply.
     try:
-        text = slot.generate_llm(raw_messages, gen)
+        text = (slot.generate_llm(raw_messages, gen, prompt=native_prompt)
+                if native_prompt is not None else slot.generate_llm(raw_messages, gen))
     except Exception as e:
         err = explain_genai_error(e, slot)
         print(f"{datetime.now():%H:%M:%S} !! [{slot.device_name}] LLM error: {err}", flush=True)
@@ -4897,7 +5050,9 @@ def chat_completions():
                   f"{', '.join(tc['function']['name'] for tc in tool_calls)}",
                   flush=True)
 
-    message, finish_reason = _assistant_message(text, tool_calls, slot.think_preseeded)
+    preseeded = (native_prompt.rstrip().endswith("<think>") if native_prompt is not None
+                 else slot.think_preseeded)
+    message, finish_reason = _assistant_message(text, tool_calls, preseeded)
 
     resp = jsonify({
         "id": completion_id, "object": "chat.completion",
@@ -5858,6 +6013,11 @@ def parse_args():
                         "content. By default reasoning streams as delta.reasoning_content "
                         "(what OpenAI-compatible agent clients render as live thinking) "
                         "and the answer as delta.content; the Ollama API is unaffected.")
+    p.add_argument("--tool-template", choices=("ours", "native"), default="ours",
+                   help="How tool turns are rendered on GPU/CPU LLM slots (OpenAI endpoint). "
+                        "'ours' (default) speaks Qwen3-Coder XML to every model; 'native' "
+                        "renders the model's own chat template with tools, its own call "
+                        "syntax and the tool role. Experimental (T-036).")
     p.add_argument("--offload-ratio", type=int, default=0, metavar="PCT",
                    help="Stream PCT%% of MoE expert weights from disk instead of "
                         "keeping them GPU-resident (OpenVINO 2026.3+ disk offload). "
@@ -5888,7 +6048,7 @@ def main():
     global primary, secondary, whisper_slot, embed_slot, max_dim, debug, vscode_compat
     global PREWARM_SLOT
     global PROMPT_CACHE, PROMPT_CACHE_GB, PREWARM_FILE, OFFLOAD_RATIO, THINK_IN_CONTENT
-    global GPU_LARGE_ALLOC
+    global GPU_LARGE_ALLOC, TOOL_TEMPLATE
     global VSCODE_OLLAMA_VERSION
 
     args = parse_args()
@@ -5911,6 +6071,9 @@ def main():
     PROMPT_CACHE = not args.no_prompt_cache
     PROMPT_CACHE_GB = args.cache_size_gb
     THINK_IN_CONTENT = args.think_in_content
+    TOOL_TEMPLATE = args.tool_template
+    if TOOL_TEMPLATE != "ours":
+        print(f"  tool turns: {TOOL_TEMPLATE} chat template (--tool-template)", flush=True)
     GPU_LARGE_ALLOC = args.gpu_large_alloc
     OFFLOAD_RATIO = max(0, min(99, args.offload_ratio))
     if OFFLOAD_RATIO:

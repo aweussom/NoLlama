@@ -2,11 +2,12 @@
 %% Drawn 2026-08-19 from nollama.py @ 85e796f (source read, paths verified in code).
 %% Updated 2026-08-30: tool turns stream (issue #36); _sse_replay removed, _assistant_message added.
 %% Updated 2026-09-18: VLM no-think turns pre-render the prompt (render_nothink_prompt) before the seams.
+%% Updated 2026-09-23: --tool-template native renders LLM tool turns in the model's own template (T-036).
 %% Legend: solid = normal path, dashed = refused/degraded path,
 %%         ALL-CAPS nodes = prose annotations.
 %% Palette: route (blue) = request handling, gen (green) = generation paths,
 %%          client (yellow) = client-visible surfaces, warn (orange) = annotations.
-%% covers: nollama.py:chat_completions,ollama_chat,ollama_generate,ollama_v1_chat_completions,parse_messages,_route_request,_tools_supported,prepare_messages_for_tools,_maybe_capture_prewarm,_sse_tool_stream,_assistant_message,parse_tool_calls
+%% covers: nollama.py:chat_completions,ollama_chat,ollama_generate,ollama_v1_chat_completions,parse_messages,_route_request,_tools_supported,prepare_messages_for_tools,_maybe_capture_prewarm,_sse_tool_stream,_assistant_message,parse_tool_calls,render_native_tool_prompt,_load_native_template
 flowchart TB
   openai_client["OpenAI client<br/>POST /v1/chat/completions<br/>(port 8000 or 11434)"]
   ollama_client["Ollama client<br/>POST /api/chat | /api/generate"]
@@ -47,6 +48,10 @@ flowchart TB
   _tools_supported -->|no tools| pathpick
 
   prepare_messages_for_tools --> pathpick
+  prepare_messages_for_tools -->|"--tool-template native,<br/>genai LLM slot"| render_native_tool_prompt
+  render_native_tool_prompt["render_native_tool_prompt<br/>the model's own chat_template.jinja via<br/>_load_native_template (sandboxed jinja2):<br/>its tool list, its call syntax, its tool role.<br/>native_prompt rides to the LLM seam,<br/>generated with the pipeline template off"]
+  render_native_tool_prompt -->|native_prompt| pathpick
+  render_native_tool_prompt -.->|"no template / render raised:<br/>None, the Qwen-XML render stands"| pathpick
   pathpick{"model_type x stream x tools"}
   pathpick --> _maybe_capture_prewarm
 
@@ -85,6 +90,6 @@ flowchart TB
   classDef client fill:#ffffcc,stroke:#b3b300,color:#000
   classDef warn fill:#fec,stroke:#a60,color:#000
   class chat_completions,ollama_chat,ollama_generate,ollama_v1_chat_completions,parse_messages,_route_request,_tools_supported,prepare_messages_for_tools,_maybe_capture_prewarm,pathpick route
-  class stream_llm,stream_vlm,_sse_tool_stream,generate_blocking,parse_tool_calls,render_nothink_prompt gen
+  class stream_llm,stream_vlm,_sse_tool_stream,generate_blocking,parse_tool_calls,render_nothink_prompt,render_native_tool_prompt gen
   class openai_client,ollama_client,refuse400,refuse503 client
   class GATED,NPUGATE warn
