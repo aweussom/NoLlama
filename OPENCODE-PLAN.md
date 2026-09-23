@@ -89,6 +89,46 @@ What is new here:
   not NoLlama. NoLlama stays a server (pinned Discussion #41; the OpenClaw
   lesson in TODONT: trimming belongs in the client).
 
+### The side lane is not free on an iGPU, 2026-09-23
+
+[OBSERVED 2026-09-23, 258V laptop, 140V iGPU, OpenVINO 2026.4, OpenCode 1.18.30,
+`opencode run` on a two-test fixture] Two servers as Recipe A prescribes, coder
+on the GPU and Phi-3.5-mini on the **CPU** at port 8002.
+
+| | Side request (128 tokens) |
+|---|---|
+| CPU server, box idle | **1.6-1.9 s** |
+| CPU server, Qwen3-8B prefilling on the iGPU | 15.1 s (TTFT 8.5 s) |
+| CPU server, Qwen3-Coder-30B prefilling on the iGPU | **40-42 s (TTFT 12.8-24.8 s)** |
+
+The CPU is *faster than the NPU* (2.8 s baseline) when nothing else runs, and
+roughly twenty times slower while an iGPU prefills beside it. An integrated GPU
+is not a separate engine: the same package does the driver work, the tokenizer
+and the memory traffic. On the B60 the same split worked well (2026-09-12),
+because there the CPU really is idle.
+
+**So the split is a dGPU recipe, not a laptop recipe.** An installer offering a
+second CPU server by default on an iGPU box would be recommending a 40-second
+side request in place of a 5-second one on the coder itself.
+
+### A real task does complete on a 140V, 2026-09-23
+
+Same session, `Qwen3-Coder-30B-A3B-Instruct-int4` on the 140V: read two files,
+diagnose, edit, run the tests, confirm — **333 s wall clock**, correct one-line
+fix, tests green. Roughly ten turns at 6-13 tok/s decode. TTFT is bimodal and
+that is the whole story: **0.2-0.7 s on a cache hit, 16-28 s when the turn
+carries a new suffix**. Nobody's patience is spent on decode.
+
+Two harness lessons, recorded because both produced a false negative first:
+
+- `opencode run` **auto-rejects edits outside the project directory**. A fixture
+  under a scratch path failed with the model having diagnosed the bug correctly;
+  the same fixture at `C:\develrena` passed. A rejected tool call reads like
+  a model failure in the transcript.
+- **Qwen3-8B cannot drive OpenCode.** It invented `src/calc.py` and never
+  recovered, in both arms. Use it to measure plumbing, never to judge whether
+  agentic coding works here.
+
 ## Economics to measure, not assert
 
 Distilling a 3k-token block on the NPU costs its prefill plus ~200 tokens of

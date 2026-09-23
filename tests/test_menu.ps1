@@ -65,5 +65,40 @@ Assert-True (@($script:rendered | Where-Object { $_ -match "OpenCode, tools" }).
 # The gate that keeps unattended installs alive.
 Assert-Equal $false (Test-InteractiveConsole) "no console here, so the numbered fallback is chosen"
 
+# --- the recommendation starts under the cursor -------------------------
+function RunDefault($keyNames, $default) {
+    $script:keyQueue = [System.Collections.Queue]::new()
+    foreach ($n in $keyNames) {
+        $ch  = if ($n.Length -eq 1) { [char]$n } else { [char]0 }
+        $key = if ($n.Length -eq 1) { [ConsoleKey]::NoName } else { [ConsoleKey]$n }
+        $script:keyQueue.Enqueue([System.ConsoleKeyInfo]::new($ch, $key, $false, $false, $false))
+    }
+    $script:rendered = @()
+    return Show-Choice -Question "q" -Options $opts -Default $default `
+                       -KeyReader { $script:keyQueue.Dequeue() } `
+                       -Writer { param($line) $script:rendered += $line }
+}
+Assert-Equal "chat"   (RunDefault @("Enter") 1)      "Enter takes the recommended option, not the first"
+Assert-Equal "vision" (RunDefault @("Enter") 99)     "an out-of-range default clamps to the last"
+Assert-Equal "agent"  (RunDefault @("UpArrow", "Enter") 1) "moving off the default still works"
+
+# --- paging keeps the selection visible ---------------------------------
+$many = 1..20 | ForEach-Object { New-ChoiceOption -Label "Model $_" -Value $_ }
+$top = Format-ChoiceFrame -Question "q" -Options $many -Selected 0 -WindowSize 8 -Plain
+Assert-True  ($top -contains "  > Model 1")          "window starts at the top"
+Assert-True  (($top -join "`n") -match "more below")          "and says how many are hidden"
+Assert-True  (-not (($top -join "`n") -match "more above"))   "nothing hidden above at the top"
+
+$mid = Format-ChoiceFrame -Question "q" -Options $many -Selected 10 -WindowSize 8 -Plain
+Assert-True ($mid -contains "  > Model 11")        "the selected row is inside the window"
+Assert-True (($mid -join "`n") -match "more above")           "and both markers show mid-list"
+Assert-True (($mid -join "`n") -match "more below")           "..."
+
+$end = Format-ChoiceFrame -Question "q" -Options $many -Selected 19 -WindowSize 8 -Plain
+Assert-True ($end -contains "  > Model 20")        "the last row is reachable"
+Assert-True (-not (($end -join "`n") -match "more below"))    "nothing hidden below at the end"
+$rows = @($end | Where-Object { $_ -match "Model \d+" })
+Assert-Equal 8 $rows.Count                                    "the window never grows past its size"
+
 if ($script:failed) { Write-Host "$($script:failed) failure(s)" -ForegroundColor Red; exit 1 }
 Write-Host "all passed" -ForegroundColor Green

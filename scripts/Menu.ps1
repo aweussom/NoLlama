@@ -39,21 +39,27 @@ function Show-NumberedChoice {
     param(
         [string]$Question,
         [object[]]$Options,
-        [switch]$AllowSkip
+        [switch]$AllowSkip,
+        [int]$Default = 0
     )
     Write-Host ""
     Write-Host "  $Question" -ForegroundColor Cyan
     for ($i = 0; $i -lt $Options.Count; $i++) {
-        Write-Host ("   {0,2}. {1}" -f ($i + 1), $Options[$i].Label)
+        $mark = if ($i -eq $Default) { "*" } else { " " }
+        Write-Host ("  {0}{1,2}. {2}" -f $mark, ($i + 1), $Options[$i].Label)
         if ($Options[$i].Description) {
             Write-Host ("       {0}" -f $Options[$i].Description) -ForegroundColor DarkGray
         }
     }
+    $star = $Options[$Default].Label
     $prompt = if ($AllowSkip) { "Pick [1-$($Options.Count)], Enter to skip" }
-              else            { "Pick [1-$($Options.Count)]" }
+              else            { "Pick [1-$($Options.Count)], Enter for *$star" }
     while ($true) {
         $answer = Read-Host $prompt
-        if ($AllowSkip -and [string]::IsNullOrWhiteSpace($answer)) { return $null }
+        if ([string]::IsNullOrWhiteSpace($answer)) {
+            if ($AllowSkip) { return $null }
+            return $Options[$Default].Value
+        }
         $n = 0
         if ([int]::TryParse($answer, [ref]$n) -and $n -ge 1 -and $n -le $Options.Count) {
             return $Options[$n - 1].Value
@@ -77,14 +83,25 @@ function Format-ChoiceFrame {
         [string]$Question,
         [object[]]$Options,
         [int]$Selected,
+        [int]$WindowSize = 8,
         [switch]$Plain
     )
     $sel  = if ($Plain) { "" } else { $PSStyle.Reverse }
     $dim  = if ($Plain) { "" } else { $PSStyle.Dim }
     $rst  = if ($Plain) { "" } else { $PSStyle.Reset }
 
+    # Scroll window: a long model list must not push the question off screen,
+    # and a list that overflows is also a list nobody reads to the end.
+    $first = 0
+    if ($Options.Count -gt $WindowSize) {
+        $first = [Math]::Max(0, $Selected - [int]($WindowSize / 2))
+        $first = [Math]::Min($first, $Options.Count - $WindowSize)
+    }
+    $last = [Math]::Min($Options.Count - 1, $first + $WindowSize - 1)
+
     $lines = @("", "  $Question", "")
-    for ($i = 0; $i -lt $Options.Count; $i++) {
+    if ($first -gt 0) { $lines += "$dim      $first more above$rst" }
+    for ($i = $first; $i -le $last; $i++) {
         $marker = if ($i -eq $Selected) { ">" } else { " " }
         # The marker carries the selection as well as the colour: a terminal
         # that drops ANSI (or $PSStyle.OutputRendering = PlainText, which is
@@ -94,6 +111,9 @@ function Format-ChoiceFrame {
         if ($Options[$i].Description) {
             $lines += "$dim      $($Options[$i].Description)$rst"
         }
+    }
+    if ($last -lt $Options.Count - 1) {
+        $lines += "$dim      $($Options.Count - 1 - $last) more below$rst"
     }
     $lines += ""
     $lines += "$dim  up/down to move, Enter to choose, Esc to skip$rst"
@@ -116,6 +136,8 @@ function Show-Choice {
         [Parameter(Mandatory = $true)][string]$Question,
         [Parameter(Mandatory = $true)][object[]]$Options,
         [switch]$AllowSkip,
+        [int]$Default = 0,
+        [int]$WindowSize = 8,
         [scriptblock]$KeyReader,
         [scriptblock]$Writer
     )
@@ -123,14 +145,18 @@ function Show-Choice {
 
     $interactive = if ($KeyReader) { $true } else { Test-InteractiveConsole }
     if (-not $interactive) {
-        return Show-NumberedChoice -Question $Question -Options $Options -AllowSkip:$AllowSkip
+        return Show-NumberedChoice -Question $Question -Options $Options `
+                                   -AllowSkip:$AllowSkip -Default $Default
     }
 
     $emit = if ($Writer) { $Writer } else { { param($line) Write-Host $line } }
     $read = if ($KeyReader) { $KeyReader } else { { [Console]::ReadKey($true) } }
     $plain = [bool]$Writer   # a captured render is compared as text, not colour
 
-    $selected = 0
+    # The cursor starts on the recommendation, so Enter alone is the right
+    # answer. Anything offered as a default has to be a configuration we have
+    # actually run -- see docs/dev/scenarios.md for which ones those are.
+    $selected = [Math]::Max(0, [Math]::Min($Default, $Options.Count - 1))
     $drawn = 0
     try {
         if (-not $Writer) { [Console]::CursorVisible = $false }
@@ -141,7 +167,8 @@ function Show-Choice {
                 [Console]::Write("`e[${drawn}A`e[0J")
             }
             $frame = Format-ChoiceFrame -Question $Question -Options $Options `
-                                        -Selected $selected -Plain:$plain
+                                        -Selected $selected -WindowSize $WindowSize `
+                                        -Plain:$plain
             foreach ($line in $frame) { & $emit $line }
             $drawn = $frame.Count
 
