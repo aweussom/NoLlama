@@ -5,8 +5,16 @@ what is merely *built*, and what is in flight. Three minutes to read; updated at
 the end of a working session. If `README.md` disagrees, this one is younger —
 say so and fix the older.
 
-**As of 2026-09-18, `main` at the `v1.0.0` tag — the first release since
-`v0.9.0` (2026-08-11), 223 commits back.**
+**As of 2026-09-23. `v1.0.0` was tagged 2026-09-18; 21 commits since, all on
+`main`.** The evening's theme: the installer and the registry now rest on
+measurements rather than on plausible assumptions, and three of those
+assumptions turned out to be wrong.
+
+**Read this first if you are picking up the agent work.** Decode speed tracks
+**active** parameters, not model size: a 30B-A3B MoE runs 18-32 tok/s on a 140V
+where a dense 14B manages ~7 on the same box and task. That single fact
+reorganised the model list, and it is why the search for a 16 GB-tier agent
+model is a search for a *small MoE*, not a small dense model.
 
 ---
 
@@ -41,6 +49,22 @@ Working state is `brain/next/` (needs Tommy), `brain/todo/` (startable cold) and
 | Runtime floor moved to OpenVINO **2026.4** (stable since 2026-09-16). Laptop and B60 both upgraded; 10/10 test modules after fixing a test double that had been failing since 3e9a918 on both boxes. Intel's re-exported gemma-4-E4B int8 segfaults on 2026.3.1 and runs on 2026.4, where its prefix cache works: ~13k-char prefix 10.3 s cold then 1.4 / 0.9 s | 2026-09-23 |
 | OpenCode completes a real task on the 140V with `Qwen3-Coder-30B-A3B-int4`: 333 s, correct fix, tests green — TTFT 0.2–0.7 s cached against 16–28 s on a new suffix. The CPU side-model split is a **dGPU** recipe: 1.6 s idle, 40 s while an iGPU prefills | 2026-09-23 |
 | Agent-capable models, measured: `Qwen3-Coder-30B-A3B` PASS, `Qwen3-14B` PARTIAL (correct but 9 min), `Qwen2.5-Coder-14B`/`-7B` and `Qwen3-8B` FAIL — they narrate or fake tool calls. Tool training, not coding ability, is the constraint | 2026-09-23 |
+
+## Where the agent story stands (2026-09-23)
+
+| model | on disk | agent verdict |
+|---|---|---|
+| `Qwen3-Coder-30B-A3B-int4` | 16.3 GB | **PASS** — 333 s, two boxes |
+| `Qwen3-30B-A3B-int4` | 15.2 GB | passes the fix task by hand (2.5 min) |
+| `Qwen3-14B-int4` | 9.1 GB | completes in **18 min**, writes a syntax error on the way — flag removed |
+| `Qwen2.5-Coder-14B` / `-7B` | — | **retired from the registry** (TODONT): narrate tool use, never call |
+| `Qwen3-8B-int4` | 4.6 GB | invents paths, never recovers |
+| `LFM2.5-8B-A1B-int4` | 4.2 GB | **unknown** — its 0/2 was our parser (T-036) |
+
+**A 32 GB machine has one agent model. A 16 GB machine has none**, and the
+installer now says so rather than offering one that fails. LFM2.5-8B-A1B is the
+open question: 4.2 GB, ~1B active, 48 KB/token KV, and it needs 30 minutes of
+re-running to settle.
 
 ## Built, not yet proven
 
