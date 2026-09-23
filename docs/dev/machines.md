@@ -101,21 +101,31 @@ time** — two concurrent 14 GB loads thrashed the pagefile for 40 minutes on
 2026-08-21 and produced nothing. `.wslconfig` sets `memory=24GB` so WSL does
 not take its default ~50% share and squeeze this further.
 
-### Qwen3.8-27B int4: every image turn fails on the 140V, none on the B60
+### Qwen3.8-27B int4 runs on the 140V — the failure was my own memory pressure
 
-[OBSERVED 2026-09-23, OpenVINO 2026.4.0 / genai 2026.4.0.0 on both boxes,
-`OpenVINO/Qwen3.8-27B-int4-ov` rev `2026.3.1`, `bare-probe.py`, NoLlama
-absent] On the **B60** all twelve cases pass, text and image alike. On the
-**140V laptop** the first text case passes, the first image case fails with
-`infer_request.cpp:224`, and every case after it fails too -- the documented
-poisoned-pipeline pattern, so the one real failure is the image turn.
+[OBSERVED 2026-09-23, OpenVINO 2026.4.0 / genai 2026.4.0.0, `bare-probe.py`,
+NoLlama absent] A first run on the laptop failed every image case with
+`infer_request.cpp:224`, and passed on the B60 under the identical runtime,
+script and model revision — which looked like a clean device result. It was
+not. Two abandoned NoLlama servers were still resident holding ~14 GB of a
+32 GB box while that probe ran; the model load alone took the best part of
+fifteen minutes against 29.7 s once they were gone.
 
-The runtime is not the variable: same version, same script, same model
-revision, opposite results. Nor is the image path as such -- driving
-`VLMPipeline` by hand on the laptop, three text turns and a 224x224 image
-turn all pass. `bare-probe` uses **336x336**, so the open question is image
-size (more vision patches) against a 27B model resident on a shared-memory
-iGPU. Until that is pinned down, treat 27B + vision as a B60 workload.
+With the box idle, everything passes: all twelve probe cases, and a size
+sweep at 224, 336, 448 and 672 px, both on one pipeline in sequence and on a
+fresh pipeline per size. So **image size was not the variable either** —
+that was the standing hypothesis and it is dead.
+
+Two things changed between the failing run and the clean one — the leftover
+processes were killed *and* the laptop went onto an active cooling pad — so
+thermal throttling cannot be formally excluded. The memory account is the
+one that fits the evidence: an allocation-shaped exception, a fifteen-minute
+load, and a shared-memory iGPU asked for ~15 GB of weights on a box that had
+14 GB spoken for.
+
+**The lesson is about method, not about the model.** Check what else is
+resident before reading a GPU failure on a 32 GB box, and kill your own
+servers by verifying the process is gone rather than trusting the kill.
 
 ### Qwen3.8-27B int4 on the B60: fits, but not with the auto-sized KV pool
 
