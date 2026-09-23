@@ -5,7 +5,8 @@
             "hf_id": "OpenVINO/Qwen3-8B-int4-cw-ov",
             "source": "pre-exported",
             "est_size_gb": 5,
-            "notes": "Recommended (proven). Best quality verified for NPU."
+            "notes": "Recommended (proven). Best quality verified for NPU. NOT an agent model: verified 2026-09-23 with OpenCode on a 140V — it invented a path (src/calc.py) that did not exist and never recovered, in two separate runs. Good chat model, not a tool driver.",
+            "agent": false
         },
         {
             "name": "SmolLM3 3B (INT4-CW)",
@@ -136,14 +137,16 @@
             "hf_id": "OpenVINO/Qwen2.5-Coder-14B-Instruct-int4-ov",
             "source": "pre-exported",
             "est_size_gb": 8,
-            "notes": "Recommended for VS Code Copilot Chat / tool calling (--vscode-compat). Fits 16GB with KV headroom. Emits Hermes-style <tool_call> JSON, handled by parse_tool_calls. Newer Qwen3-Coder exists only as 30B-A3B (17GB, falls back to CPU on 16GB), so this is the best coder that fits. NOT an agent model: verified 2026-09-23 on a 140V with OpenCode 1.18.30 — it narrates tool use ('[run the tests]') and emits a fake tool-call block in markdown instead of calling anything, then hands the task back. Two real bash calls in a whole session. Speed was fine (TTFT 0.3-1.2s, 6-8 tok/s); tool training is what it lacks. Fine for chat and code completion."
+            "notes": "Recommended for VS Code Copilot Chat / tool calling (--vscode-compat). Fits 16GB with KV headroom. Emits Hermes-style <tool_call> JSON, handled by parse_tool_calls. Newer Qwen3-Coder exists only as 30B-A3B (17GB, falls back to CPU on 16GB), so this is the best coder that fits. NOT an agent model: verified 2026-09-23 on a 140V with OpenCode 1.18.30 — it narrates tool use ('[run the tests]') and emits a fake tool-call block in markdown instead of calling anything, then hands the task back. Two real bash calls in a whole session. Speed was fine (TTFT 0.3-1.2s, 6-8 tok/s); tool training is what it lacks. Fine for chat and code completion.",
+            "agent": false
         },
         {
             "name": "Qwen2.5-Coder 7B (INT4)",
             "hf_id": "OpenVINO/Qwen2.5-Coder-7B-Instruct-int4-ov",
             "source": "pre-exported",
             "est_size_gb": 5,
-            "notes": "Lighter Copilot/tool-calling option. Faster than the 14B, weaker on multi-step agent loops. Same Hermes tool-call format. NOT an agent model: verified 2026-09-23, same harness — it never called a tool at all, it wrote instructions to the user in a markdown bash block. Fine for chat and code completion."
+            "notes": "Lighter Copilot/tool-calling option. Faster than the 14B, weaker on multi-step agent loops. Same Hermes tool-call format. NOT an agent model: verified 2026-09-23, same harness — it never called a tool at all, it wrote instructions to the user in a markdown bash block. Fine for chat and code completion.",
+            "agent": false
         },
         {
             "name": "Qwen3 14B (INT4)",

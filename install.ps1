@@ -373,7 +373,30 @@ if (Test-Path $ModelsRoot) {
         # keys for older exports. Catches new generations (Qwen3.5 reports
         # Qwen3_5ForConditionalGeneration / qwen3_5, matching no key).
         $mtype = "llm"
-        if (Test-Path (Join-Path $_.FullName "openvino_vision_embeddings_model.xml")) {
+        # An embedding model ships the same openvino_model.bin/.xml pair as a
+        # chat model, so without this it lands in the chat and coding-agent
+        # menus -- which is exactly what happened (all-MiniLM offered as a
+        # coding agent, 2026-09-23). Encoder architectures and the
+        # sentence-transformers layout are the tells.
+        # The IR itself is the reliable tell, and it needs no config.json --
+        # which matters, because Intel's nomic-embed export ships only the
+        # OpenVINO files. A generative model produces "logits"; an encoder
+        # produces last_hidden_state and no logits.
+        #
+        # NOT past_key_values, which was the obvious choice and is wrong:
+        # LFM2.5, Qwen3.5-4B and Qwen3.8-27B have no past_key_values anywhere
+        # in their IR because of linear/hybrid attention, and would have been
+        # classified as embedding models and dropped from every chat menu
+        # (caught before shipping, 2026-09-23). The whole file is read because
+        # results are declared at the end.
+        $irXml = if (Test-Path (Join-Path $_.FullName "openvino_model.xml")) {
+            Join-Path $_.FullName "openvino_model.xml"
+        } else { Join-Path $_.FullName "openvino_language_model.xml" }
+        $isEmbed = $false
+        try { $isEmbed = -not ([System.IO.File]::ReadAllText($irXml) -match '"logits"') } catch {}
+        if ($isEmbed) {
+            $mtype = "embed"
+        } elseif (Test-Path (Join-Path $_.FullName "openvino_vision_embeddings_model.xml")) {
             $mtype = "vlm"
         } else {
             $cfgPath = Join-Path $_.FullName "config.json"
@@ -474,10 +497,13 @@ function Show-ModelMenu {
     #      classification, so it shows as instant instead of a bogus download.
     $onDisk = @()
     foreach ($lm in $LocalModels) {
+        # AgentTag is set by Sort-AgentLocal and is the only thing that tells
+        # a user which of their downloaded models has actually been measured.
+        $note = if ($lm.PSObject.Properties['AgentTag'] -and $lm.AgentTag) { $lm.AgentTag } else { "Already on disk" }
         $onDisk += [PSCustomObject]@{
             Action = "local"; Name = $lm.Name; Path = $lm.Path
             HfId = $null; Source = $null; Weight = $null; Trust = $false
-            SizeGB = $lm.SizeGB; Notes = "Already on disk"
+            SizeGB = $lm.SizeGB; Notes = $note
         }
     }
 
@@ -523,9 +549,10 @@ function Show-ModelMenu {
         foreach ($od in $onDisk) {
             $items += $od
             $i = $items.Count
+            $noteColor = if ($od.Notes -like "NOT an agent*") { "DarkYellow" } else { "DarkGray" }
             Write-Host "    $i. $($od.Name)" -NoNewline
             Write-Host "  ($($od.SizeGB) GB)" -ForegroundColor DarkGray -NoNewline
-            Write-Host "  Already on disk" -ForegroundColor DarkGray -NoNewline
+            Write-Host "  $($od.Notes)" -ForegroundColor $noteColor -NoNewline
             Write-Host (Get-FitTag $od.SizeGB) -ForegroundColor Yellow
         }
         Write-Host ""
@@ -543,6 +570,13 @@ function Show-ModelMenu {
             if ($fit) { Write-Host $fit -ForegroundColor Yellow -NoNewline }
             Write-Host "  $($dm.Notes)" -ForegroundColor DarkGray
         }
+    }
+
+    if ($script:AgentLocalOmitted -gt 0) {
+        Write-Host ""
+        Write-Host "  ($($script:AgentLocalOmitted) smaller local model(s) not listed: too small to drive a tool" -ForegroundColor DarkGray
+        Write-Host "   loop. Any model still runs with 'python nollama.py --model-dir <path>'.)" -ForegroundColor DarkGray
+        $script:AgentLocalOmitted = 0
     }
 
     if ($hiddenNightly -gt 0) {
@@ -782,6 +816,62 @@ function Where-NpuUsable {
     @($Models | Where-Object { $blocked -notcontains $_ })
 }
 
+# What the registry knows about a local folder, matched on the repo name the
+# downloader used. Without this a local model is an anonymous directory and the
+# menu cannot say whether we have tested it.
+function Find-RegistryEntry {
+    param([string]$Name)
+    foreach ($bucket in @("npu", "gpu_llm", "gpu_vlm", "embed", "whisper")) {
+        foreach ($e in $Registry.$bucket) {
+            if ((($e.hf_id -split '/')[-1]) -ieq $Name) { return $e }
+        }
+    }
+    # Fall back to the family, ignoring the quantization suffix: whether a
+    # model can drive a tool loop is a property of its training, not of
+    # int4 vs int8. Without this, Qwen3-8B-int4-ov learns nothing from what
+    # we measured on Qwen3-8B-int4-cw-ov.
+    $stem = ($Name -replace '-(int4|int8|fp16|bf16)(-cw)?(-ov)?$', '') -replace '-ov$', ''
+    foreach ($bucket in @("npu", "gpu_llm", "gpu_vlm")) {
+        foreach ($e in $Registry.$bucket) {
+            $rstem = ((($e.hf_id -split '/')[-1]) -replace '-(int4|int8|fp16|bf16)(-cw)?(-ov)?$', '') -replace '-ov$', ''
+            if ($rstem -ieq $stem) { return $e }
+        }
+    }
+    return $null
+}
+
+# Rank and label local models for the coding-agent menu.
+#
+# Why: the agent menu was listing every folder in ~/models alphabetically --
+# embedders included -- so the models measured to FAIL sat above the one that
+# works (2026-09-23). Verified-capable first, untested next, measured-failures
+# last and labelled. Nothing is hidden: a model you downloaded stays visible,
+# it just stops being presented as a candidate.
+function Sort-AgentLocal {
+    param([object[]]$Models, [int]$KeepUntested = 4)
+    $ranked = foreach ($m in $Models) {
+        $reg = Find-RegistryEntry $m.Name
+        $rank = 1; $tag = "untested for agents"
+        if ($null -ne $reg -and $reg.PSObject.Properties['agent']) {
+            if ($reg.agent) { $rank = 0; $tag = "verified agent model" }
+            else            { $rank = 2; $tag = "NOT an agent model (tested)" }
+        }
+        [PSCustomObject]@{ M = $m; Rank = $rank; Tag = $tag }
+    }
+    $sorted = @($ranked | Sort-Object Rank, @{Expression = {-$_.M.SizeGB}})
+    # Keep the list short enough to read. Everything verified stays; the
+    # untested tail is cut to the largest few, because a 0.3 GB model is not a
+    # coding agent candidate on any hardware. The count of what was left out
+    # is printed by the caller -- summarised, not silently dropped.
+    $keep = @($sorted | Where-Object { $_.Rank -eq 0 }) +
+            @($sorted | Where-Object { $_.Rank -eq 1 } | Select-Object -First $KeepUntested) +
+            @($sorted | Where-Object { $_.Rank -eq 2 })
+    $script:AgentLocalOmitted = $sorted.Count - $keep.Count
+    @($keep | ForEach-Object {
+        $_.M | Add-Member -NotePropertyName AgentTag -NotePropertyValue $_.Tag -Force -PassThru
+    })
+}
+
 # Chat can run anywhere; small NPU-class models + bigger GPU LLMs both work on GPU/CPU.
 function Get-ChatRegistry { param([string]$Device)
     if ($Device -eq "NPU") { return Where-NpuUsable $Registry.npu "NPU" }
@@ -789,6 +879,11 @@ function Get-ChatRegistry { param([string]$Device)
 }
 function Get-ChatLocal { param([string]$Device, [string]$Exclude = "")
     @($LocalModels | Where-Object { $_.Type -eq "llm" -and (($Device -ne "NPU") -or $_.NpuOk) -and $_.Name -ne $Exclude })
+}
+# The coding-agent menu: LLMs only (an embedder is not a coding agent), ranked
+# by what has actually been measured.
+function Get-AgentLocal { param([string]$Exclude = "")
+    Sort-AgentLocal @($LocalModels | Where-Object { $_.Type -eq "llm" -and $_.Name -ne $Exclude })
 }
 
 # --- Use-case menu (filtered by available hardware) ---
@@ -857,7 +952,7 @@ switch ($useKey) {
     "agent" {
         $dev = Select-Device -Purpose "the coding agent" -Choices $agentDevices `
             -Note "GPU is usually faster; CPU often wins on strong desktops / weak iGPUs."
-        $loc = @($LocalModels | Where-Object { $_.Type -eq "llm" })
+        $loc = Get-AgentLocal
         $sel = Show-ModelMenu -Title "Coding agent model ($dev) - OpenCode / Copilot ready" -RegistryModels $coders -LocalModels $loc
         if ($sel) {
             Install-Primary $sel $dev; $StartArgs += @("--prewarm", "prewarm.json", "--vscode-compat", "--idle-timeout", "0"); $isAgent = $true
@@ -913,7 +1008,7 @@ switch ($useKey) {
         $chatSel = Show-ModelMenu -Title "Chat model ($chatDev)" -RegistryModels (Get-ChatRegistry $chatDev) -LocalModels (Get-ChatLocal $chatDev)
         if ($chatSel) {
             Install-Primary $chatSel $chatDev
-            $cloc = @($LocalModels | Where-Object { $_.Type -eq "llm" -and $_.Name -ne $chatSel.Name })
+            $cloc = Get-AgentLocal -Exclude $chatSel.Name
             $coderSel = Show-ModelMenu -Title "Coding agent model (GPU) - OpenCode / Copilot ready" -RegistryModels $coders -LocalModels $cloc -AllowSkip $true
             if ($coderSel -and (Install-Model -Selected $coderSel -TargetDir $GpuModelDir)) {
                 $StartArgs += @("--gpu-model-dir", "gpu-model", "--prewarm", "prewarm.json", "--vscode-compat", "--idle-timeout", "0"); $isAgent = $true
