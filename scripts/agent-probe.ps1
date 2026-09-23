@@ -115,6 +115,35 @@ function Write-OpenCodeConfig {
     $cfg | ConvertTo-Json -Depth 8 | Set-Content -Path (Join-Path $Dir "opencode.json") -Encoding utf8
 }
 
+function Get-FailureKind {
+    # Say WHY a task failed, from the transcript and the filesystem.
+    #
+    # Why: a bare FAIL confounds two very different defects. Every failure
+    # measured on 2026-09-23 was a tool-use failure -- the models diagnosed the
+    # percentage bug correctly in prose and then did not act -- but the verdict
+    # alone could not show that, and it took reading four transcripts to learn
+    # it. The fixture tests comprehension AND action; this separates them.
+    #
+    # In: the task log and the project dir. Out: one short phrase. Heuristics
+    # over a transcript, so it is a label to start from, not evidence.
+    param([string]$Log, [string]$Dir)
+    $text = if (Test-Path $Log) { Get-Content $Log -Raw -ErrorAction SilentlyContinue } else { "" }
+    if (-not $text) { return "no output at all (harness or launcher, not the model)" }
+
+    # OpenCode prints a line per tool it runs; a model that only talks prints none.
+    $calledTools = $text -match "(?m)^\s*(\$|→|✱|●)\s" -or $text -match "(?m)^\s*(Read|Write|Edit|Glob|Bash)"
+    $edited = $false
+    Push-Location $Dir
+    $dirty = @(git status --porcelain 2>$null)
+    Pop-Location
+    if ($dirty | Where-Object { $_ -match "calc\.py" }) { $edited = $true }
+
+    if (-not $calledTools) { return "never called a tool -- wrote prose instead of acting" }
+    if (-not $edited -and $dirty.Count -eq 0) { return "called tools but changed nothing" }
+    if (-not $edited) { return "wrote somewhere other than calc.py: $($dirty -join ', ')" }
+    return "edited calc.py, tests still fail -- a comprehension failure"
+}
+
 function Invoke-Task {
     # Run one task and decide it by running code, never by reading prose.
     #
@@ -173,7 +202,8 @@ function Invoke-Task {
         $strays | ForEach-Object { Write-Host "     $_" -ForegroundColor Red }
         Write-Host "     clean these up before committing anything." -ForegroundColor Red
     }
-    [PSCustomObject]@{ Task = $Label; Verdict = $verdict; Seconds = [int]$elapsed.TotalSeconds; Log = $log }
+    $why = if ($verdict -eq "FAIL") { Get-FailureKind -Log $log -Dir $Dir } else { "" }
+    [PSCustomObject]@{ Task = $Label; Verdict = $verdict; Seconds = [int]$elapsed.TotalSeconds; Log = $log; Why = $why }
 }
 
 # --- run -------------------------------------------------------------------
@@ -214,6 +244,7 @@ Write-Host ""
 foreach ($r in $results) {
     $color = switch ($r.Verdict) { "PASS" { "Green" } "TIMEOUT" { "Yellow" } default { "Red" } }
     Write-Host ("  {0,-8} {1,-8} {2,5}s   {3}" -f $r.Task, $r.Verdict, $r.Seconds, $r.Log) -ForegroundColor $color
+    if ($r.Why) { Write-Host "           why: $($r.Why)" -ForegroundColor $color }
 }
 # Keep the transcripts. The first run of this script printed log paths and
 # then deleted them with the workdir, so a 0/2 result could not be explained

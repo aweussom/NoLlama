@@ -119,6 +119,29 @@ fix, tests green. Roughly ten turns at 6-13 tok/s decode. TTFT is bimodal and
 that is the whole story: **0.2-0.7 s on a cache hit, 16-28 s when the turn
 carries a new suffix**. Nobody's patience is spent on decode.
 
+### Two numbers from today that were wrong, and why
+
+Both were measured on a box I had put under memory pressure myself, and a clean
+hand-run corrected them [OBSERVED 2026-09-23, 140V, `Qwen3-30B-A3B-int4`]:
+
+- **Decode is ~30 tok/s, not 6-13.** The clean run shows 31.7, 19.2 and 18.2
+  tok/s on the same model and hardware. My figures were taken with free RAM at
+  0.8 GB and the pagefile working; they measured my own mess.
+- **`Qwen3-30B-A3B` passes the fix task.** My probe scored it 0/2 and two
+  fixture files appeared in the NoLlama repo, from which I inferred the model
+  had written to the wrong project. Run by hand in `C:	mp\opencode-30b` it
+  edits `calc.py` in place, correctly, and both tests pass. The probe was the
+  variable; the mechanism is still unidentified, which is why the probe now
+  checks whether the agent wrote outside its workdir.
+
+**And the queueing cost is real, measured at last.** In that clean run two
+requests arrived 3 s apart and shared one slot lock: the second reported
+**TTFT 46.8 s**, nearly all of it waiting. That is OpenCode's two-requests-per-
+turn pattern on a single server, and it is the strongest case yet for a side
+lane — set against the other measurement, that a CPU side lane costs ~40 s
+under iGPU contention. On an integrated GPU you are choosing which queue to
+wait in; on a discrete GPU the split wins outright.
+
 Two harness lessons, recorded because both produced a false negative first:
 
 - `opencode run` **auto-rejects edits outside the project directory**. A fixture
@@ -138,6 +161,7 @@ runs: PASS = finishes unaided, tests green, under ten minutes.
 | Model | On disk | Verdict | How it behaves |
 |---|---|---|---|
 | `Qwen3-Coder-30B-A3B-int4` | 16 GB | **PASS** | 333 s, correct fix, tests green |
+| `Qwen3-30B-A3B-int4` (plain chat MoE) | 15 GB | **PASS** | 2.5 min, correct in-place edit, tests green — **hand-run, clean box** |
 | `Qwen3-14B-int4` | 9.1 GB | **PARTIAL** | Correct fix in 5 turns with real tool calls, still going at 9 min |
 | `Qwen2.5-Coder-14B-int4` | 7.9 GB | **FAIL** | Narrates tool use, fakes a call block in markdown, hands the task back |
 | `Qwen2.5-Coder-7B-int4` | 4.2 GB | **FAIL** | Never calls a tool; writes instructions to the user |
