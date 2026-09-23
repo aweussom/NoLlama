@@ -40,3 +40,52 @@
 21:40:16 <- [GPU] 56245 chars, max_tokens=16384 (stream)
 21:40:21 -> [GPU] 474 tokens in 7.0s (67.9 tok/s, TTFT 465ms)
 21:40:22 -> [GPU] 80 tokens in 6.8s (11.7 tok/s, TTFT 5570ms)
+
+=== NoLlama 2026-09-18-4b70c08 log opened 2026-09-23 22:13:03 ===
+
+  Devices:
+    CPU: Intel(R) Core(TM) Ultra 7 258V
+    GPU: Intel(R) Arc(TM) 140V GPU (16GB) (iGPU)
+    NPU: Intel(R) AI Boost
+
+  NoLlama 2026-09-18-4b70c08 starting on port 8000...
+  Web UI (chat):  http://localhost:8000/
+  OpenAI API:     http://localhost:8000/v1
+  Ollama API:     disabled
+  Idle unload after 1800s of inactivity
+  OpenAI API on port 8000
+  [GPU] Detected: LLM (LFM2.5-8B-A1B)
+  [GPU] KV pool 3 GB ~ 65k tokens for this model (48 KB/token)
+  [GPU] Loading...
+  [GPU] last load took 5s
+  [GPU] prefix caching on (3 GB KV pool, auto-sized — pin with --cache-size-gb)
+  [GPU] loaded in 5s
+  [GPU] Warmup... done (0.8s)
+
+================================================
+  NoLlama ready
+    GPU  : LFM2.5-8B-A1B (LLM) -- Intel(R) Arc(TM) 140V GPU (16GB) (iGPU)
+    API  : http://localhost:8000  (OpenAI)
+================================================
+
+
+22:13:20 <- [GPU] 2250 chars, max_tokens=16384 (stream)
+
+22:13:23 <- [GPU] 39340 chars, max_tokens=16384 (stream)
+22:13:29 -> [GPU] 481 tokens in 9.6s (50.2 tok/s, TTFT 2151ms)
+22:14:03 -> [GPU] 1673 tokens in 39.1s (42.8 tok/s, TTFT 12192ms)
+22:14:03 -> [GPU] 1 tool call(s): bash
+
+22:14:04 <- [GPU] 39587 chars, max_tokens=16384 (stream)
+22:14:06 -> [GPU] 54 tokens in 1.3s (42.8 tok/s, TTFT 272ms)
+22:14:06 -> [GPU] 1 tool call(s): bash
+
+22:14:10 <- [GPU] 2409 chars, max_tokens=16384 (stream)
+
+22:14:12 <- [GPU] 39499 chars, max_tokens=16384 (stream)
+22:14:17 -> [GPU] 474 tokens in 7.7s (61.6 tok/s, TTFT 521ms)
+22:14:19 -> [GPU] 107 tokens in 7.4s (14.5 tok/s, TTFT 5497ms)
+22:14:19 -> [GPU] 3 tool call(s): glob, glob, glob
+
+22:14:21 <- [GPU] 40056 chars, max_tokens=16384 (stream)
+22:14:28 -> [GPU] 396 tokens in 7.5s (52.6 tok/s, TTFT 560ms)

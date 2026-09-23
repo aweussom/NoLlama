@@ -131,19 +131,36 @@ function Get-FailureKind {
     #
     # In: the task log and the project dir. Out: one short phrase. Heuristics
     # over a transcript, so it is a label to start from, not evidence.
+    #
+    # Reads stdout AND stderr: `opencode run` prints its tool lines ($, ✱, ✗)
+    # to stderr and only the final reply to stdout [OBSERVED 2026-09-23,
+    # opencode on the 140V]. Reading stdout alone labelled LFM2.5 "never called
+    # a tool" after five parsed calls, so any verdict from before this fix that
+    # carries that label needs its .err re-read before it is believed.
     param([string]$Log, [string]$Dir)
-    $text = if (Test-Path $Log) { Get-Content $Log -Raw -ErrorAction SilentlyContinue } else { "" }
-    if (-not $text) { return "no output at all (harness or launcher, not the model)" }
+    $text = ""
+    foreach ($f in @($Log, "$Log.err")) {
+        if (Test-Path $f) { $text += (Get-Content $f -Raw -ErrorAction SilentlyContinue) + "`n" }
+    }
+    $text = $text -replace "\x1b\[[0-9;]*m", ""
+    if (-not $text.Trim()) { return "no output at all (harness or launcher, not the model)" }
 
     # OpenCode prints a line per tool it runs; a model that only talks prints none.
-    $calledTools = $text -match "(?m)^\s*(\$|→|✱|●)\s" -or $text -match "(?m)^\s*(Read|Write|Edit|Glob|Bash)"
+    $calledTools = $text -match "(?m)^\s*(\$|→|✱|✗|●)\s" -or $text -match "(?m)^\s*(Read|Write|Edit|Glob|Bash)\b"
     $edited = $false
     Push-Location $Dir
-    $dirty = @(git status --porcelain 2>$null)
+    # The harness writes its own logs and opencode.json into this dir; left in,
+    # they made the tree look dirty on every run, so "changed nothing" was
+    # unreachable and every no-op run read as "wrote somewhere else".
+    $dirty = @(git status --porcelain 2>$null | Where-Object { $_ -notmatch '\.log(\.err)?$|opencode\.json$|__pycache__' })
     Pop-Location
     if ($dirty | Where-Object { $_ -match "calc\.py" }) { $edited = $true }
 
     if (-not $calledTools) { return "never called a tool -- wrote prose instead of acting" }
+    # OpenCode auto-rejects paths outside the project and the run ends there.
+    if ($text -match "permission requested: external_directory") {
+        return "called tools, then reached outside the project -- an invented path"
+    }
     if (-not $edited -and $dirty.Count -eq 0) { return "called tools but changed nothing" }
     if (-not $edited) { return "wrote somewhere other than calc.py: $($dirty -join ', ')" }
     return "edited calc.py, tests still fail -- a comprehension failure"
@@ -254,7 +271,9 @@ foreach ($r in $results) {
 # Keep the transcripts. The first run of this script printed log paths and
 # then deleted them with the workdir, so a 0/2 result could not be explained
 # afterwards -- and HOW a model fails is the whole output of this probe.
-$keepDir = Join-Path (Get-Location) "benchgent-probe"
+# Two child segments, not one "bench\agent-probe" string: an earlier edit
+# wrote that backslash-a as a BEL byte and the directory never existed.
+$keepDir = Join-Path (Get-Location) "bench" "agent-probe"
 New-Item -ItemType Directory -Path $keepDir -Force | Out-Null
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $safeModel = ($Model -replace '[^A-Za-z0-9._-]', '_')
@@ -262,6 +281,8 @@ foreach ($r in $results) {
     if (Test-Path $r.Log) {
         $dest = Join-Path $keepDir "$stamp-$safeModel-$($r.Task).log"
         Copy-Item $r.Log $dest -Force
+        # stderr is where OpenCode prints the tool lines -- the evidence.
+        if (Test-Path "$($r.Log).err") { Copy-Item "$($r.Log).err" "$dest.err" -Force }
         $r.Log = $dest
     }
 }
