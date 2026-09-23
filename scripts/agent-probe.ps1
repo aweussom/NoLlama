@@ -166,6 +166,26 @@ function Get-FailureKind {
     return "edited calc.py, tests still fail -- a comprehension failure"
 }
 
+function Test-OriginalTests {
+    # Run the fixture's ORIGINAL tests against whatever calc.py the agent left.
+    #
+    # Why: the task tells the model to make the tests pass, and rewriting the
+    # test file is a way to do that. Running the model's own copy scored
+    # Qwen3-14B's feature task PASS after it replaced tests/test_calc.py
+    # wholesale with `write` [OBSERVED 2026-09-23] -- and nobody could say
+    # afterwards whether the original assertions survived. The pristine file
+    # comes from the fixture's own git HEAD, so the model cannot have edited it.
+    #
+    # In: the project dir. Out: $true only if every original test passes.
+    param([string]$Dir)
+    $orig = Join-Path $Dir "tests\_probe_original.py"
+    git -C $Dir show HEAD:tests/test_calc.py 2>$null | Set-Content -Path $orig -Encoding utf8
+    & $py $orig *> $null
+    $ok = $LASTEXITCODE -eq 0
+    Remove-Item $orig -Force -ErrorAction SilentlyContinue
+    return $ok
+}
+
 function Invoke-Task {
     # Run one task and decide it by running code, never by reading prose.
     #
@@ -209,6 +229,10 @@ function Invoke-Task {
     }
     $elapsed = (Get-Date) - $started
     $verdict = if ($timedOut) { "TIMEOUT" } elseif ((& $Verify) -eq $true) { "PASS" } else { "FAIL" }
+    # What the agent actually changed, kept beside the transcript: the
+    # transcript says "Wrote file successfully", never what was written, and
+    # the next task resets the tree.
+    git diff --no-color HEAD 2>$null | Set-Content -Path "$log.diff" -Encoding utf8
     Pop-Location
 
     # Did the agent stay inside its sandbox? Qwen3-30B-A3B wrote a correct
@@ -251,15 +275,19 @@ $py = if (Test-Path ".\venv\Scripts\python.exe") { (Resolve-Path ".\venv\Scripts
 $results = @()
 $results += Invoke-Task -Dir $WorkDir -Label "fix" -TimeoutSec $TimeoutSec `
     -Prompt "Run 'python tests/test_calc.py'. Both tests fail. Fix calc.py so they pass, then run the tests again to confirm." `
-    -Verify { & $py (Join-Path $WorkDir "tests\test_calc.py") *> $null; $LASTEXITCODE -eq 0 }
+    -Verify { Test-OriginalTests -Dir $WorkDir }
 
 $results += Invoke-Task -Dir $WorkDir -Label "feature" -TimeoutSec $TimeoutSec `
     -Prompt "Add a function apply_tax(amount, percent) to calc.py that ADDS that percentage to the amount and rounds to two decimals. Add a test for it in tests/test_calc.py asserting apply_tax(100.0, 25) == 125.0. Then run 'python tests/test_calc.py' and make sure everything passes." `
     -Verify {
         & $py -c "import sys; sys.path.insert(0, r'$WorkDir'); from calc import apply_tax; raise SystemExit(0 if apply_tax(100.0,25)==125.0 else 1)" *> $null
         if ($LASTEXITCODE -ne 0) { return $false }
+        # The asked-for test must exist, and the model's file must pass...
+        if (-not (Select-String -Path (Join-Path $WorkDir "tests\test_calc.py") -Pattern "apply_tax" -Quiet)) { return $false }
         & $py (Join-Path $WorkDir "tests\test_calc.py") *> $null
-        $LASTEXITCODE -eq 0
+        if ($LASTEXITCODE -ne 0) { return $false }
+        # ...and so must the original assertions it may have rewritten.
+        Test-OriginalTests -Dir $WorkDir
     }
 
 Write-Host ""
@@ -283,6 +311,7 @@ foreach ($r in $results) {
         Copy-Item $r.Log $dest -Force
         # stderr is where OpenCode prints the tool lines -- the evidence.
         if (Test-Path "$($r.Log).err") { Copy-Item "$($r.Log).err" "$dest.err" -Force }
+        if (Test-Path "$($r.Log).diff") { Copy-Item "$($r.Log).diff" "$dest.diff" -Force }
         $r.Log = $dest
     }
 }
