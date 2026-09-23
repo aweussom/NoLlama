@@ -411,6 +411,92 @@ def _cgroup_mem_limit_bytes():
     return None
 
 
+class _Tee:
+    """Write to the console and to a log file at once.
+
+    Why not the logging module: every diagnostic in this server is a print()
+    aimed at a human watching a terminal — the per-request timing lines, the
+    load progress, the pool arithmetic. Routing those through logging would
+    reformat all of it. This keeps the terminal identical and copies the same
+    bytes to a file.
+
+    Why it matters: a server started by a launcher, a scheduled task or an SSH
+    session has no window anyone can read afterwards, so a crash or a TTFT
+    number is simply lost. That cost us the transcript of a benchmark run
+    [OBSERVED 2026-09-23].
+
+    In: the original stream and an already-open file. Out: nothing; both get
+    every write. Flushes the file on each write — a server that dies takes its
+    buffer with it, and the last line before a crash is the interesting one.
+    A failing file write is swallowed: losing the log must never take the
+    server down with it.
+    """
+
+    def __init__(self, stream, handle):
+        """Wrap one stream and one open file; neither is closed by this object.
+
+        In: the stream being replaced (the real stdout or stderr) and a file
+        opened for append. Out: nothing. The file stays owned by the caller,
+        because the process exiting is what closes it.
+        """
+        self._stream = stream
+        self._handle = handle
+
+    def write(self, text):
+        """Send text to the console first, then to the log.
+
+        Why that order: the console is what someone is watching, and a stalled
+        or full disk must not delay it. A failed file write is swallowed —
+        losing the log is not a reason to lose the server.
+
+        In: a string. Out: its length, which is what callers of a file-like
+        write expect.
+        """
+        self._stream.write(text)
+        try:
+            self._handle.write(text)
+            self._handle.flush()
+        except (OSError, ValueError):
+            pass
+        return len(text)
+
+    def flush(self):
+        """Flush both, tolerating a log that has gone away."""
+        self._stream.flush()
+        try:
+            self._handle.flush()
+        except (OSError, ValueError):
+            pass
+
+    def isatty(self):
+        """Answer for the console, not the file.
+
+        Why: progress output asks this before using carriage returns to redraw
+        a line in place. Answering for the file would turn the load progress
+        into a wall of lines on screen — the user is watching the terminal.
+        """
+        return getattr(self._stream, "isatty", lambda: False)()
+
+
+def _start_log_file(path):
+    """Begin copying stdout and stderr to `path`, appending.
+
+    In: a path, whose parent must exist. Out: nothing on success; on failure it
+    prints why and carries on without a log, because a bad --log-file is not a
+    reason to refuse to serve.
+    """
+    try:
+        handle = open(path, "a", encoding="utf-8", buffering=1)
+    except OSError as e:
+        print(f"  [!] --log-file {path}: {e} — continuing without it", flush=True)
+        return
+    print("", file=handle)
+    print("=== NoLlama " + __version__ + " log opened "
+          + time.strftime("%Y-%m-%d %H:%M:%S") + " ===", file=handle)
+    sys.stdout = _Tee(sys.stdout, handle)
+    sys.stderr = _Tee(sys.stderr, handle)
+
+
 def _system_ram_bytes():
     """RAM in bytes that this process may actually use. None if unknown.
 
@@ -5636,6 +5722,11 @@ def parse_args():
                         "~80s idle and copies it back on the next request (~10s TTFT "
                         "on an Arc Pro B60 against ~0.5s warm). Integrated GPUs do not "
                         "evict — their VRAM is host RAM — so this never arms on one.")
+    p.add_argument("--log-file", default=None, metavar="PATH",
+                   help="Also append the console output to this file (timings, "
+                        "warnings, tracebacks). For runs whose window you do not "
+                        "own — a scheduled task, an SSH session, a launcher — and "
+                        "for keeping a benchmark's log beside its numbers.")
     p.add_argument("--debug", action="store_true",
                    help="Log every inbound API request (method, path, User-Agent, body)")
     p.add_argument("--vscode-compat", action="store_true",
@@ -5713,6 +5804,10 @@ def main():
     global VSCODE_OLLAMA_VERSION
 
     args = parse_args()
+    # Before anything prints: a log that starts after the device banner is
+    # missing the half a bug report usually needs.
+    if args.log_file:
+        _start_log_file(args.log_file)
 
     # --scan is a report, not a server: no ports, no devices, no model load.
     if args.scan is not None:

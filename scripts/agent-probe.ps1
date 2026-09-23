@@ -108,7 +108,12 @@ function Write-OpenCodeConfig {
             npm     = "@ai-sdk/openai-compatible"
             name    = "NoLlama probe"
             options = @{ baseURL = $Url; chunkTimeout = 1800000; headerTimeout = 1800000 }
-            models  = @{ $ModelId = @{ limit = @{ context = 32000; output = 4096 } } }
+            # Same limits New-OpenCodeConfig ships, so the probe measures what
+            # a user gets. 4096 output was four times tighter than the default
+            # and would truncate a model writing a whole file -- it never bound
+            # on this fixture (turns run 200-1000 tokens), but a probe that
+            # differs from the product measures the wrong thing.
+            models  = @{ $ModelId = @{ limit = @{ context = 32000; output = 16384 } } }
         } }
         model     = "probe/$ModelId"
     }
