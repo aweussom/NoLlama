@@ -38,6 +38,7 @@ Working state is `brain/next/` (needs Tommy), `brain/todo/` (startable cold) and
 | GPU in a container at native throughput: 74-79 vs 76-78 tok/s; prefix cache 1.9→0.3 s vs 2.1→0.2 s native | 2026-08-24 |
 | Phi-3.5-vision fix (`_vlm_penalty_guard`) verified on 140V and B60, both API paths; hardware-independent across three GPUs and two GPU classes | 2026-09-01 |
 | NPU generation gate: arch `4000` hides LFM2, simulated `3720` keeps it, GPU drops it as `npu_only`; 10/10 test modules; `check-docs -Render` ALL OK | 2026-09-18 |
+| Runtime floor moved to OpenVINO **2026.4** (stable since 2026-09-16). Laptop and B60 both upgraded; 10/10 test modules after fixing a test double that had been failing since 3e9a918 on both boxes. Intel's re-exported gemma-4-E4B int8 segfaults on 2026.3.1 and runs on 2026.4, where its prefix cache works: ~13k-char prefix 10.3 s cold then 1.4 / 0.9 s | 2026-09-23 |
 
 ## Built, not yet proven
 

@@ -61,8 +61,18 @@ class FakeSlot:
             yield t
         self._stream_error = self._error
 
-    def stream_vlm_tokens(self, text_prompt, images, gen, heartbeat, tag="", cancel=None):
+    def stream_vlm_tokens(self, text_prompt, images, gen, heartbeat, tag="", cancel=None,
+                          raw_prompt=False):
+        # Signature tracks DeviceSlot.stream_vlm_tokens; a kwarg added there
+        # and not here fails every VLM case with a TypeError that reads like
+        # a test bug rather than drift, which is how raw_prompt sat broken.
+        self.last_raw_prompt = raw_prompt
         yield from self.stream_tokens(None, gen, heartbeat, tag, cancel)
+
+    def preseeded_for(self, raw_prompt):
+        # Twin of DeviceSlot.preseeded_for: a pre-rendered prompt closes its
+        # own think block, so the splitter must not start inside one.
+        return self.think_preseeded and not raw_prompt
 
 
 def collect(frames):
@@ -199,8 +209,15 @@ def test_tool_turn_error_frame():
 
 
 def test_tool_turn_vlm_path_uses_vlm_seam():
-    (deltas, finish), _ = run_tool_stream(["hi ", CALL], vlm=("prompt", []))
+    (deltas, finish), slot = run_tool_stream(["hi ", CALL], vlm=("prompt", []))
     assert finish == "tool_calls" and joined(deltas, "content") == "hi "
+    assert slot.last_raw_prompt is False
+
+
+def test_tool_turn_vlm_path_threads_raw_prompt():
+    (_, finish), slot = run_tool_stream(["hi ", CALL], vlm=("prompt", [], True))
+    assert finish == "tool_calls"
+    assert slot.last_raw_prompt is True
 
 
 def test_tool_turn_legacy_flag_keeps_think_in_content():

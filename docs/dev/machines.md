@@ -50,6 +50,20 @@ Reachable over SSH at **`wossn@100.81.4.88`** (Tailscale range; hostname
   needs the interactive logon, and a config without a store does not stop
   the CLI from calling it. Run the harness container on the 285K instead
   and point it at this box.
+- **`pip install` fails until the Codex bin directory leaves `PATH`**
+  [OBSERVED 2026-09-23, upgrading OpenVINO to 2026.4]. pip walks `PATH` when
+  it installs console scripts and dies on
+  `C:\Users\wossn\AppData\Local\Programs\OpenAI\Codex\bin`:
+  `[WinError 448] ... inneholder et ikke-klarert monteringspunkt` -- an
+  untrusted mount point. pip then rolls the whole install back, so the venv
+  is unharmed and *nothing is upgraded*, which reads like the command
+  succeeded. Drop that entry from `$env:PATH` for the pip run and it
+  installs normally. Same family as the app-control rules above: the box
+  distrusts anything that is not a plain signed file.
+- **A script piped to `pwsh -NoProfile -Command -` over SSH can produce no
+  output at all** -- the same script run with `-File` after `scp` works.
+  When a remote step returns nothing, copy it over and run it as a file
+  before believing the result.
 - **Inbound firewall**: rule "NoLlama 8000-8002 from Tailscale" allows TCP
   8000–8002 from `100.64.0.0/10`, created 2026-09-11. Health and chat on
   8002 verified from the 285K and from a container on the 285K.
@@ -86,6 +100,22 @@ stages through host RAM at roughly model size, so **one model server at a
 time** — two concurrent 14 GB loads thrashed the pagefile for 40 minutes on
 2026-08-21 and produced nothing. `.wslconfig` sets `memory=24GB` so WSL does
 not take its default ~50% share and squeeze this further.
+
+### Qwen3.8-27B int4: every image turn fails on the 140V, none on the B60
+
+[OBSERVED 2026-09-23, OpenVINO 2026.4.0 / genai 2026.4.0.0 on both boxes,
+`OpenVINO/Qwen3.8-27B-int4-ov` rev `2026.3.1`, `bare-probe.py`, NoLlama
+absent] On the **B60** all twelve cases pass, text and image alike. On the
+**140V laptop** the first text case passes, the first image case fails with
+`infer_request.cpp:224`, and every case after it fails too -- the documented
+poisoned-pipeline pattern, so the one real failure is the image turn.
+
+The runtime is not the variable: same version, same script, same model
+revision, opposite results. Nor is the image path as such -- driving
+`VLMPipeline` by hand on the laptop, three text turns and a 224x224 image
+turn all pass. `bare-probe` uses **336x336**, so the open question is image
+size (more vision patches) against a 27B model resident on a shared-memory
+iGPU. Until that is pinned down, treat 27B + vision as a B60 workload.
 
 ### Qwen3.8-27B int4 on the B60: fits, but not with the auto-sized KV pool
 
