@@ -26,7 +26,7 @@ flowchart TB
   apply_tuning["_apply_tuning<br/>clamp to the FAMILY's measured limits<br/>(model-tuning.json, keyed on config.json<br/>model_type). Only ever LOWERS."]
   apply_tuning --> worker
   stream_vlm_tokens --> vlm_think_switch
-  vlm_think_switch["render_nothink_prompt (handler, text-only turns)<br/>Tokenizer.apply_chat_template(raw_messages,<br/>extra_context enable_thinking=false), passed<br/>as raw_prompt=True so the seam sets<br/>gen.apply_chat_template=False. Armed at load<br/>by _nothink_render_ok only if a dummy render<br/>ends in a CLOSED block. preseeded_for() tells<br/>the splitter which tail this turn has.<br/>generate_vlm takes the same path"]
+  vlm_think_switch["render_nothink_prompt (handler, text and image turns)<br/>Tokenizer.apply_chat_template(raw_messages,<br/>extra_context enable_thinking=false), passed<br/>as raw_prompt=True so the seam sets<br/>gen.apply_chat_template=False. Armed at load<br/>by _nothink_render_ok only if a dummy render<br/>ends in a CLOSED block. preseeded_for() tells<br/>the splitter which tail this turn has.<br/>generate_vlm takes the same path"]
   vlm_think_switch --> worker
 
   penalty_guard["_vlm_penalty_guard (image turns only)<br/>Some VLM exports put image placeholders<br/>outside 0..vocab_size. genai's repetition<br/>-penalty transformer walks the PROMPT ids<br/>and asserts on them, so every image turn died<br/>while text turns worked. First failure sets a<br/>per-slot flag, warns once, and retries with<br/>repetition_penalty = 1.0; later image turns<br/>skip the penalty up front. Text turns keep it"]

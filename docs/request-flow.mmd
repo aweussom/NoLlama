@@ -60,7 +60,7 @@ flowchart TB
   _maybe_capture_prewarm -->|"stream + tools (LLM or VLM)"| _sse_tool_stream
   _maybe_capture_prewarm -->|non-stream| generate_blocking
 
-  _maybe_capture_prewarm -->|"VLM + no-think marker in a<br/>SYSTEM message, text-only"| render_nothink_prompt
+  _maybe_capture_prewarm -->|"VLM + no-think marker in a<br/>SYSTEM message (images too, since 2026-09-24)"| render_nothink_prompt
   render_nothink_prompt["render_nothink_prompt<br/>tokenizer.apply_chat_template(raw_messages,<br/>enable_thinking=false) replaces the flattened<br/>text_prompt; raw_prompt=True rides along so the<br/>VLM seam skips its own template and the splitter<br/>starts OUTSIDE a think block (preseeded_for).<br/>LLM slots do this inside the seam instead"]
   render_nothink_prompt --> stream_vlm
   render_nothink_prompt --> _sse_tool_stream

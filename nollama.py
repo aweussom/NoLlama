@@ -2559,16 +2559,24 @@ class DeviceSlot:
         _nothink_render_ok). Rendering the real roles is also a better
         prompt than the flattened single user turn the pipeline otherwise
         gets — but only no-think turns take this path, so the two shapes
-        coexist; unify them once image tags are verified to survive (below).
+        coexist.
 
-        In: the request's role/content messages and its image tensors. Out:
-        the rendered prompt string to pass with raw_prompt=True, or None when
-        the switch is unavailable, the render fails, or images are present —
-        [INFERRED] `<ov_genai_image_N>` tags in a pre-rendered prompt should
-        still be picked up by the embedder, but it is untested, so an image
-        turn keeps the old prose-only behaviour until someone runs it.
+        Image turns take it too. parse_messages writes `<ov_genai_image_N>`
+        into the message text, the template passes the tags through as text,
+        and the pipeline still maps them to their images with the template
+        off: two images, pre-rendered with enable_thinking=false, came back
+        "red square, blue circle" with no reasoning, where the default
+        template thought for 45 s [OBSERVED 2026-09-24, bare openvino_genai
+        2026.4, Qwen3.5-4B-int4 on CPU, two synthetic images]. Until then an
+        image turn fell back to the thinking template, which is why thinking
+        VLMs (Qwen3.5, Qwen3.8) could not answer a one-word vision question.
+
+        In: the request's role/content messages and its image tensors (kept
+        for the signature; the tags in the text are what carry them). Out: the
+        rendered prompt string to pass with raw_prompt=True, or None when the
+        switch is unavailable or the render fails.
         """
-        if not self._nothink_ok or images:
+        if not self._nothink_ok:
             return None
         try:
             return str(self.pipe.get_tokenizer().apply_chat_template(
