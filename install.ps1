@@ -665,8 +665,9 @@ function Show-ModelMenu {
 
     if ($script:AgentLocalOmitted -gt 0) {
         Write-Host ""
-        Write-Host "  ($($script:AgentLocalOmitted) smaller local model(s) not listed: too small to drive a tool" -ForegroundColor DarkGray
-        Write-Host "   loop. Any model still runs with 'python nollama.py --model-dir <path>'.)" -ForegroundColor DarkGray
+        Write-Host "  ($($script:AgentLocalOmitted) other local model(s) not listed: untested as coding agents," -ForegroundColor DarkGray
+        Write-Host "   or measured not to work. Any model still runs by hand:" -ForegroundColor DarkGray
+        Write-Host "   python nollama.py --model-dir <path>)" -ForegroundColor DarkGray
         $script:AgentLocalOmitted = 0
     }
 
@@ -935,12 +936,15 @@ function Find-RegistryEntry {
 #
 # Why: the agent menu was listing every folder in ~/models alphabetically --
 # embedders included -- so the models measured to FAIL sat above the one that
-# works (2026-09-23). Verified-capable first, then the slow-but-working
-# fallback (agent_fallback in models.json), untested next, measured-failures
-# last and labelled. Nothing is hidden: a model you downloaded stays visible,
-# it just stops being presented as a candidate.
+# works (2026-09-23). Only models that have been measured to drive OpenCode
+# are offered: verified first, then the slow-but-working fallback
+# (agent_fallback in models.json). Untested and failed models are counted,
+# not listed. The first version listed them with labels ("nothing hidden"),
+# and a 1.9 GB Phi-3.5-mini under "Coding agent" read as a suggestion
+# whatever its label said (user, 2026-09-24). A model not offered here still
+# runs by hand: python nollama.py --model-dir <path>.
 function Sort-AgentLocal {
-    param([object[]]$Models, [int]$KeepUntested = 4)
+    param([object[]]$Models, [int]$KeepUntested = 0)
     $ranked = foreach ($m in $Models) {
         $reg = Find-RegistryEntry $m.Name
         $rank = 1; $tag = "untested for agents"
@@ -953,14 +957,12 @@ function Sort-AgentLocal {
         [PSCustomObject]@{ M = $m; Rank = $rank; Tag = $tag }
     }
     $sorted = @($ranked | Sort-Object Rank, @{Expression = {-$_.M.SizeGB}})
-    # Keep the list short enough to read. Everything verified stays; the
-    # untested tail is cut to the largest few, because a 0.3 GB model is not a
-    # coding agent candidate on any hardware. The count of what was left out
-    # is printed by the caller -- summarised, not silently dropped.
+    # Offer what is measured to work; count the rest. The count is printed by
+    # the caller -- summarised, not silently dropped. -KeepUntested N lists
+    # the N largest untested models too, for anyone who wants to try one.
     $keep = @($sorted | Where-Object { $_.Rank -eq 0 }) +
             @($sorted | Where-Object { $_.Rank -eq 0.5 }) +
-            @($sorted | Where-Object { $_.Rank -eq 1 } | Select-Object -First $KeepUntested) +
-            @($sorted | Where-Object { $_.Rank -eq 2 })
+            @($sorted | Where-Object { $_.Rank -eq 1 } | Select-Object -First $KeepUntested)
     $script:AgentLocalOmitted = $sorted.Count - $keep.Count
     @($keep | ForEach-Object {
         $_.M | Add-Member -NotePropertyName AgentTag -NotePropertyValue $_.Tag -Force -PassThru
