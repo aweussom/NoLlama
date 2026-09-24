@@ -1,0 +1,123 @@
+{
+ "provenance": {
+  "host": "GM133SCZQF",
+  "cpu": "Intel64 Family 6 Model 189 Stepping 1, GenuineIntel",
+  "when": "2026-09-24T19:42:35",
+  "openvino": "2026.4.0-22959-99c81491cc3-releases/2026/4",
+  "openvino_genai": "2026.4.0.0-3407-7ea2546852a",
+  "gpu": "Intel(R) Arc(TM) 140V GPU (16GB) (iGPU)",
+  "gpu_caps": [
+   "FP32",
+   "BIN",
+   "FP16",
+   "INT8",
+   "GPU_HW_MATMUL",
+   "GPU_USM_MEMORY",
+   "EXPORT_IMPORT"
+  ],
+  "gpu_driver": "32.0.101.8991"
+ },
+ "args": {
+  "gpu_model": "C:\\Users\\tommyl\\models\\Qwen3-8B-int4-cw-ov",
+  "cpu_model": "C:\\Users\\tommyl\\models\\Phi-3.5-mini-instruct-int4-cw-ov",
+  "runs": 3,
+  "prefill_chars": 40000,
+  "starve_to_gb": 0.8,
+  "head_start": 1.0
+ },
+ "idle": [
+  {
+   "kind": "title",
+   "side_s": 1.14,
+   "chars": 65,
+   "avail_gb": 0.94
+  },
+  {
+   "kind": "title",
+   "side_s": 0.66,
+   "chars": 65,
+   "avail_gb": 1.07
+  },
+  {
+   "kind": "title",
+   "side_s": 0.53,
+   "chars": 65,
+   "avail_gb": 1.21
+  },
+  {
+   "kind": "summary",
+   "side_s": 4.55,
+   "chars": 568,
+   "avail_gb": 1.2
+  },
+  {
+   "kind": "summary",
+   "side_s": 4.02,
+   "chars": 568,
+   "avail_gb": 0.89
+  },
+  {
+   "kind": "summary",
+   "side_s": 4.13,
+   "chars": 568,
+   "avail_gb": 0.87
+  }
+ ],
+ "contended": [
+  {
+   "kind": "title",
+   "side_s": 0.69,
+   "chars": 65,
+   "avail_gb": 0.8,
+   "gpu_s": 14.18,
+   "gpu_ok": true,
+   "gpu_still_busy_at_side_end": true
+  },
+  {
+   "kind": "title",
+   "side_s": 0.69,
+   "chars": 65,
+   "avail_gb": 0.77,
+   "gpu_s": 14.83,
+   "gpu_ok": true,
+   "gpu_still_busy_at_side_end": true
+  },
+  {
+   "kind": "title",
+   "side_s": 0.73,
+   "chars": 65,
+   "avail_gb": 1.01,
+   "gpu_s": 14.6,
+   "gpu_ok": true,
+   "gpu_still_busy_at_side_end": true
+  },
+  {
+   "kind": "summary",
+   "side_s": 4.6,
+   "chars": 568,
+   "avail_gb": 0.95,
+   "gpu_s": 15.54,
+   "gpu_ok": true,
+   "gpu_still_busy_at_side_end": true
+  },
+  {
+   "kind": "summary",
+   "side_s": 5.29,
+   "chars": 568,
+   "avail_gb": 0.88,
+   "gpu_s": 15.65,
+   "gpu_ok": true,
+   "gpu_still_busy_at_side_end": true
+  },
+  {
+   "kind": "summary",
+   "side_s": 5.88,
+   "chars": 568,
+   "avail_gb": 0.79,
+   "gpu_s": 15.9,
+   "gpu_ok": true,
+   "gpu_still_busy_at_side_end": true
+  }
+ ],
+ "hog": "READY held=5.8 GB available=0.94 GB"
+}

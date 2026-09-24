@@ -1,0 +1,122 @@
+{
+ "provenance": {
+  "host": "GM133SCZQF",
+  "cpu": "Intel64 Family 6 Model 189 Stepping 1, GenuineIntel",
+  "when": "2026-09-24T19:31:48",
+  "openvino": "2026.4.0-22959-99c81491cc3-releases/2026/4",
+  "openvino_genai": "2026.4.0.0-3407-7ea2546852a",
+  "gpu": "Intel(R) Arc(TM) 140V GPU (16GB) (iGPU)",
+  "gpu_caps": [
+   "FP32",
+   "BIN",
+   "FP16",
+   "INT8",
+   "GPU_HW_MATMUL",
+   "GPU_USM_MEMORY",
+   "EXPORT_IMPORT"
+  ],
+  "gpu_driver": "32.0.101.8991"
+ },
+ "args": {
+  "gpu_model": "C:\\Users\\tommyl\\models\\Qwen3-Coder-30B-A3B-Instruct-int4-ov",
+  "cpu_model": "C:\\Users\\tommyl\\models\\Phi-3.5-mini-instruct-int4-cw-ov",
+  "runs": 3,
+  "prefill_chars": 40000,
+  "starve_to_gb": null,
+  "head_start": 1.0
+ },
+ "idle": [
+  {
+   "kind": "title",
+   "side_s": 0.62,
+   "chars": 65,
+   "avail_gb": 1.29
+  },
+  {
+   "kind": "title",
+   "side_s": 0.6,
+   "chars": 65,
+   "avail_gb": 1.55
+  },
+  {
+   "kind": "title",
+   "side_s": 0.59,
+   "chars": 65,
+   "avail_gb": 1.75
+  },
+  {
+   "kind": "summary",
+   "side_s": 4.7,
+   "chars": 568,
+   "avail_gb": 1.78
+  },
+  {
+   "kind": "summary",
+   "side_s": 4.33,
+   "chars": 568,
+   "avail_gb": 1.74
+  },
+  {
+   "kind": "summary",
+   "side_s": 5.06,
+   "chars": 568,
+   "avail_gb": 1.91
+  }
+ ],
+ "contended": [
+  {
+   "kind": "title",
+   "side_s": 1.27,
+   "chars": 65,
+   "avail_gb": 1.67,
+   "gpu_s": 25.59,
+   "gpu_ok": true,
+   "gpu_still_busy_at_side_end": true
+  },
+  {
+   "kind": "title",
+   "side_s": 0.88,
+   "chars": 65,
+   "avail_gb": 1.59,
+   "gpu_s": 25.59,
+   "gpu_ok": true,
+   "gpu_still_busy_at_side_end": true
+  },
+  {
+   "kind": "title",
+   "side_s": 2.48,
+   "chars": 65,
+   "avail_gb": 1.25,
+   "gpu_s": 29.59,
+   "gpu_ok": true,
+   "gpu_still_busy_at_side_end": true
+  },
+  {
+   "kind": "summary",
+   "side_s": 7.25,
+   "chars": 568,
+   "avail_gb": 1.12,
+   "gpu_s": 30.77,
+   "gpu_ok": true,
+   "gpu_still_busy_at_side_end": true
+  },
+  {
+   "kind": "summary",
+   "side_s": 8.42,
+   "chars": 568,
+   "avail_gb": 1.04,
+   "gpu_s": 29.53,
+   "gpu_ok": true,
+   "gpu_still_busy_at_side_end": true
+  },
+  {
+   "kind": "summary",
+   "side_s": 7.5,
+   "chars": 568,
+   "avail_gb": 1.05,
+   "gpu_s": 28.93,
+   "gpu_ok": true,
+   "gpu_still_busy_at_side_end": true
+  }
+ ]
+}

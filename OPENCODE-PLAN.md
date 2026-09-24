@@ -126,14 +126,26 @@ GPU driver 32.0.101.8991 on both]:
 | 285K desktop, Xe-LPG | title | 1.1 s | 0.6-1.2 s | ~0.7x |
 | | summary | 7.7-8.7 s | 3.7 s | ~0.5x |
 
-Nowhere near the 9-25x above. The likeliest reason is that the 2026-09-23
-numbers were taken on a starved laptop: the same evening's `d944b78` records
-free RAM at 0.8 GB with the pagefile working, and withdrew two other figures
-for exactly that [INFERRED — confirm by re-running this probe with RAM
-deliberately exhausted]. If so, what a second server costs on an iGPU box is
-**memory, not compute**, and the rule above is stronger than its evidence.
-Not yet re-measured: the Coder-30B row (the 40 s), and real OpenCode traffic
-rather than this script's load.
+Nowhere near the 9-25x above. **RAM starvation does not explain it either**:
+the same probe with the Coder-30B row and with `--starve-to-gb 0.8` (which
+holds RAM via `scripts/ram-hog.py` and re-touches it), laptop only
+[OBSERVED 2026-09-24, same stack]:
+
+| coder on iGPU | RAM available during | title idle -> contended | summary idle -> contended |
+|---|---|---|---|
+| Coder-30B, no hog | 1.0-1.9 GB | 0.6 -> 0.9-2.5 s | 4.3-5.1 -> 7.2-8.4 s |
+| Coder-30B, hog to 0.8 GB | 0.5-0.9 GB | 0.6-0.7 -> 1.0-1.6 s | 4.8-5.1 -> 7.2-8.1 s |
+| Qwen3-8B, hog holding 5.8 GB | 0.8-1.2 GB | 0.5-1.1 -> 0.7 s | 4.0-4.5 -> 4.6-5.9 s |
+
+Two things follow. The two-server Coder-30B setup on a 32 GB laptop sits at
+~1 GB available **by itself** -- the 2026-09-23 "0.8 GB free" was the recipe,
+not an accident. And at that level a CPU side request slows by at most 2.6x.
+So the 15-40 s above is **unexplained**: not the iGPU, not the RAM, not the
+coder model, on either box. What this script does not reproduce is real
+OpenCode traffic -- streaming, tool turns, and side requests that may arrive
+together and queue on the one CPU server [GUESS — the next thing to measure,
+with OpenCode driving and the side server's own log timing each request].
+Until then the iGPU rule above rests on one run that five runs contradict.
 
 ### A real task does complete on a 140V, 2026-09-23
 
