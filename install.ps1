@@ -519,6 +519,51 @@ function Write-NoAgentFits {
 
 $Registry = Get-Content (Join-Path $ScriptDir "models.json") -Raw | ConvertFrom-Json
 
+function Split-Wrapped {
+    # Word-wrap text to lines of at most $Width characters.
+    #
+    # Why: menu notes run to several hundred characters, and written as one
+    # line the console wrapped them wherever the window ended -- mid-word,
+    # with no indent, so the next entry's number vanished into the previous
+    # entry's prose (user report, 2026-09-24). A word longer than $Width gets
+    # a line to itself rather than being cut.
+    #
+    # In: text (null or empty -> no lines) and a width. Out: an array of
+    # strings. Operators only, no .NET calls, so it runs in ConstrainedLanguage.
+    param([string]$Text, [int]$Width = 64)
+    $lines = @()
+    $current = ""
+    foreach ($word in ($Text -split '\s+')) {
+        if (-not $word) { continue }
+        if (-not $current) { $current = $word }
+        elseif (($current.Length + 1 + $word.Length) -le $Width) { $current = "$current $word" }
+        else { $lines += $current; $current = $word }
+    }
+    if ($current) { $lines += $current }
+    return $lines
+}
+
+function Write-MenuEntry {
+    # Print one menu entry: number, name and size on a line, then any fit
+    # warning, then the notes wrapped under a hanging indent.
+    #
+    # Why a fixed layout: see Split-Wrapped. Every line stays within ~72
+    # columns, so the numbers stay findable in a normal-width terminal.
+    #
+    # In: the entry's index, name, the grey metadata ("(~9 GB, download)"),
+    # the fit tag from Get-FitTag (may be empty), notes, and the notes colour.
+    # Out: console lines only.
+    param([int]$Index, [string]$Name, [string]$Meta, [string]$Fit, [string]$Notes,
+          [string]$NoteColor = "DarkGray")
+    $indent = "       "
+    Write-Host "    $Index. $Name" -NoNewline
+    Write-Host "  $Meta" -ForegroundColor DarkGray
+    if ($Fit) {
+        foreach ($l in (Split-Wrapped ($Fit.Trim()) 64)) { Write-Host "$indent$l" -ForegroundColor Yellow }
+    }
+    foreach ($l in (Split-Wrapped $Notes 64)) { Write-Host "$indent$l" -ForegroundColor $NoteColor }
+}
+
 function Show-ModelMenu {
     param(
         [string]$Title,
@@ -601,10 +646,8 @@ function Show-ModelMenu {
             $items += $od
             $i = $items.Count
             $noteColor = if ($od.Notes -like "NOT an agent*") { "DarkYellow" } else { "DarkGray" }
-            Write-Host "    $i. $($od.Name)" -NoNewline
-            Write-Host "  ($($od.SizeGB) GB)" -ForegroundColor DarkGray -NoNewline
-            Write-Host "  $($od.Notes)" -ForegroundColor $noteColor -NoNewline
-            Write-Host (Get-FitTag $od.SizeGB) -ForegroundColor Yellow
+            Write-MenuEntry -Index $i -Name $od.Name -Meta "($($od.SizeGB) GB)" `
+                -Fit (Get-FitTag $od.SizeGB) -Notes $od.Notes -NoteColor $noteColor
         }
         Write-Host ""
     }
@@ -615,11 +658,8 @@ function Show-ModelMenu {
             $items += $dm
             $dlTag = if ($dm.Source -eq "pre-exported") { "download" } else { "convert" }
             $i = $items.Count
-            $fit = Get-FitTag $dm.SizeGB
-            Write-Host "    $i. $($dm.Name)" -NoNewline
-            Write-Host "  (~$($dm.SizeGB) GB, $dlTag)" -ForegroundColor DarkGray -NoNewline
-            if ($fit) { Write-Host $fit -ForegroundColor Yellow -NoNewline }
-            Write-Host "  $($dm.Notes)" -ForegroundColor DarkGray
+            Write-MenuEntry -Index $i -Name $dm.Name -Meta "(~$($dm.SizeGB) GB, $dlTag)" `
+                -Fit (Get-FitTag $dm.SizeGB) -Notes $dm.Notes
         }
     }
 

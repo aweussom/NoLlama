@@ -174,7 +174,7 @@
             "source": "pre-exported",
             "agent": true,
             "est_size_gb": 17,
-            "notes": "Code-focused MoE and the one verified coding-agent model: OpenCode agent probe 4/4 on an Arc Pro B60 (2026-09-24, both tool formats) and a real task completed on a 32 GB Arc 140V laptop (333 s, 2026-09-23). Fits a 24 GB GPU or a 32 GB laptop; nothing smaller qualifies (docs/MODELS.md)."
+            "notes": "Code-focused MoE and the one verified coding-agent model: OpenCode agent probe 4/4 on an Arc Pro B60 (2026-09-24, both tool formats) and a real task completed on a 32 GB Arc 140V laptop (333 s, 2026-09-23). Fits a 24 GB GPU or a 32 GB laptop; on smaller machines Qwen3-14B works, slowly (docs/MODELS.md)."
         }
     ],
     "embed": [
