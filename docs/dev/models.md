@@ -94,12 +94,12 @@ transcripts in `bench/agent-probe/`]:
 |---|---|---|---|
 | `LFM2.5-8B-A1B-int4` | 0/2 | 0/2 | invents paths (`/workspace/...`); native also sends `file_path` against a `filePath` schema, repeatedly after the error names the key |
 | `Qwen3-8B-int4-cw` | 0/2 | 0/2 | invents `src/calc.py` in every run; native also overwrote the test file |
-| `Qwen3-14B-int4` | fix in 18 min, syntax error on the way | fix **3/4**, feature **0 verified in 4** — laptop 2 runs, B60 2 runs | fix: the clean one-line `/100` edit three times (8 min on the 140V, 51 s on the B60), once a `Decimal` rewrite that misses the bug. Feature: quits with red tests, leaves a SyntaxError, or ends a turn with no call and no content (B60 run 2 — cause unrecorded: all-`<think>` or a call inside it) |
+| `Qwen3-14B-int4` | fix in 18 min, syntax error on the way | before the fixes below: fix 3/4, feature 0 verified in 6; **after them: 4/4 on the B60** (2 runs, 50-166 s a task, 2026-09-24) | the failures were two of OURS: calls written inside a `<think>` it never closed were streamed out as reasoning and dropped (fixed in 08bf596, seen recovering calls live), and the probe's Windows fixture went CRLF under the reset (cc26d26). Laptop iGPU not re-run yet |
 
 Qwen3-14B's rows ran at `--cache-size-gb 3`, which is the 16 GB configuration
 (~12 GB on the iGPU with Shared GPU Memory Override raised). Native is
 clearly better *for it*, and it is still not an agent: it lands a single
-focused fix, not a two-part task. The B60 runs [OBSERVED 2026-09-24, Arc Pro
+focused fix, not a two-part task -- **superseded 2026-09-24**: with the unclosed-`<think>` recovery and an LF fixture it passes 4/4 on the B60. The earlier B60 runs [OBSERVED 2026-09-24, Arc Pro
 B60, driver 32.0.101.8805, OpenVINO 2026.4] fail the same way the 140V's do,
 three times faster, so the laptop iGPU was never the variable. Since 2026-09-24 the probe verifies
 against the fixture's original tests and keeps each task's diff, so a

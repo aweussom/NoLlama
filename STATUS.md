@@ -56,7 +56,7 @@ Working state is `brain/next/` (needs Tommy), `brain/todo/` (startable cold) and
 |---|---|---|
 | `Qwen3-Coder-30B-A3B-int4` | 16.3 GB | **PASS** — 333 s, two boxes |
 | `Qwen3-30B-A3B-int4` | 15.2 GB | passes the fix task by hand (2.5 min) |
-| `Qwen3-14B-int4` | 9.1 GB | **not an agent** on either device — native: single fixes 3/4, the two-file task 0 verified in 4 (140V + B60) |
+| `Qwen3-14B-int4` | 9.1 GB | **4/4 on the B60** once two of our bugs were fixed (unclosed-`<think>` calls dropped; CRLF fixture) -- laptop iGPU re-run pending, so the 16 GB statement is under review |
 | `Qwen2.5-Coder-14B` / `-7B` | — | **retired from the registry** (TODONT): narrate tool use, never call |
 | `Qwen3-8B-int4` | 4.6 GB | invents paths, never recovers — in its native dialect too |
 | `LFM2.5-8B-A1B-int4` | 4.2 GB | **FAIL** 0/2 in both dialects — invents paths |
