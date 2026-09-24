@@ -104,8 +104,8 @@ Full methodology, MoE disk offload, and the Ollama and RTX 5090 comparisons:
 
 All pre-exported — no conversion. `install.ps1` offers these; the menu adapts to
 the devices it finds. The coding-agent pick needs a 24 GB GPU or a 32 GB laptop:
-**on a 16 GB machine no model we have tested can drive an agent** — the smaller
-ones invent file paths or cannot finish a two-file change. More, plus how to convert anything from HuggingFace:
+on a 16 GB machine **Qwen3-14B works, slowly** (3-17 minutes per small task on
+a Lunar Lake iGPU, ~13 GB of GPU memory -- see docs/MODELS.md). More, plus how to convert anything from HuggingFace:
 **[docs/MODELS.md](docs/MODELS.md)**.
 
 ## When to use NoLlama, and when to use Ollama

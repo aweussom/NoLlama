@@ -94,7 +94,7 @@ transcripts in `bench/agent-probe/`]:
 |---|---|---|---|
 | `LFM2.5-8B-A1B-int4` | 0/2 | 0/2 | invents paths (`/workspace/...`); native also sends `file_path` against a `filePath` schema, repeatedly after the error names the key |
 | `Qwen3-8B-int4-cw` | 0/2 | 0/2 | invents `src/calc.py` in every run; native also overwrote the test file |
-| `Qwen3-14B-int4` | fix in 18 min, syntax error on the way | before the fixes below: fix 3/4, feature 0 verified in 6; **after them: 4/4 on the B60** (2 runs, 50-166 s a task, 2026-09-24) | the failures were two of OURS: calls written inside a `<think>` it never closed were streamed out as reasoning and dropped (fixed in 08bf596, seen recovering calls live), and the probe's Windows fixture went CRLF under the reset (cc26d26). Laptop iGPU not re-run yet |
+| `Qwen3-14B-int4` | fix in 18 min, syntax error on the way | before the fixes below: fix 3/4, feature 0 verified in 6. **After them: 7 of 8 tasks** -- B60 4/4 (50-166 s a task), 140V 3/4 (fix 484 s / 188 s, feature 1034 s / FAIL) | the failures were two of OURS: calls written inside a `<think>` it never closed were dropped (08bf596; the recovery fired 3+ times per run on both GPUs), and the Windows fixture went CRLF under the reset (cc26d26). The one remaining FAIL is the model's: discount bug left in, test file mangled until its own runner printed nothing -- a false pass the original-tests check caught |
 
 Qwen3-14B's rows ran at `--cache-size-gb 3`, which is the 16 GB configuration
 (~12 GB on the iGPU with Shared GPU Memory Override raised). Native is

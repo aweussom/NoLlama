@@ -463,14 +463,14 @@ function Get-FitTag {
     return ""
 }
 
-# Say so before the coding-agent menu when no verified agent model fits.
+# Say so before the coding-agent menu when the verified agent model won't fit.
 #
 # Why: the menu only lists verified agent models, so on a 16 GB machine it
-# showed one entry tagged WON'T FIT and left the user to work out that there
-# is no alternative. There is none: every smaller model we tested fails a real
-# OpenCode task -- Qwen3-8B, LFM2.5-8B-A1B, Qwen3-14B on two GPUs and in both
-# tool formats (docs/MODELS.md, 2026-09-24). Saying it plainly beats letting
-# someone download 9 GB to find out.
+# showed one entry tagged WON'T FIT and left the user to work out what else
+# there is. One thing: Qwen3-14B drives OpenCode, slowly -- 7 of 8 probe tasks
+# on a 140V and a B60, 3-17 minutes a task on the iGPU, ~13 GB of GPU memory
+# (docs/MODELS.md, 2026-09-24). Qwen3-8B and LFM2.5-8B-A1B do not. Saying it
+# plainly beats letting someone download 17 GB to find out.
 #
 # In: the verified agent entries. Out: nothing; prints only when none fits.
 function Write-NoAgentFits {
@@ -478,9 +478,9 @@ function Write-NoAgentFits {
     $fitting = @($Coders | Where-Object { -not (Get-FitTag $_.est_size_gb).Contains("WON'T FIT") })
     if ($fitting.Count -gt 0) { return }
     Write-Host ""
-    Write-Host "  No verified coding-agent model fits this machine (~$($script:UsableModelGB) GB for models)." -ForegroundColor Yellow
-    Write-Host "  Every smaller model we tested fails real OpenCode tasks. Qwen3-14B (9 GB) lands a" -ForegroundColor Yellow
-    Write-Host "  single focused fix if you check its work, but it is not an agent. See docs/MODELS.md." -ForegroundColor Yellow
+    Write-Host "  The fast coding-agent model does not fit this machine (~$($script:UsableModelGB) GB for models)." -ForegroundColor Yellow
+    Write-Host "  Qwen3-14B (9 GB) works, slowly: 3-17 minutes per small task on a laptop iGPU, and it" -ForegroundColor Yellow
+    Write-Host "  needs ~13 GB of GPU memory (raise Shared GPU Memory Override). See docs/MODELS.md." -ForegroundColor Yellow
 }
 
 # ---------------------------------------------------------------------------

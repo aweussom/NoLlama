@@ -1,0 +1,191 @@
+
+=== NoLlama 2026-09-18-12d2266 log opened 2026-09-24 20:41:07 ===
+  tool turns: native chat template (--tool-template)
+
+  Devices:
+    CPU: Intel(R) Core(TM) Ultra 7 258V
+    GPU: Intel(R) Arc(TM) 140V GPU (16GB) (iGPU)
+    NPU: Intel(R) AI Boost
+
+  NoLlama 2026-09-18-12d2266 starting on port 8000...
+  Web UI (chat):  http://localhost:8000/
+  OpenAI API:     http://localhost:8000/v1
+  Ollama API:     disabled
+  Idle unload after 1800s of inactivity
+  OpenAI API on port 8000
+  [GPU] Detected: LLM (Qwen3-14B)
+  [GPU] KV pool 3 GB ~ 19k tokens for this model (160 KB/token) — agent prompts (20k+ tokens) will exhaust it; raise --cache-size-gb
+  [GPU] Loading...
+  [GPU] last load took 15s
+  [GPU] still loading... 5s (~33% of last run's 15s)
+  [GPU] still loading... 15s (~98% of last run's 15s)
+  [GPU] prefix caching on (3 GB KV pool)
+  [GPU] loaded in 15s
+  [GPU] Warmup... done (1.9s)
+
+================================================
+  NoLlama ready
+    GPU  : Qwen3-14B (LLM) -- Intel(R) Arc(TM) 140V GPU (16GB) (iGPU)
+    API  : http://localhost:8000  (OpenAI)
+================================================
+
+
+20:41:41 <- [GPU] 2250 chars, max_tokens=16384 (stream)
+20:41:44 -> [GPU] 10 tokens in 3.0s (3.3 tok/s, TTFT 2138ms)
+
+20:41:45 <- [GPU] 39332 chars, max_tokens=16384 (stream)
+20:43:00 -> [GPU] 425 tokens in 75.6s (5.6 tok/s, TTFT 23484ms)
+20:43:00 -> [GPU] 1 tool call(s): read
+
+20:43:02 <- [GPU] 40005 chars, max_tokens=16384 (stream)
+20:47:00 -> [GPU] 1837 tokens in 238.4s (7.7 tok/s, TTFT 980ms)
+20:47:00 -> [GPU] 1 tool call(s): edit
+
+20:47:01 <- [GPU] 40720 chars, max_tokens=16384 (stream)
+20:47:09 -- [GPU] 1 tool call(s) recovered from an unclosed <think>
+20:47:09 -> [GPU] 47 tokens in 7.9s (6.0 tok/s, TTFT 1653ms)
+20:47:09 -> [GPU] 1 tool call(s): bash
+
+20:47:11 <- [GPU] 41055 chars, max_tokens=16384 (stream)
+20:48:50 -> [GPU] 757 tokens in 99.0s (7.6 tok/s, TTFT 1017ms)
+20:48:50 -> [GPU] 1 tool call(s): edit
+
+20:48:51 <- [GPU] 41527 chars, max_tokens=16384 (stream)
+20:49:04 -> [GPU] 94 tokens in 13.2s (7.1 tok/s, TTFT 438ms)
+20:49:04 -> [GPU] 1 tool call(s): bash
+
+20:49:06 <- [GPU] 41860 chars, max_tokens=16384 (stream)
+20:49:41 -> [GPU] 256 tokens in 35.8s (7.2 tok/s, TTFT 1071ms)
+
+20:49:45 <- [GPU] 2409 chars, max_tokens=16384 (stream)
+20:49:46 -> [GPU] 7 tokens in 1.1s (6.3 tok/s, TTFT 588ms)
+
+20:49:47 <- [GPU] 39491 chars, max_tokens=16384 (stream)
+20:50:40 -> [GPU] 412 tokens in 53.2s (7.7 tok/s, TTFT 582ms)
+20:50:40 -> [GPU] 2 tool call(s): glob, glob
+
+20:50:42 <- [GPU] 39957 chars, max_tokens=16384 (stream)
+20:51:30 -> [GPU] 376 tokens in 48.3s (7.8 tok/s, TTFT 538ms)
+20:51:30 -> [GPU] 2 tool call(s): edit, edit
+
+20:51:31 <- [GPU] 41147 chars, max_tokens=16384 (stream)
+20:52:08 -> [GPU] 283 tokens in 36.9s (7.7 tok/s, TTFT 590ms)
+20:52:08 -> [GPU] 2 tool call(s): read, read
+
+20:52:09 <- [GPU] 43102 chars, max_tokens=16384 (stream)
+20:53:22 -> [GPU] 538 tokens in 72.7s (7.4 tok/s, TTFT 2368ms)
+20:53:22 -> [GPU] 2 tool call(s): edit, edit
+
+20:53:23 <- [GPU] 44082 chars, max_tokens=16384 (stream)
+20:53:39 -> [GPU] 118 tokens in 16.0s (7.4 tok/s, TTFT 565ms)
+20:53:39 -> [GPU] 1 tool call(s): bash
+
+20:53:41 <- [GPU] 44749 chars, max_tokens=16384 (stream)
+20:54:45 -> [GPU] 471 tokens in 64.4s (7.3 tok/s, TTFT 1336ms)
+20:54:45 -> [GPU] 2 tool call(s): edit, edit
+
+20:54:46 <- [GPU] 45594 chars, max_tokens=16384 (stream)
+20:54:55 -- [GPU] 1 tool call(s) recovered from an unclosed <think>
+20:54:55 -> [GPU] 58 tokens in 8.1s (7.2 tok/s, TTFT 447ms)
+20:54:55 -> [GPU] 1 tool call(s): bash
+
+20:54:56 <- [GPU] 45969 chars, max_tokens=16384 (stream)
+20:56:54 -> [GPU] 866 tokens in 118.0s (7.3 tok/s, TTFT 1134ms)
+20:56:54 -> [GPU] 1 tool call(s): edit
+
+20:56:55 <- [GPU] 46484 chars, max_tokens=16384 (stream)
+20:59:06 -> [GPU] 955 tokens in 130.8s (7.3 tok/s, TTFT 759ms)
+20:59:06 -> [GPU] 1 tool call(s): read
+
+20:59:07 <- [GPU] 47373 chars, max_tokens=16384 (stream)
+20:59:20 -> [GPU] 86 tokens in 12.9s (6.7 tok/s, TTFT 1466ms)
+20:59:20 -> [GPU] 1 tool call(s): edit
+
+20:59:21 <- [GPU] 47900 chars, max_tokens=16384 (stream)
+21:00:23 -> [GPU] 448 tokens in 62.3s (7.2 tok/s, TTFT 1176ms)
+21:00:23 -> [GPU] 1 tool call(s): edit
+
+21:00:25 <- [GPU] 48392 chars, max_tokens=16384 (stream)
+21:01:22 -> [GPU] 411 tokens in 57.1s (7.2 tok/s, TTFT 510ms)
+21:01:22 -> [GPU] 1 tool call(s): read
+
+21:01:23 <- [GPU] 49281 chars, max_tokens=16384 (stream)
+21:02:14 -> [GPU] 356 tokens in 50.7s (7.0 tok/s, TTFT 1550ms)
+21:02:14 -> [GPU] 1 tool call(s): edit
+
+21:02:15 <- [GPU] 49864 chars, max_tokens=16384 (stream)
+21:03:05 -> [GPU] 356 tokens in 50.7s (7.0 tok/s, TTFT 664ms)
+21:03:05 -> [GPU] 1 tool call(s): edit
+
+21:03:07 <- [GPU] 50447 chars, max_tokens=16384 (stream)
+21:03:59 -> [GPU] 356 tokens in 52.8s (6.7 tok/s, TTFT 668ms)
+21:03:59 -> [GPU] 1 tool call(s): edit
+
+21:04:01 <- [GPU] 51030 chars, max_tokens=16384 (stream)
+21:04:55 -> [GPU] 356 tokens in 54.2s (6.6 tok/s, TTFT 668ms)
+21:04:55 -> [GPU] 1 tool call(s): edit
+
+21:04:56 <- [GPU] 51613 chars, max_tokens=16384 (stream)
+21:05:56 -> [GPU] 395 tokens in 60.4s (6.5 tok/s, TTFT 774ms)
+21:05:56 -> [GPU] 1 tool call(s): edit
+
+21:05:58 <- [GPU] 52255 chars, max_tokens=16384 (stream)
+21:06:10 -- [GPU] 1 tool call(s) recovered from an unclosed <think>
+21:06:10 -> [GPU] 58 tokens in 12.2s (4.7 tok/s, TTFT 3254ms)
+21:06:10 -> [GPU] 1 tool call(s): bash
+
+21:06:12 <- [GPU] 52628 chars, max_tokens=16384 (stream)
+21:06:56 -> [GPU] 287 tokens in 44.1s (6.5 tok/s, TTFT 1539ms)
+
+21:14:04 <- [GPU] 2250 chars, max_tokens=16384 (stream)
+21:14:07 -> [GPU] 10 tokens in 3.0s (3.4 tok/s, TTFT 2086ms)
+
+21:14:07 <- [GPU] 39332 chars, max_tokens=16384 (stream)
+21:15:21 -> [GPU] 588 tokens in 73.6s (8.0 tok/s, TTFT 248ms)
+21:15:21 -> [GPU] 2 tool call(s): read, read
+
+21:15:22 <- [GPU] 41037 chars, max_tokens=16384 (stream)
+21:16:59 -> [GPU] 717 tokens in 96.8s (7.4 tok/s, TTFT 2370ms)
+21:16:59 -> [GPU] 2 tool call(s): edit, bash
+
+21:17:00 <- [GPU] 41693 chars, max_tokens=16384 (stream)
+21:17:08 -> [GPU] 51 tokens in 7.3s (7.0 tok/s, TTFT 550ms)
+
+21:17:11 <- [GPU] 2409 chars, max_tokens=16384 (stream)
+21:17:12 -> [GPU] 7 tokens in 0.8s (8.4 tok/s, TTFT 322ms)
+
+21:17:13 <- [GPU] 39491 chars, max_tokens=16384 (stream)
+21:18:41 -> [GPU] 686 tokens in 87.9s (7.8 tok/s, TTFT 377ms)
+21:18:41 -> [GPU] 2 tool call(s): glob, glob
+
+21:18:42 <- [GPU] 39893 chars, max_tokens=16384 (stream)
+21:19:33 -> [GPU] 382 tokens in 50.6s (7.6 tok/s, TTFT 562ms)
+21:19:33 -> [GPU] 3 tool call(s): edit, edit, bash
+
+21:19:35 <- [GPU] 41418 chars, max_tokens=16384 (stream)
+21:20:22 -> [GPU] 343 tokens in 46.8s (7.3 tok/s, TTFT 754ms)
+21:20:22 -> [GPU] 2 tool call(s): read, read
+
+21:20:23 <- [GPU] 43294 chars, max_tokens=16384 (stream)
+21:22:04 -> [GPU] 723 tokens in 101.0s (7.2 tok/s, TTFT 2503ms)
+21:22:04 -> [GPU] 3 tool call(s): edit, edit, bash
+
+21:22:06 <- [GPU] 44855 chars, max_tokens=16384 (stream)
+21:22:57 -> [GPU] 371 tokens in 50.9s (7.3 tok/s, TTFT 1322ms)
+21:22:57 -> [GPU] 1 tool call(s): edit
+
+21:22:58 <- [GPU] 45330 chars, max_tokens=16384 (stream)
+21:23:05 -- [GPU] 1 tool call(s) recovered from an unclosed <think>
+21:23:05 -> [GPU] 47 tokens in 7.2s (6.5 tok/s, TTFT 469ms)
+21:23:05 -> [GPU] 1 tool call(s): bash
+
+21:23:07 <- [GPU] 45787 chars, max_tokens=16384 (stream)
+21:25:02 -> [GPU] 844 tokens in 115.0s (7.3 tok/s, TTFT 1181ms)
+21:25:02 -> [GPU] 1 tool call(s): edit
+
+21:25:03 <- [GPU] 46261 chars, max_tokens=16384 (stream)
+21:25:17 -> [GPU] 94 tokens in 14.3s (6.6 tok/s, TTFT 483ms)
+21:25:17 -> [GPU] 1 tool call(s): bash
+
+21:25:19 <- [GPU] 46506 chars, max_tokens=16384 (stream)
+21:25:58 -> [GPU] 280 tokens in 39.4s (7.1 tok/s, TTFT 961ms)
