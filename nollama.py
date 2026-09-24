@@ -3432,6 +3432,9 @@ class _ThinkSplitter:
         self._think = bool(preseeded)
         self._think_started = False  # non-whitespace reasoning seen in this block
         self._trim_lead = False      # drop the newline(s) a model puts after </think>
+        self._block = []             # reasoning text of the current think block
+        self.ended_inside = False    # close() found the stream still inside a block
+        self.unclosed_text = ""      # that block's text, when ended_inside
 
     @staticmethod
     def _held_tail(buf, tag):
@@ -3466,6 +3469,7 @@ class _ThinkSplitter:
                     self._content(self._buf[:i], out)
                     self._buf = self._buf[i + len(self._OPEN):]
                     self._think, self._think_started = True, False
+                    self._block = []
                     continue
                 held = self._held_tail(self._buf, self._OPEN)
                 emit, self._buf = (self._buf[:-held], self._buf[-held:]) if held else (self._buf, "")
@@ -3476,6 +3480,7 @@ class _ThinkSplitter:
                 piece = self._buf[:j] if self._think_started else self._buf[:j].lstrip("\n")
                 if piece.strip() or self._think_started:
                     out.append(("reasoning", piece))
+                    self._block.append(piece)
                 self._buf = self._buf[j + len(self._CLOSE):]
                 self._think, self._trim_lead = False, True
                 continue
@@ -3488,16 +3493,25 @@ class _ThinkSplitter:
                     emit = emit.lstrip("\n")
                     self._think_started = True
                 out.append(("reasoning", emit))
+                self._block.append(emit)
             break
         return out
 
     def close(self):
-        """Flush what remains (stream ended mid-tag or mid-block)."""
+        """Flush what remains (stream ended mid-tag or mid-block).
+
+        A stream that ends INSIDE a think block sets ended_inside and keeps
+        the block's text in unclosed_text: Qwen3-14B writes tool calls, and
+        sometimes its final answer, into a <think> it never closes, and the
+        tool stream needs that text to recover them (_sse_tool_stream).
+        """
         out = []
         rest, self._buf = self._buf, ""
         if self._think:
             if rest.strip() or self._think_started:
                 out.append(("reasoning", rest))
+            self.ended_inside = True
+            self.unclosed_text = "".join(self._block) + rest
             self._think = False
         else:
             self._content(rest, out)
@@ -4287,8 +4301,18 @@ def _assistant_message(text, tool_calls, preseeded=False):
     does — <think> spans go to reasoning_content (unless --think-in-content),
     and content is None on a call-only turn per the OpenAI spec. Returns
     (message, finish_reason).
+
+    A reply that sits wholly inside a <think> it never closed, with no call,
+    is also sent as content -- the same rescue as _sse_tool_stream, so an
+    agent does not read an empty turn as "done". (Calls inside an unclosed
+    block need no rescue here: parse_tool_calls already saw the whole text.)
     """
-    reasoning, content = _split_think(text, preseeded)
+    sp = _ThinkSplitter(preseeded)
+    pieces = sp.feed(text or "") + sp.close()
+    reasoning = "".join(t for k, t in pieces if k == "reasoning")
+    content = "".join(t for k, t in pieces if k == "content")
+    if not tool_calls and not content.strip() and sp.ended_inside and sp.unclosed_text.strip():
+        content = _strip_tool_markup(sp.unclosed_text).strip()
     if tool_calls:
         message = {"role": "assistant", "content": content or None, "tool_calls": tool_calls}
         finish = "tool_calls"
@@ -4353,6 +4377,8 @@ def _sse_tool_stream(slot, raw_messages, gen, tools, completion_id, created, t0,
     tool_calls = []
     raw = []  # the unprocessed generation, kept only for --debug (_log_raw_tool_turn)
 
+    content_sent = []  # truthy once any answer text has gone out
+
     def route(pieces):
         """Reasoning goes straight out; answer text goes through the gate."""
         for kind, text in pieces:
@@ -4361,6 +4387,7 @@ def _sse_tool_stream(slot, raw_messages, gen, tools, completion_id, created, t0,
             else:
                 out = gate.feed(text)
                 if out:
+                    content_sent.append(True)
                     yield frame({"content": out})
 
     try:
@@ -4388,6 +4415,18 @@ def _sse_tool_stream(slot, raw_messages, gen, tools, completion_id, created, t0,
         # Only the held text can contain a call: the gate released nothing
         # past an opener, and the bare-JSON case held the whole answer.
         leftover, tool_calls = parse_tool_calls(gate.held, tools)
+        # A turn that ENDED inside <think> never reached the gate at all.
+        # Qwen3-14B does exactly this: three well-formed calls inside a
+        # <think> it never closed, streamed out as reasoning, and the turn
+        # ended with no call and no answer [OBSERVED 2026-09-24, B60, --debug].
+        # A closed block is deliberate reasoning and stays untouched.
+        if not tool_calls and splitter.ended_inside:
+            _, tool_calls = parse_tool_calls(splitter.unclosed_text, tools)
+            if tool_calls:
+                leftover = ""
+                print(f"{datetime.now():%H:%M:%S} -- [{slot.device_name}] "
+                      f"{len(tool_calls)} tool call(s) recovered from an unclosed <think>",
+                      flush=True)
         _log_raw_tool_turn(slot, "".join(raw), tool_calls)
         if tool_calls:
             if leftover.strip():
@@ -4400,6 +4439,10 @@ def _sse_tool_stream(slot, raw_messages, gen, tools, completion_id, created, t0,
             salvaged = _strip_tool_markup(gate.held)
             if salvaged.strip():
                 yield frame({"content": salvaged})  # opener that never became a call
+            elif not content_sent and splitter.ended_inside and splitter.unclosed_text.strip():
+                # The whole reply sat inside an unclosed <think>: send it as
+                # the answer too, or an agent sees an empty turn and stops.
+                yield frame({"content": _strip_tool_markup(splitter.unclosed_text).strip()})
             yield frame({}, "cancelled" if was_cancelled else "stop")
         yield "data: [DONE]\n\n"
         done = True

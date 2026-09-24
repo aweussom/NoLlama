@@ -329,8 +329,8 @@ def test_native_render_honours_no_think_and_falls_back():
 
 
 def test_debug_logs_the_raw_turn_including_a_call_hidden_in_think():
-    # The B60 case: a call written inside <think> reaches neither the gate
-    # nor the client. --debug must show the untouched text so that is visible.
+    # A call inside a CLOSED <think> is reasoning about a call, not a call:
+    # it stays unexecuted (finish=stop). --debug must still show the text.
     import contextlib
     import io
     buf = io.StringIO()
@@ -348,6 +348,32 @@ def test_debug_logs_the_raw_turn_including_a_call_hidden_in_think():
     with contextlib.redirect_stdout(buf):
         run_tool_stream(["hi ", CALL])
     assert "raw tool-turn output" not in buf.getvalue()      # silent without --debug
+
+
+def test_calls_inside_an_unclosed_think_are_recovered():
+    # Qwen3-14B on the B60: calls written into a <think> it never closed.
+    # They streamed out as reasoning and the turn ended with nothing.
+    (deltas, finish), _ = run_tool_stream(["<think>", "I'll edit calc.py.\n", CALL])
+    assert finish == "tool_calls"
+    calls = [d["tool_calls"][0] for d in deltas if "tool_calls" in d]
+    assert len(calls) == 1 and calls[0]["function"]["name"] == "get_weather"
+    assert joined(deltas, "content") == ""          # the reasoning is not re-sent as prose
+
+
+def test_answer_inside_an_unclosed_think_is_sent_as_content():
+    (deltas, finish), _ = run_tool_stream(["<think>", "The tests pass now. Done."])
+    assert finish == "stop"
+    assert joined(deltas, "content") == "The tests pass now. Done."
+    # ...but not when a real answer already went out after a closed block.
+    (deltas, _), _ = run_tool_stream(["<think>plan</think>", "Answer.", "<think>", "more"])
+    assert joined(deltas, "content") == "Answer."
+
+
+def test_assistant_message_rescues_an_unclosed_answer():
+    msg, finish = _assistant_message("<think>\nAll green, nothing left to do.", [])
+    assert finish == "stop" and msg["content"] == "All green, nothing left to do."
+    msg, _ = _assistant_message("<think>plan</think>Real answer.", [])
+    assert msg["content"] == "Real answer."           # closed blocks behave as before
 
 
 def test_opencode_title_request_skips_thinking():

@@ -25,7 +25,7 @@ flowchart TB
 
   stream_llm["stream_llm<br/>SSE tokens + keepalive"]
   stream_vlm["stream_vlm<br/>SSE tokens (VLM)"]
-  _sse_tool_stream["_sse_tool_stream<br/>token-streamed: reasoning_content live,<br/>content live until _ToolCallGate sees an<br/>opener; the held text goes to parse_tool_calls"]
+  _sse_tool_stream["_sse_tool_stream<br/>token-streamed: reasoning_content live,<br/>content live until _ToolCallGate sees an<br/>opener; the held text goes to parse_tool_calls.<br/>Nothing held and the turn ended inside an<br/>unclosed think: that block is parsed instead,<br/>or sent as the answer if it holds no call"]
   generate_blocking["generate_llm / generate_vlm<br/>blocking JSON reply via _assistant_message<br/>(think span -> reasoning_content)"]
   parse_tool_calls["parse_tool_calls<br/>Qwen3 XML, Hermes, ATEM, bare function=,<br/>Mistral, Llama, DeepSeek, bare-JSON fallback"]
 

@@ -98,7 +98,7 @@ flowchart TB
   stream_tokens --> _ollama_stream_generate
   opt_stream_tokens --> generate_llm
 
-  splitter["_ThinkSplitter / _split_think<br/>think spans -> reasoning_content deltas,<br/>answer -> content; tag prefixes held back<br/>across chunk boundaries; empty block dropped.<br/>_prompt_preseeds_think (at load, via the<br/>pipeline's own tokenizer) starts it inside a<br/>block for templates that open think themselves.<br/>--think-in-content restores the old shape"]
+  splitter["_ThinkSplitter / _split_think<br/>think spans -> reasoning_content deltas,<br/>answer -> content; tag prefixes held back<br/>across chunk boundaries; empty block dropped.<br/>_prompt_preseeds_think (at load, via the<br/>pipeline's own tokenizer) starts it inside a<br/>block for templates that open think themselves.<br/>A stream that ENDS inside a block sets<br/>ended_inside + unclosed_text, which the tool<br/>stream mines for calls or a lost answer.<br/>--think-in-content restores the old shape"]
   gate["_ToolCallGate<br/>content streams until a tool-call opener<br/>(any syntax parse_tool_calls knows, incl.<br/>LFM2.5 &lt;|tool_call_start|&gt;);<br/>held from there, parsed at the end"]
   gate --> scrub["_strip_tool_markup<br/>held text that parsed to NO call still<br/>reaches the user: markers out, prose kept<br/>(a bare &lt;tool_call&gt; was rendered, 2026-09-23)"]
   gate --> pyc["_pythonic_calls<br/>LFM2.5 writes a PYTHON LIST of calls;<br/>ast.parse, never eval, literals only"]
