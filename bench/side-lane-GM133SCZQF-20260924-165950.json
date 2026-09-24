@@ -1,0 +1,109 @@
+{
+ "provenance": {
+  "host": "GM133SCZQF",
+  "cpu": "Intel64 Family 6 Model 189 Stepping 1, GenuineIntel",
+  "when": "2026-09-24T16:59:50",
+  "openvino": "2026.4.0-22959-99c81491cc3-releases/2026/4",
+  "openvino_genai": "2026.4.0.0-3407-7ea2546852a",
+  "gpu": "Intel(R) Arc(TM) 140V GPU (16GB) (iGPU)",
+  "gpu_caps": [
+   "FP32",
+   "BIN",
+   "FP16",
+   "INT8",
+   "GPU_HW_MATMUL",
+   "GPU_USM_MEMORY",
+   "EXPORT_IMPORT"
+  ],
+  "gpu_driver": "32.0.101.8991"
+ },
+ "args": {
+  "gpu_model": "C:/Users/tommyl/models/Qwen3-8B-int4-cw-ov",
+  "cpu_model": "C:/Users/tommyl/models/Phi-3.5-mini-instruct-int4-cw-ov",
+  "runs": 3,
+  "prefill_chars": 40000,
+  "head_start": 1.0
+ },
+ "idle": [
+  {
+   "kind": "title",
+   "side_s": 0.97,
+   "chars": 65
+  },
+  {
+   "kind": "title",
+   "side_s": 0.75,
+   "chars": 65
+  },
+  {
+   "kind": "title",
+   "side_s": 0.7,
+   "chars": 65
+  },
+  {
+   "kind": "summary",
+   "side_s": 5.24,
+   "chars": 568
+  },
+  {
+   "kind": "summary",
+   "side_s": 5.96,
+   "chars": 568
+  },
+  {
+   "kind": "summary",
+   "side_s": 4.84,
+   "chars": 568
+  }
+ ],
+ "contended": [
+  {
+   "kind": "title",
+   "side_s": 1.9,
+   "chars": 65,
+   "gpu_s": 18.1,
+   "gpu_ok": true,
+   "gpu_still_busy_at_side_end": true
+  },
+  {
+   "kind": "title",
+   "side_s": 0.95,
+   "chars": 65,
+   "gpu_s": 16.47,
+   "gpu_ok": true,
+   "gpu_still_busy_at_side_end": true
+  },
+  {
+   "kind": "title",
+   "side_s": 0.95,
+   "chars": 65,
+   "gpu_s": 16.38,
+   "gpu_ok": true,
+   "gpu_still_busy_at_side_end": true
+  },
+  {
+   "kind": "summary",
+   "side_s": 6.86,
+   "chars": 568,
+   "gpu_s": 17.69,
+   "gpu_ok": true,
+   "gpu_still_busy_at_side_end": true
+  },
+  {
+   "kind": "summary",
+   "side_s": 6.95,
+   "chars": 568,
+   "gpu_s": 17.79,
+   "gpu_ok": true,
+   "gpu_still_busy_at_side_end": true
+  },
+  {
+   "kind": "summary",
+   "side_s": 6.97,
+   "chars": 568,
+   "gpu_s": 17.81,
+   "gpu_ok": true,
+   "gpu_still_busy_at_side_end": true
+  }
+ ]
+}

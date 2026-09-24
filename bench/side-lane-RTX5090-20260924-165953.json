@@ -1,0 +1,108 @@
+{
+ "provenance": {
+  "host": "RTX5090",
+  "cpu": "Intel64 Family 6 Model 198 Stepping 2, GenuineIntel",
+  "when": "2026-09-24T16:59:53",
+  "openvino": "2026.3.0-22451-8a17657b995-releases/2026/3",
+  "openvino_genai": "2026.3.0.0-3277-bd8d6542e3c",
+  "gpu": "Intel(R) Graphics (iGPU)",
+  "gpu_caps": [
+   "FP32",
+   "BIN",
+   "FP16",
+   "INT8",
+   "GPU_USM_MEMORY",
+   "EXPORT_IMPORT"
+  ],
+  "gpu_driver": "32.0.101.8991"
+ },
+ "args": {
+  "gpu_model": "C:\\Users\\wossn\\models\\Qwen3-8B-int4-cw-ov",
+  "cpu_model": "C:\\Users\\wossn\\models\\Phi-3.5-mini-instruct-int4-cw-ov",
+  "runs": 3,
+  "prefill_chars": 40000,
+  "head_start": 1.0
+ },
+ "idle": [
+  {
+   "kind": "title",
+   "side_s": 1.08,
+   "chars": 65
+  },
+  {
+   "kind": "title",
+   "side_s": 1.08,
+   "chars": 65
+  },
+  {
+   "kind": "title",
+   "side_s": 1.09,
+   "chars": 65
+  },
+  {
+   "kind": "summary",
+   "side_s": 8.65,
+   "chars": 568
+  },
+  {
+   "kind": "summary",
+   "side_s": 7.71,
+   "chars": 568
+  },
+  {
+   "kind": "summary",
+   "side_s": 7.69,
+   "chars": 568
+  }
+ ],
+ "contended": [
+  {
+   "kind": "title",
+   "side_s": 1.24,
+   "chars": 65,
+   "gpu_s": 164.38,
+   "gpu_ok": true,
+   "gpu_still_busy_at_side_end": true
+  },
+  {
+   "kind": "title",
+   "side_s": 0.57,
+   "chars": 65,
+   "gpu_s": 164.49,
+   "gpu_ok": true,
+   "gpu_still_busy_at_side_end": true
+  },
+  {
+   "kind": "title",
+   "side_s": 0.56,
+   "chars": 65,
+   "gpu_s": 164.24,
+   "gpu_ok": true,
+   "gpu_still_busy_at_side_end": true
+  },
+  {
+   "kind": "summary",
+   "side_s": 3.73,
+   "chars": 568,
+   "gpu_s": 164.61,
+   "gpu_ok": true,
+   "gpu_still_busy_at_side_end": true
+  },
+  {
+   "kind": "summary",
+   "side_s": 3.74,
+   "chars": 568,
+   "gpu_s": 164.51,
+   "gpu_ok": true,
+   "gpu_still_busy_at_side_end": true
+  },
+  {
+   "kind": "summary",
+   "side_s": 3.69,
+   "chars": 568,
+   "gpu_s": 164.81,
+   "gpu_ok": true,
+   "gpu_still_busy_at_side_end": true
+  }
+ ]
+}

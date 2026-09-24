@@ -111,6 +111,30 @@ because there the CPU really is idle.
 second CPU server by default on an iGPU box would be recommending a 40-second
 side request in place of a 5-second one on the coder itself.
 
+### Re-measured 2026-09-24: the starvation does not reproduce
+
+`scripts/side-lane-probe.py`: coder `Qwen3-8B-int4-cw` on the iGPU, side model
+Phi-3.5-mini on the CPU, fixed side requests idle and during a never-cached
+~40k-char prefill that overlapped every side request in full. Three runs each,
+raw JSON in `bench/side-lane-*.json` [OBSERVED 2026-09-24, OpenVINO 2026.4,
+GPU driver 32.0.101.8991 on both]:
+
+| box | shape | idle | iGPU prefilling | ratio |
+|---|---|---|---|---|
+| 258V laptop, 140V | title | 0.7-1.0 s | 0.9-1.9 s | ~1.6x |
+| | summary (~128 tok) | 4.8-6.0 s | 6.9-7.0 s | ~1.3x |
+| 285K desktop, Xe-LPG | title | 1.1 s | 0.6-1.2 s | ~0.7x |
+| | summary | 7.7-8.7 s | 3.7 s | ~0.5x |
+
+Nowhere near the 9-25x above. The likeliest reason is that the 2026-09-23
+numbers were taken on a starved laptop: the same evening's `d944b78` records
+free RAM at 0.8 GB with the pagefile working, and withdrew two other figures
+for exactly that [INFERRED — confirm by re-running this probe with RAM
+deliberately exhausted]. If so, what a second server costs on an iGPU box is
+**memory, not compute**, and the rule above is stronger than its evidence.
+Not yet re-measured: the Coder-30B row (the 40 s), and real OpenCode traffic
+rather than this script's load.
+
 ### A real task does complete on a 140V, 2026-09-23
 
 Same session, `Qwen3-Coder-30B-A3B-Instruct-int4` on the 140V: read two files,
