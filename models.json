@@ -25,6 +25,7 @@
         {
             "name": "LFM2.5 1.2B Instruct (INT4-CW)",
             "hf_id": "aweussom/LFM2.5-1.2B-Instruct-int4-cw-ov",
+            "withdrawn": "Correct on NPU 3, silent garbage on NPU 4 (Lunar Lake) -- Intel reproduced it and escalated it, openvinotoolkit/openvino#38100 (2026-09-18/23). Withdrawn from the installer until that is fixed (user, 2026-09-24).",
             "source": "pre-exported",
             "est_size_gb": 1,
             "npu_arch_deny": [

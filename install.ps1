@@ -613,6 +613,10 @@ function Show-ModelMenu {
         # on-disk branch below: having the weights doesn't help if this venv
         # can't read them.
         if ($dm.requires_nightly -and -not $Nightly) { $hiddenNightly++; continue }
+        # Withdrawn entries ("withdrawn": "<reason>" in models.json) are kept
+        # in the registry with their evidence, but offered nowhere until the
+        # reason is gone -- see Test-Withdrawn.
+        if ($dm.PSObject.Properties['withdrawn'] -and $dm.withdrawn) { continue }
 
         $repoName = ($dm.hf_id -split '/')[-1]
         # Already surfaced by the generic scan (matched on folder name)?
@@ -975,7 +979,21 @@ function Get-ChatRegistry { param([string]$Device)
     return Where-NpuUsable (@($Registry.npu) + @($Registry.gpu_llm)) $Device
 }
 function Get-ChatLocal { param([string]$Device, [string]$Exclude = "")
-    @($LocalModels | Where-Object { $_.Type -eq "llm" -and (($Device -ne "NPU") -or $_.NpuOk) -and $_.Name -ne $Exclude })
+    @($LocalModels | Where-Object { $_.Type -eq "llm" -and (($Device -ne "NPU") -or $_.NpuOk) -and $_.Name -ne $Exclude -and -not (Test-Withdrawn $_.Name) })
+}
+
+# Whether a local model's registry entry is withdrawn from the installer.
+#
+# Why: withdrawing only the download entry would still offer a copy already on
+# disk under "Already on disk", and that is where the withdrawn LFM2.5-1.2B
+# sits on the machines that hit its bug. Find-RegistryEntry's family fallback
+# means an int8 copy of a withdrawn int4 model is withdrawn too.
+#
+# In: a local model directory name. Out: $true when its entry says withdrawn.
+function Test-Withdrawn {
+    param([string]$Name)
+    $reg = Find-RegistryEntry $Name
+    return [bool]($null -ne $reg -and $reg.PSObject.Properties['withdrawn'] -and $reg.withdrawn)
 }
 # The coding-agent menu: LLMs only (an embedder is not a coding agent), ranked
 # by what has actually been measured.
