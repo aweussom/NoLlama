@@ -1,0 +1,224 @@
+  tool turns: native chat template (--tool-template)
+
+  Devices:
+    CPU: AMD Ryzen 9 5950X 16-Core Processor            
+    GPU [GPU.0]: Intel(R) Arc(TM) Pro B60 Graphics (dGPU)
+
+  NoLlama 2026-09-18-7272dc7 starting on port 8000...
+  Web UI (chat):  http://localhost:8000/
+  OpenAI API:     http://localhost:8000/v1
+  Ollama API:     disabled
+  Discrete GPU keepalive: ping after 60s idle (Windows evicts dGPU VRAM at ~80s)
+  OpenAI API on port 8000
+  [GPU] Detected: LLM (Qwen3-Coder-30B-A3B-Instruct)
+  [GPU] memory is tight: model (~15.2 GB) + KV pool (6 GB) estimates to ~23.3 GB against a 23.3 GB budget — loading anyway; if it fails, lower --cache-size-gb
+  [GPU] KV pool 6 GB ~ 65k tokens for this model (96 KB/token)
+  [GPU] Loading...
+  [GPU] last load took 41s
+  [GPU] still loading... 5s (~12% of last run's 41s)
+  [GPU] still loading... 15s (~36% of last run's 41s)
+  [GPU] still loading... 30s (~72% of last run's 41s)
+  [GPU] prefix caching on (6 GB KV pool)
+  [GPU] loaded in 32s
+  [GPU] Warmup... done (0.4s)
+
+================================================
+  NoLlama ready
+    GPU  : Qwen3-Coder-30B-A3B-Instruct (LLM) -- Intel(R) Arc(TM) Pro B60 Graphics (dGPU)
+    API  : http://localhost:8000  (OpenAI)
+================================================
+
+
+08:07:18 <- [GPU] 2250 chars, max_tokens=16384 (stream)
+08:07:20 -> [GPU] 8 tokens in 1.6s (5.0 tok/s, TTFT 1514ms)
+
+08:07:20 <- [GPU] 39370 chars, max_tokens=16384 (stream)
+08:07:32 -> [GPU] 63 tokens in 11.1s (5.7 tok/s, TTFT 10035ms)
+08:07:32 -> [GPU] 1 tool call(s): read
+08:07:33 -- native tool render failed (No filter named 'from_json' found.); using the Qwen-XML rendering
+
+08:07:33 <- [GPU] 40625 chars, max_tokens=16384 (stream)
+08:07:41 -> [GPU] 41 tokens in 8.0s (5.2 tok/s, TTFT 7214ms)
+08:07:41 -> [GPU] 1 tool call(s): read
+08:07:42 -- native tool render failed (No filter named 'from_json' found.); using the Qwen-XML rendering
+
+08:07:42 <- [GPU] 41424 chars, max_tokens=16384 (stream)
+08:07:48 -> [GPU] 355 tokens in 6.6s (53.8 tok/s, TTFT 584ms)
+08:07:48 -> [GPU] 1 tool call(s): edit
+08:07:50 -- native tool render failed (No filter named 'from_json' found.); using the Qwen-XML rendering
+
+08:07:50 <- [GPU] 42876 chars, max_tokens=16384 (stream)
+08:07:51 -> [GPU] 44 tokens in 1.4s (31.9 tok/s, TTFT 583ms)
+08:07:51 -> [GPU] 1 tool call(s): bash
+08:07:53 -- native tool render failed (No filter named 'from_json' found.); using the Qwen-XML rendering
+
+08:07:53 <- [GPU] 43235 chars, max_tokens=16384 (stream)
+08:07:56 -> [GPU] 151 tokens in 2.8s (54.4 tok/s, TTFT 517ms)
+
+08:07:59 <- [GPU] 2409 chars, max_tokens=16384 (stream)
+08:07:59 -> [GPU] 10 tokens in 0.4s (23.9 tok/s, TTFT 309ms)
+
+08:08:01 <- [GPU] 39529 chars, max_tokens=16384 (stream)
+08:08:02 -> [GPU] 47 tokens in 1.3s (37.1 tok/s, TTFT 431ms)
+08:08:02 -> [GPU] 1 tool call(s): glob
+08:08:03 -- native tool render failed (No filter named 'from_json' found.); using the Qwen-XML rendering
+
+08:08:03 <- [GPU] 39879 chars, max_tokens=16384 (stream)
+08:08:04 -> [GPU] 41 tokens in 1.2s (33.1 tok/s, TTFT 514ms)
+08:08:04 -> [GPU] 1 tool call(s): read
+08:08:06 -- native tool render failed (No filter named 'from_json' found.); using the Qwen-XML rendering
+
+08:08:06 <- [GPU] 40682 chars, max_tokens=16384 (stream)
+08:08:07 -> [GPU] 40 tokens in 1.2s (32.0 tok/s, TTFT 535ms)
+08:08:07 -> [GPU] 1 tool call(s): read
+08:08:08 -- native tool render failed (No filter named 'from_json' found.); using the Qwen-XML rendering
+
+08:08:08 <- [GPU] 41831 chars, max_tokens=16384 (stream)
+08:08:13 -> [GPU] 220 tokens in 4.8s (45.7 tok/s, TTFT 859ms)
+08:08:13 -> [GPU] 1 tool call(s): edit
+08:08:14 -- native tool render failed (No filter named 'from_json' found.); using the Qwen-XML rendering
+
+08:08:14 <- [GPU] 43042 chars, max_tokens=16384 (stream)
+08:08:22 -> [GPU] 397 tokens in 7.7s (51.7 tok/s, TTFT 685ms)
+08:08:22 -> [GPU] 1 tool call(s): edit
+08:08:23 -- native tool render failed (No filter named 'from_json' found.); using the Qwen-XML rendering
+
+08:08:23 <- [GPU] 44808 chars, max_tokens=16384 (stream)
+08:08:25 -> [GPU] 44 tokens in 1.8s (24.0 tok/s, TTFT 1028ms)
+08:08:25 -> [GPU] 1 tool call(s): bash
+08:08:27 -- native tool render failed (No filter named 'from_json' found.); using the Qwen-XML rendering
+
+08:08:27 <- [GPU] 45214 chars, max_tokens=16384 (stream)
+08:08:32 -> [GPU] 243 tokens in 4.6s (53.4 tok/s, TTFT 382ms)
+08:08:32 -> [GPU] 1 tool call(s): bash
+08:08:34 -- native tool render failed (No filter named 'from_json' found.); using the Qwen-XML rendering
+
+08:08:34 <- [GPU] 46377 chars, max_tokens=16384 (stream)
+08:08:39 -> [GPU] 222 tokens in 4.8s (46.5 tok/s, TTFT 875ms)
+08:08:39 -> [GPU] 1 tool call(s): bash
+08:08:41 -- native tool render failed (No filter named 'from_json' found.); using the Qwen-XML rendering
+
+08:08:41 <- [GPU] 47398 chars, max_tokens=16384 (stream)
+08:08:43 -> [GPU] 76 tokens in 2.2s (34.7 tok/s, TTFT 905ms)
+08:08:43 -> [GPU] 1 tool call(s): read
+08:08:44 -- native tool render failed (No filter named 'from_json' found.); using the Qwen-XML rendering
+
+08:08:44 <- [GPU] 48566 chars, max_tokens=16384 (stream)
+08:08:52 -> [GPU] 435 tokens in 8.1s (53.5 tok/s, TTFT 726ms)
+08:08:52 -> [GPU] 1 tool call(s): edit
+08:08:54 -- native tool render failed (No filter named 'from_json' found.); using the Qwen-XML rendering
+
+08:08:54 <- [GPU] 50431 chars, max_tokens=16384 (stream)
+08:08:58 -> [GPU] 216 tokens in 4.8s (45.2 tok/s, TTFT 923ms)
+08:08:58 -> [GPU] 1 tool call(s): bash
+08:09:00 -- native tool render failed (No filter named 'from_json' found.); using the Qwen-XML rendering
+
+08:09:00 <- [GPU] 51398 chars, max_tokens=16384 (stream)
+08:09:02 -> [GPU] 48 tokens in 1.8s (26.3 tok/s, TTFT 943ms)
+08:09:02 -> [GPU] 1 tool call(s): bash
+08:09:04 -- native tool render failed (No filter named 'from_json' found.); using the Qwen-XML rendering
+
+08:09:04 <- [GPU] 51823 chars, max_tokens=16384 (stream)
+08:09:09 -> [GPU] 265 tokens in 4.7s (56.4 tok/s, TTFT 491ms)
+
+08:09:14 <- [GPU] 2250 chars, max_tokens=16384 (stream)
+08:09:14 -> [GPU] 8 tokens in 0.3s (31.0 tok/s, TTFT 175ms)
+
+08:09:17 <- [GPU] 39370 chars, max_tokens=16384 (stream)
+08:09:18 -> [GPU] 63 tokens in 1.2s (51.0 tok/s, TTFT 190ms)
+08:09:18 -> [GPU] 1 tool call(s): read
+08:09:20 -- native tool render failed (No filter named 'from_json' found.); using the Qwen-XML rendering
+
+08:09:20 <- [GPU] 40625 chars, max_tokens=16384 (stream)
+08:09:21 -> [GPU] 41 tokens in 0.9s (44.7 tok/s, TTFT 194ms)
+08:09:21 -> [GPU] 1 tool call(s): read
+08:09:22 -- native tool render failed (No filter named 'from_json' found.); using the Qwen-XML rendering
+
+08:09:22 <- [GPU] 41424 chars, max_tokens=16384 (stream)
+08:09:28 -> [GPU] 318 tokens in 5.6s (57.1 tok/s, TTFT 163ms)
+08:09:28 -> [GPU] 1 tool call(s): edit
+08:09:29 -- native tool render failed (No filter named 'from_json' found.); using the Qwen-XML rendering
+
+08:09:29 <- [GPU] 42882 chars, max_tokens=16384 (stream)
+08:09:31 -> [GPU] 44 tokens in 1.4s (31.5 tok/s, TTFT 602ms)
+08:09:31 -> [GPU] 1 tool call(s): bash
+08:09:33 -- native tool render failed (No filter named 'from_json' found.); using the Qwen-XML rendering
+
+08:09:33 <- [GPU] 43241 chars, max_tokens=16384 (stream)
+08:09:37 -> [GPU] 240 tokens in 4.2s (57.1 tok/s, TTFT 445ms)
+
+08:09:41 <- [GPU] 2409 chars, max_tokens=16384 (stream)
+08:09:41 -> [GPU] 10 tokens in 0.3s (35.1 tok/s, TTFT 167ms)
+
+08:09:43 <- [GPU] 39529 chars, max_tokens=16384 (stream)
+08:09:44 -> [GPU] 47 tokens in 1.0s (46.2 tok/s, TTFT 184ms)
+08:09:44 -> [GPU] 1 tool call(s): glob
+08:09:45 -- native tool render failed (No filter named 'from_json' found.); using the Qwen-XML rendering
+
+08:09:45 <- [GPU] 39879 chars, max_tokens=16384 (stream)
+08:09:46 -> [GPU] 26 tokens in 0.7s (38.4 tok/s, TTFT 164ms)
+08:09:46 -> [GPU] 1 tool call(s): glob
+08:09:48 -- native tool render failed (No filter named 'from_json' found.); using the Qwen-XML rendering
+
+08:09:48 <- [GPU] 40167 chars, max_tokens=16384 (stream)
+08:09:49 -> [GPU] 43 tokens in 1.2s (36.0 tok/s, TTFT 420ms)
+08:09:49 -> [GPU] 1 tool call(s): read
+08:09:50 -- native tool render failed (No filter named 'from_json' found.); using the Qwen-XML rendering
+
+08:09:50 <- [GPU] 40969 chars, max_tokens=16384 (stream)
+08:09:52 -> [GPU] 44 tokens in 1.3s (33.2 tok/s, TTFT 541ms)
+08:09:52 -> [GPU] 1 tool call(s): read
+08:09:53 -- native tool render failed (No filter named 'from_json' found.); using the Qwen-XML rendering
+
+08:09:53 <- [GPU] 42130 chars, max_tokens=16384 (stream)
+08:09:58 -> [GPU] 220 tokens in 4.8s (45.5 tok/s, TTFT 854ms)
+08:09:58 -> [GPU] 1 tool call(s): edit
+08:09:59 -- native tool render failed (No filter named 'from_json' found.); using the Qwen-XML rendering
+
+08:09:59 <- [GPU] 43341 chars, max_tokens=16384 (stream)
+08:10:07 -> [GPU] 399 tokens in 7.8s (51.3 tok/s, TTFT 653ms)
+08:10:07 -> [GPU] 1 tool call(s): edit
+08:10:08 -- native tool render failed (No filter named 'from_json' found.); using the Qwen-XML rendering
+
+08:10:08 <- [GPU] 45109 chars, max_tokens=16384 (stream)
+08:10:10 -> [GPU] 44 tokens in 1.9s (23.8 tok/s, TTFT 1037ms)
+08:10:10 -> [GPU] 1 tool call(s): bash
+08:10:12 -- native tool render failed (No filter named 'from_json' found.); using the Qwen-XML rendering
+
+08:10:12 <- [GPU] 45523 chars, max_tokens=16384 (stream)
+08:10:14 -> [GPU] 63 tokens in 1.6s (39.7 tok/s, TTFT 482ms)
+08:10:14 -> [GPU] 1 tool call(s): bash
+08:10:15 -- native tool render failed (No filter named 'from_json' found.); using the Qwen-XML rendering
+
+08:10:15 <- [GPU] 45966 chars, max_tokens=16384 (stream)
+08:10:19 -> [GPU] 205 tokens in 4.0s (51.8 tok/s, TTFT 382ms)
+08:10:19 -> [GPU] 1 tool call(s): bash
+08:10:21 -- native tool render failed (No filter named 'from_json' found.); using the Qwen-XML rendering
+
+08:10:21 <- [GPU] 47017 chars, max_tokens=16384 (stream)
+08:10:25 -> [GPU] 196 tokens in 4.3s (46.0 tok/s, TTFT 808ms)
+08:10:25 -> [GPU] 1 tool call(s): bash
+08:10:27 -- native tool render failed (No filter named 'from_json' found.); using the Qwen-XML rendering
+
+08:10:27 <- [GPU] 47924 chars, max_tokens=16384 (stream)
+08:10:29 -> [GPU] 76 tokens in 2.2s (35.2 tok/s, TTFT 877ms)
+08:10:29 -> [GPU] 1 tool call(s): read
+08:10:30 -- native tool render failed (No filter named 'from_json' found.); using the Qwen-XML rendering
+
+08:10:30 <- [GPU] 49092 chars, max_tokens=16384 (stream)
+08:10:36 -> [GPU] 327 tokens in 6.4s (50.9 tok/s, TTFT 661ms)
+08:10:36 -> [GPU] 1 tool call(s): edit
+08:10:37 -- native tool render failed (No filter named 'from_json' found.); using the Qwen-XML rendering
+
+08:10:37 <- [GPU] 50675 chars, max_tokens=16384 (stream)
+08:10:42 -> [GPU] 191 tokens in 4.3s (44.4 tok/s, TTFT 915ms)
+08:10:42 -> [GPU] 1 tool call(s): bash
+08:10:43 -- native tool render failed (No filter named 'from_json' found.); using the Qwen-XML rendering
+
+08:10:43 <- [GPU] 51542 chars, max_tokens=16384 (stream)
+08:10:45 -> [GPU] 48 tokens in 1.7s (28.1 tok/s, TTFT 830ms)
+08:10:45 -> [GPU] 1 tool call(s): bash
+08:10:46 -- native tool render failed (No filter named 'from_json' found.); using the Qwen-XML rendering
+
+08:10:46 <- [GPU] 51975 chars, max_tokens=16384 (stream)
+08:10:49 -> [GPU] 138 tokens in 2.8s (48.9 tok/s, TTFT 499ms)
