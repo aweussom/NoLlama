@@ -94,10 +94,10 @@ across the 140V and the B60 (2026-09-24). **Nothing we have qualifies at 16 GB.*
 
 Nothing is running. No background jobs, no scheduled probes on this box.
 
-The B60 rig is left up as scheduled tasks `nollama-gpu-8000`
-(Qwen3-Coder-30B-A3B int4, 6 GB pool) and `nollama-cpu-8002` (SmolLM3-3B), logs
-in `C:\Users\wossn\b60-eval\`, ports reachable from Tailscale. Stop with
-`Stop-ScheduledTask`. It is the OpenCode evaluation arm-2 test bed.
+The B60 is **unloaded** (2026-09-24). Its evaluation rig is still registered
+as scheduled tasks `nollama-gpu-8000` (Qwen3-Coder-30B-A3B int4, 6 GB pool)
+and `nollama-cpu-8002` (SmolLM3-3B), stopped; `Start-ScheduledTask` brings it
+back. Logs in `C:\Users\wossn\b60-eval\`. Its HF login is now an API token.
 
 ## Known and accepted, so nobody re-investigates
 
