@@ -56,7 +56,7 @@ Working state is `brain/next/` (needs Tommy), `brain/todo/` (startable cold) and
 |---|---|---|
 | `Qwen3-Coder-30B-A3B-int4` | 16.3 GB | **PASS** — 333 s, two boxes |
 | `Qwen3-30B-A3B-int4` | 15.2 GB | passes the fix task by hand (2.5 min) |
-| `Qwen3-14B-int4` | 9.1 GB | completes in **18 min**, writes a syntax error on the way — flag removed |
+| `Qwen3-14B-int4` | 9.1 GB | XML: 18 min + a syntax error. **Native: fix 2/2 clean (~8 min), feature 1/2** — quits with red tests. Not an agent; the 16 GB near-miss |
 | `Qwen2.5-Coder-14B` / `-7B` | — | **retired from the registry** (TODONT): narrate tool use, never call |
 | `Qwen3-8B-int4` | 4.6 GB | invents paths, never recovers — in its native dialect too |
 | `LFM2.5-8B-A1B-int4` | 4.2 GB | **FAIL** 0/2 in both dialects — invents paths |

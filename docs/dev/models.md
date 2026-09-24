@@ -108,6 +108,14 @@ transcripts in `bench/agent-probe/`]:
 |---|---|---|---|
 | `LFM2.5-8B-A1B-int4` | 0/2 | 0/2 | invents paths (`/workspace/...`); native also sends `file_path` against a `filePath` schema, repeatedly after the error names the key |
 | `Qwen3-8B-int4-cw` | 0/2 | 0/2 | invents `src/calc.py` in every run; native also overwrote the test file |
+| `Qwen3-14B-int4` | fix in 18 min, syntax error on the way | run 1: 2/2 (feature unverifiable — it rewrote the test file, and the probe then ran its copy); run 2: **1/2** | fix: the same clean one-line edit both runs, ~8 min. Feature: run 2 left the discount bug, hit a SyntaxError and a NameError, and ended its turn with the tests red |
+
+Qwen3-14B's rows ran at `--cache-size-gb 3`, which is the 16 GB configuration
+(~12 GB on the iGPU with Shared GPU Memory Override raised). Native is
+clearly better *for it*, and it is still not an agent: reliable on one
+focused fix, not on a two-part task. Since 2026-09-24 the probe verifies
+against the fixture's original tests and keeps each task's diff, so a
+rewrite-the-tests pass can no longer happen unseen.
    ```
 
    Any count above zero can cache; `> 0` is the predicate, **not** one per
