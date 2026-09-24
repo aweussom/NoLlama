@@ -37,6 +37,19 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+function Write-LfFile {
+    # Write text with LF line endings only, UTF-8 without a BOM.
+    #
+    # Why a helper: Set-Content ends a file with CRLF on Windows, and a mixed
+    # file is exactly what an exact-match edit tool trips on (New-Fixture).
+    # Operators and cmdlets only, no .NET calls, so it runs in
+    # ConstrainedLanguage.
+    #
+    # In: the text on the pipeline, and a path. Out: the file, ending in one LF.
+    param([Parameter(ValueFromPipeline)][string]$Text, [string]$Path)
+    (($Text -replace "`r`n", "`n") + "`n") | Set-Content -Path $Path -NoNewline -Encoding utf8
+}
+
 function New-Fixture {
     # Write the project the model has to repair.
     #
@@ -45,6 +58,15 @@ function New-Fixture {
     # test, understood the intent and edited the right line. The test file is
     # runnable with plain python -- no pytest, because the probe must work on a
     # machine that only has the venv.
+    #
+    # Line endings are pinned to LF, in the files AND in the fixture repo.
+    # Set-Content ended each file with one stray CRLF, and Git for Windows'
+    # system core.autocrlf=true made the reset before each task rewrite an
+    # edited calc.py as CRLF throughout -- so every feature task after a fix
+    # started on a CRLF file, while models write LF in their edit requests and
+    # OpenCode's edit tool matches bytes exactly ("Could not find oldString ...
+    # line endings") [OBSERVED 2026-09-24, 140V laptop, simulated reset:
+    # CRLF=11 LF=0]. Linux never saw it; Windows boxes always did.
     #
     # In: a directory, created fresh. Out: nothing; the directory is left with
     # failing tests and a git repo so each task starts from the same state.
@@ -63,7 +85,7 @@ def apply_discount(amount, percent):
 def total(items):
     """Sum a list of (amount, discount_percent) pairs."""
     return round(sum(apply_discount(a, p) for a, p in items), 2)
-'@ | Set-Content -Path (Join-Path $Dir "calc.py") -Encoding utf8
+'@ | Write-LfFile -Path (Join-Path $Dir "calc.py")
     @'
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -87,9 +109,9 @@ if __name__ == "__main__":
             except AssertionError as e:
                 fails += 1; print("FAIL", name, e)
     raise SystemExit(1 if fails else 0)
-'@ | Set-Content -Path (Join-Path $Dir "tests\test_calc.py") -Encoding utf8
+'@ | Write-LfFile -Path (Join-Path $Dir "tests\test_calc.py")
     Push-Location $Dir
-    git init -q 2>$null; git add -A 2>$null
+    git init -q 2>$null; git config core.autocrlf false; git add -A 2>$null
     git -c user.email=probe@local -c user.name=probe commit -qm fixture 2>$null
     Pop-Location
 }
