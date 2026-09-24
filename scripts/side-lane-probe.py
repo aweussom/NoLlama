@@ -17,11 +17,17 @@ venv on any box.
     venv\Scripts\python scripts\side-lane-probe.py --gpu-model ~\models\Qwen3-8B-int4-cw-ov `
         --cpu-model ~\models\Phi-3.5-mini-instruct-int4-cw-ov
 
+`--starve-to-gb N` starts scripts/ram-hog.py once both servers are ready and
+measures with only N GB of RAM available -- the condition the 2026-09-23
+numbers were taken under. Every row records available RAM at the moment the
+side request was sent, so a starved run cannot pass for a clean one.
+
 Out: one line per request, a summary per request shape, and a JSON record
 (provenance included) written to bench/side-lane-<host>-<stamp>.json. Exit 0
 unless a server never became ready.
 """
 import argparse
+import ctypes
 import datetime
 import json
 import os
@@ -52,6 +58,48 @@ SIDE_PROMPTS = {
 
 FILLER = ("def apply_discount(amount, percent):\n    return round(amount - amount * "
           "percent / 100, 2)\n# The billing report sums discounted line items. ")
+
+
+def available_gb():
+    """Available physical RAM in GB on Windows; None elsewhere or on failure."""
+    if os.name != "nt":
+        return None
+
+    class MemStatus(ctypes.Structure):
+        _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
+                    ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
+                    ("ullTotalPageFile", ctypes.c_ulonglong), ("ullAvailPageFile", ctypes.c_ulonglong),
+                    ("ullTotalVirtual", ctypes.c_ulonglong), ("ullAvailVirtual", ctypes.c_ulonglong),
+                    ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+    st = MemStatus()
+    st.dwLength = ctypes.sizeof(MemStatus)
+    if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(st)):
+        return None
+    return round(st.ullAvailPhys / 1024 ** 3, 2)
+
+
+def start_hog(leave_gb, limit=240):
+    """Start scripts/ram-hog.py and wait until it reports the target reached.
+
+    In: GB of RAM to leave available. Out: (Popen, its READY line), or
+    (Popen, None) if it did not get there within `limit` seconds -- the run
+    goes on, and the rows' avail_gb say how starved it really was.
+    """
+    hog = subprocess.Popen([sys.executable, os.path.join(REPO, "scripts", "ram-hog.py"),
+                            "--leave-gb", str(leave_gb)],
+                           cwd=REPO, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    t0 = time.time()
+    while time.time() - t0 < limit:
+        line = hog.stdout.readline()
+        if not line:
+            break
+        if line.startswith("READY"):
+            # Keep reading: the hog prints a status line every 10 s, and an
+            # unread pipe fills and blocks it -- it would stop re-touching its
+            # memory and quietly stop starving anything.
+            threading.Thread(target=lambda: [None for _ in hog.stdout], daemon=True).start()
+            return hog, line.strip()
+    return hog, None
 
 
 def post(url, body, timeout=3600):
@@ -163,6 +211,8 @@ def main():
     ap.add_argument("--cpu-model", required=True)
     ap.add_argument("--runs", type=int, default=3)
     ap.add_argument("--prefill-chars", type=int, default=40000)
+    ap.add_argument("--starve-to-gb", type=float, default=None,
+                    help="hold RAM (scripts/ram-hog.py) until only this many GB are available")
     ap.add_argument("--head-start", type=float, default=1.0,
                     help="seconds between starting the GPU prefill and the side request")
     args = ap.parse_args()
@@ -177,17 +227,25 @@ def main():
                        os.path.join(REPO, "bench", f"side-lane-gpu-{host}.log"))
     cpu = start_server(os.path.expanduser(args.cpu_model), "CPU", 8002,
                        os.path.join(REPO, "bench", f"side-lane-cpu-{host}.log"))
+    hog = None
     try:
         if not (wait_ready(gpu_base, gpu) and wait_ready(cpu_base, cpu)):
             print("a server never became ready -- see bench/side-lane-*.log", flush=True)
             return 1
         side_request(cpu_base, "title")  # first request pays compilation; not measured
+        if args.starve_to_gb is not None:
+            hog, ready = start_hog(args.starve_to_gb)
+            record["hog"] = ready
+            print(f"ram-hog: {ready or 'did not reach its target'}", flush=True)
 
         for kind in SIDE_PROMPTS:
             for i in range(args.runs):
+                avail = available_gb()
                 secs, n = side_request(cpu_base, kind)
-                record["idle"].append({"kind": kind, "side_s": round(secs, 2), "chars": n})
-                print(f"idle       {kind:7} run {i + 1}: side {secs:6.1f} s ({n} chars)", flush=True)
+                record["idle"].append({"kind": kind, "side_s": round(secs, 2), "chars": n,
+                                       "avail_gb": avail})
+                print(f"idle       {kind:7} run {i + 1}: side {secs:6.1f} s ({n} chars), "
+                      f"RAM available {avail} GB", flush=True)
 
         for kind in SIDE_PROMPTS:
             for i in range(args.runs):
@@ -203,18 +261,22 @@ def main():
                 t = threading.Thread(target=load)
                 t.start()
                 time.sleep(args.head_start)
+                avail = available_gb()
                 secs, n = side_request(cpu_base, kind)
                 side_end = time.perf_counter()
                 t.join()
                 overlapped = gpu_result.get("end", 0) > side_end
                 record["contended"].append({"kind": kind, "side_s": round(secs, 2), "chars": n,
+                                            "avail_gb": avail,
                                             "gpu_s": gpu_result.get("gpu_s"),
                                             "gpu_ok": gpu_result.get("ok"),
                                             "gpu_still_busy_at_side_end": overlapped})
                 print(f"contended  {kind:7} run {i + 1}: side {secs:6.1f} s ({n} chars), GPU "
                       f"prefill+16 {gpu_result.get('gpu_s')} s, overlapped the whole side "
-                      f"request: {overlapped}", flush=True)
+                      f"request: {overlapped}, RAM available {avail} GB", flush=True)
     finally:
+        if hog is not None:
+            stop_server(hog)      # same tree kill: the venv launcher has a child
         stop_server(gpu)
         stop_server(cpu)
 
