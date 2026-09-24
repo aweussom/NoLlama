@@ -147,6 +147,28 @@ together and queue on the one CPU server [GUESS — the next thing to measure,
 with OpenCode driving and the side server's own log timing each request].
 Until then the iGPU rule above rests on one run that five runs contradict.
 
+### With real OpenCode traffic, on the B60 (2026-09-24)
+
+`agent-probe.ps1 -SmallUrl`, Qwen3-Coder-30B on the GPU, Phi-3.5-mini on the
+CPU at 8002 with `--debug`, then the same probe with no side lane [OBSERVED
+2026-09-24, Arc Pro B60, server 0a19bb2]:
+
+- OpenCode sends the side lane **one small request per task** -- the title
+  (2,250 chars) at task start, plus a 2,409-char request after the first task.
+  Nothing concurrent, nothing heavy. They took 7.4 s (first-ever request,
+  kernel compile) and 4.3 s, in parallel with the coder, whose TTFT stayed
+  0.2-1.3 s throughout.
+- **Single server:** the same title request on the coder took **0.7 s**
+  (8 tokens), and the next turn's TTFT was 173 ms. No queue.
+- Both configurations passed 2/2; the one timing gap (feature 117 s vs 44 s)
+  is the model's path, 28 tool calls against 19.
+
+So since titles stopped triggering thinking (7272dc7) the side lane has lost
+its reason to exist: the 46.8 s queue that justified it was a *thinking* model
+reasoning about a title. What is left is its cost -- a second model's RAM,
+which on a 32 GB laptop with Coder-30B is the last ~2 GB. Not yet measured:
+the same A/B on the laptop iGPU.
+
 ### A real task does complete on a 140V, 2026-09-23
 
 Same session, `Qwen3-Coder-30B-A3B-Instruct-int4` on the 140V: read two files,
