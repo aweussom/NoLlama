@@ -350,6 +350,24 @@ def test_debug_logs_the_raw_turn_including_a_call_hidden_in_think():
     assert "raw tool-turn output" not in buf.getvalue()      # silent without --debug
 
 
+def test_debug_logging_survives_a_stdout_that_cannot_encode_the_model():
+    # The B60 case: a scheduled task's stdout is cp1252, the model wrote '→',
+    # and the debug print killed every turn at its last token.
+    import contextlib
+    import io
+    raw = io.BytesIO()
+    out = io.TextIOWrapper(raw, encoding="cp1252", errors="strict")
+    nollama.debug = True
+    try:
+        with contextlib.redirect_stdout(out):
+            (deltas, finish), _ = run_tool_stream(["step → next ", CALL])
+            out.flush()
+    finally:
+        nollama.debug = False
+    assert finish == "tool_calls"                              # the turn survived
+    assert "\\u2192" in raw.getvalue().decode("cp1252")         # ...and was logged, escaped
+
+
 def test_calls_inside_an_unclosed_think_are_recovered():
     # Qwen3-14B on the B60: calls written into a <think> it never closed.
     # They streamed out as reasoning and the turn ended with nothing.

@@ -4626,17 +4626,33 @@ def _log_raw_tool_turn(slot, raw, tool_calls):
     2026-09-24]. The splitter and gate consume the stream as it arrives, so
     the raw text only exists if it is kept on purpose.
 
+    It must never fail. Model text is arbitrary Unicode and stdout may not
+    be: under a scheduled task's cmd redirect it is cp1252, and printing a
+    model's '→' raised UnicodeEncodeError inside the stream, killed every
+    turn at its last token, and OpenCode retried the same request forever
+    [OBSERVED 2026-09-24, B60]. So each line is escaped into stdout's own
+    encoding, and anything else that goes wrong is swallowed -- a debug aid
+    that can break the thing it observes is worse than none.
+
     In: the slot, the full generated text (reasoning included, untouched),
     and the parsed calls. Out: nothing; prints only under --debug.
     """
     if not debug:
         return
-    outcome = f"{len(tool_calls)} call(s) parsed" if tool_calls else "NO call parsed"
-    print(f"{datetime.now():%H:%M:%S} [DEBUG] [{slot.device_name}] raw tool-turn output "
-          f"({len(raw)} chars, {outcome}):", flush=True)
-    for line in raw.splitlines() or [""]:
-        print(f"  | {line}", flush=True)
-    print(f"{datetime.now():%H:%M:%S} [DEBUG] [{slot.device_name}] end raw output", flush=True)
+    try:
+        enc = getattr(sys.stdout, "encoding", None) or "utf-8"
+
+        def safe(text):
+            return text.encode(enc, "backslashreplace").decode(enc, "replace")
+
+        outcome = f"{len(tool_calls)} call(s) parsed" if tool_calls else "NO call parsed"
+        print(f"{datetime.now():%H:%M:%S} [DEBUG] [{slot.device_name}] raw tool-turn output "
+              f"({len(raw)} chars, {outcome}):", flush=True)
+        for line in raw.splitlines() or [""]:
+            print(safe(f"  | {line}"), flush=True)
+        print(f"{datetime.now():%H:%M:%S} [DEBUG] [{slot.device_name}] end raw output", flush=True)
+    except Exception:
+        pass
 
 
 def _log_request(api_label):
