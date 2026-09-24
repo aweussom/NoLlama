@@ -137,7 +137,7 @@
             "hf_id": "OpenVINO/Qwen3-14B-int4-ov",
             "source": "pre-exported",
             "est_size_gb": 9,
-            "notes": "Great reasoning, but DENSE: every token activates all 14B parameters. On an integrated GPU it holds ~7 tok/s against the 30B-A3B MoE's 18-32 on the same box and task, because decode tracks ACTIVE parameters, not total [OBSERVED 2026-09-23, 140V]. It does drive a tool loop — it completed the OpenCode fixture — but took 18 minutes against the MoE's 2.5, and on the way it deleted a round() and wrote a syntax error ('apply:apply_discount') that it then had to repair. Not offered as a coding agent: too slow on an iGPU, and on a discrete GPU the 30B MoE fits and codes better. Fine as a chat model on a dGPU."
+            "notes": "Great reasoning, but DENSE: every token activates all 14B parameters. On an integrated GPU it holds ~7 tok/s against the 30B-A3B MoE's 18-32 on the same box and task, because decode tracks ACTIVE parameters, not total [OBSERVED 2026-09-23, 140V]. NOT an agent model: through OpenCode it lands a single focused fix (3 of 4 runs) but failed the two-file feature task in all 4 verified runs, on both a 140V and a B60 and in both tool dialects (verified 2026-09-23/24, docs/dev/models.md tier-2 table). It fits a 16 GB laptop only with Shared GPU Memory Override raised, and even there it is not a coding agent. Fine as a chat model."
         },
         {
             "name": "Phi 4 (INT4)",

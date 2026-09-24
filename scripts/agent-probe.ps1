@@ -152,7 +152,7 @@ function Get-FailureKind {
     # The harness writes its own logs and opencode.json into this dir; left in,
     # they made the tree look dirty on every run, so "changed nothing" was
     # unreachable and every no-op run read as "wrote somewhere else".
-    $dirty = @(git status --porcelain 2>$null | Where-Object { $_ -notmatch '\.log(\.err)?$|opencode\.json$|__pycache__' })
+    $dirty = @(git status --porcelain 2>$null | Where-Object { $_ -notmatch '\.log(\.err|\.diff)?$|opencode\.json$|__pycache__' })
     Pop-Location
     if ($dirty | Where-Object { $_ -match "calc\.py" }) { $edited = $true }
 

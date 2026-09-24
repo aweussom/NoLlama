@@ -15,11 +15,15 @@ Qwen3 8B is the best-quality text model verified on the NPU. Qwen3-VL 8B
 is the matching vision model — the INT8 build keeps fine detail (OCR,
 small numbers) and fits a 16 GB ARC; drop to the ~6 GB INT4 build
 (`…-int4-ov`) if you're tight on VRAM. For **coding agents** (VS Code Copilot
-Chat, OpenCode, Goose), pick the "Coding agent" use-case: **Qwen3-Coder 30B-A3B**
-where 32 GB of RAM allows it, **Qwen3-14B** on smaller machines. Both are verified
-to drive a real OpenCode task; the Qwen2.5-Coder models were removed from the menu
-because they cannot — they write valid Python and then narrate tool use instead of
-calling tools (`TODONT.md`). All are pre-exported — **no
+Chat, OpenCode, Goose), pick the "Coding agent" use-case: **Qwen3-Coder 30B-A3B**,
+which needs a 24 GB GPU or a 32 GB laptop. It is the only model verified to drive
+a real OpenCode task. **On a 16 GB machine nothing we have qualifies** (tested
+2026-09-24). Every model that fits either invents file paths or cannot finish a
+two-file change: Qwen3-14B, Qwen3-8B and LFM2.5-8B-A1B, each tested in both tool
+formats and Qwen3-14B on two GPUs. Qwen3-14B can land a single focused fix, so it
+is usable if you check its work, but it is not an agent. The Qwen2.5-Coder models
+were removed from the menu because they write valid Python and then narrate tool
+use instead of calling tools (`TODONT.md`). All are pre-exported — **no
 conversion step**, though the multi-GB download still takes a while — and returning
 users see them flagged **"Already on disk"** (those link instantly).
 

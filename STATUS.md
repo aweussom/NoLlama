@@ -56,7 +56,7 @@ Working state is `brain/next/` (needs Tommy), `brain/todo/` (startable cold) and
 |---|---|---|
 | `Qwen3-Coder-30B-A3B-int4` | 16.3 GB | **PASS** — 333 s, two boxes |
 | `Qwen3-30B-A3B-int4` | 15.2 GB | passes the fix task by hand (2.5 min) |
-| `Qwen3-14B-int4` | 9.1 GB | XML: 18 min + a syntax error. **Native: fix 2/2 clean (~8 min), feature 1/2** — quits with red tests. Not an agent; the 16 GB near-miss |
+| `Qwen3-14B-int4` | 9.1 GB | **not an agent** on either device — native: single fixes 3/4, the two-file task 0 verified in 4 (140V + B60) |
 | `Qwen2.5-Coder-14B` / `-7B` | — | **retired from the registry** (TODONT): narrate tool use, never call |
 | `Qwen3-8B-int4` | 4.6 GB | invents paths, never recovers — in its native dialect too |
 | `LFM2.5-8B-A1B-int4` | 4.2 GB | **FAIL** 0/2 in both dialects — invents paths |
@@ -65,8 +65,9 @@ Working state is `brain/next/` (needs Tommy), `brain/todo/` (startable cold) and
 installer now says so rather than offering one that fails. The small candidates
 are exhausted: re-run in their own tool dialect (`--tool-template native`,
 2026-09-23) they fail exactly as before. MoE offload is out for
-interactive agents (`TODONT.md`). What is left is `Qwen3-14B` with Shared GPU
-Memory Override raised on the 16 GB box, ~12 GB on the iGPU — T-036.
+interactive agents (`TODONT.md`). `Qwen3-14B`, the last candidate that fits (~12 GB on
+the iGPU with the override raised), failed the two-file task in all four runs
+across the 140V and the B60 (2026-09-24). **Nothing we have qualifies at 16 GB.**
 
 ## Built, not yet proven
 

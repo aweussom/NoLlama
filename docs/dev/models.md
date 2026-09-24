@@ -59,21 +59,7 @@ GB of Windows pagefile (on 128 GB RAM) succeeded**, 200 GB did not (#19,
 Dmitriy Teteruk). Weight format is irrelevant to this stage — the blowup
 happens before quantization.
 
-## Two traps when re-exporting a model yourself (2026-08-21)
-
-Both found while re-exporting `google/gemma-4-E4B-it` to check an Intel IR.
-
-1. **Attention must come out fused, or you silently lose prefix caching.**
-   The CB backend is built by rewriting `ScaledDotProductAttention` nodes, so
-   an export that traced decomposed matmul+softmax attention cannot use it.
-   optimum-intel only pins the attention implementation for models listed in
-   `FORCE_ATTN_MODEL_CLASSES`; everything else takes whatever the export
-   environment resolves to. Check the result, don't assume:
-
-   ```bash
-   python nollama.py --scan <dir>   # Prefix caching : yes — N fused SDPA ops
-
-### Two probes, and which question each answers
+## Two probes, and which question each answers
 
 `bare-probe.py` establishes that the runtime can run the model at all, and is
 the standing order before anything else. After that there are two, and using
@@ -108,14 +94,30 @@ transcripts in `bench/agent-probe/`]:
 |---|---|---|---|
 | `LFM2.5-8B-A1B-int4` | 0/2 | 0/2 | invents paths (`/workspace/...`); native also sends `file_path` against a `filePath` schema, repeatedly after the error names the key |
 | `Qwen3-8B-int4-cw` | 0/2 | 0/2 | invents `src/calc.py` in every run; native also overwrote the test file |
-| `Qwen3-14B-int4` | fix in 18 min, syntax error on the way | run 1: 2/2 (feature unverifiable — it rewrote the test file, and the probe then ran its copy); run 2: **1/2** | fix: the same clean one-line edit both runs, ~8 min. Feature: run 2 left the discount bug, hit a SyntaxError and a NameError, and ended its turn with the tests red |
+| `Qwen3-14B-int4` | fix in 18 min, syntax error on the way | fix **3/4**, feature **0 verified in 4** — laptop 2 runs, B60 2 runs | fix: the clean one-line `/100` edit three times (8 min on the 140V, 51 s on the B60), once a `Decimal` rewrite that misses the bug. Feature: quits with red tests, leaves a SyntaxError, or ends a turn with no call and no content (B60 run 2 — cause unrecorded: all-`<think>` or a call inside it) |
 
 Qwen3-14B's rows ran at `--cache-size-gb 3`, which is the 16 GB configuration
 (~12 GB on the iGPU with Shared GPU Memory Override raised). Native is
-clearly better *for it*, and it is still not an agent: reliable on one
-focused fix, not on a two-part task. Since 2026-09-24 the probe verifies
+clearly better *for it*, and it is still not an agent: it lands a single
+focused fix, not a two-part task. The B60 runs [OBSERVED 2026-09-24, Arc Pro
+B60, driver 32.0.101.8805, OpenVINO 2026.4] fail the same way the 140V's do,
+three times faster, so the laptop iGPU was never the variable. Since 2026-09-24 the probe verifies
 against the fixture's original tests and keeps each task's diff, so a
 rewrite-the-tests pass can no longer happen unseen.
+
+## Two traps when re-exporting a model yourself (2026-08-21)
+
+Both found while re-exporting `google/gemma-4-E4B-it` to check an Intel IR.
+
+1. **Attention must come out fused, or you silently lose prefix caching.**
+   The CB backend is built by rewriting `ScaledDotProductAttention` nodes, so
+   an export that traced decomposed matmul+softmax attention cannot use it.
+   optimum-intel only pins the attention implementation for models listed in
+   `FORCE_ATTN_MODEL_CLASSES`; everything else takes whatever the export
+   environment resolves to. Check the result, don't assume:
+
+   ```bash
+   python nollama.py --scan <dir>   # Prefix caching : yes — N fused SDPA ops
    ```
 
    Any count above zero can cache; `> 0` is the predicate, **not** one per
