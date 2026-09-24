@@ -1,10 +1,18 @@
+# Every text file is LF, in the repo AND in every working copy, whatever the
+# machine's core.autocrlf says. Git for Windows ships core.autocrlf=true, which
+# rewrote our LF files as CRLF on checkout -- and an agent's exact-match edit
+# tool then fails on line endings alone, on Windows and never on Linux
+# (2026-09-24, see agent-probe.ps1 New-Fixture). PowerShell, Python and every
+# model's output are happy with LF. Later lines override this one.
+* text=auto eol=lf
+
 # Shims must keep their native line endings regardless of core.autocrlf:
 # cmd.exe misparses LF-only blocks; sh chokes on CRLF.
 install-windows.bat text eol=crlf
 install-linux.sh text eol=lf
 
 # Same rule, same reason: these are read by Linux tooling. A CRLF working
-# copy on Windows puts  into RUN continuations and into the ignore
+# copy on Windows puts \r into RUN continuations and into the ignore
 # patterns, which fails at build time on someone else's machine.
 Dockerfile text eol=lf
 .dockerignore text eol=lf
