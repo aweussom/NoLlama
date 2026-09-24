@@ -328,6 +328,20 @@ def test_native_render_honours_no_think_and_falls_back():
     assert nollama.render_native_tool_prompt(broken, msgs, TOOLS) is None
 
 
+def test_opencode_title_request_skips_thinking():
+    # The first sentence of opencode 1.18.32's title system prompt, verbatim
+    # from a captured request; the rest of that prompt varies with the task.
+    title = ("You are a title generator. You output ONLY a thread title. Nothing else.\n\n"
+             "<task>\nGenerate a brief title that would help the user find this conversation later.")
+    assert nollama._no_think_requested([{"role": "system", "content": title},
+                                        {"role": "user", "content": "say hi"}])
+    # A user quoting it does not switch thinking off, nor does the real agent turn.
+    assert not nollama._no_think_requested([{"role": "user", "content": title}])
+    assert not nollama._no_think_requested([{"role": "system", "content": "You are opencode, ..."}])
+    assert not nollama._no_think_requested([{"role": "system",
+                                             "content": [{"type": "text", "text": title}]}])
+
+
 def test_tool_turn_legacy_flag_keeps_think_in_content():
     nollama.THINK_IN_CONTENT = True
     try:

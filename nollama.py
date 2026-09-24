@@ -913,23 +913,37 @@ class _LoadProgress:
 # than the whole string so a reworded prompt does not silently stop matching.
 NO_THINK_MARKER = "Reasoning strength: minimal"
 
+# Agent side requests that want an answer, not reasoning. OpenCode's session
+# title request opens its system prompt with this sentence [OBSERVED
+# 2026-09-24, opencode 1.18.32, captured request body]; it is sent before the
+# task's real first turn and holds the slot lock while it runs, so a thinking
+# model delays the actual work by however long it muses about a title --
+# 735 tokens / ~85 s on Qwen3-14B on a 140V [OBSERVED 2026-09-23].
+SIDE_REQUEST_MARKERS = ("You are a title generator. You output ONLY a thread title.",)
+
 
 def _no_think_requested(raw_messages):
-    """True when the caller asked for no reasoning preamble.
+    """True when the caller asked for no reasoning preamble, or never needed one.
 
     Why a prose sniff and not a flag: the request arrives as an OpenAI-shaped
     body with no field for this, and the web UI has been sending the prose
     since before the native switch was reachable. Detecting it server-side is
     what lets the prose keep working for clients while the real switch does
-    the work.
+    the work. The same sniff catches known agent side requests
+    (SIDE_REQUEST_MARKERS): nobody reads a title's reasoning, and it queues
+    the real turn behind it.
 
     In: the raw message list. Out: bool; only `system` messages are examined,
-    so a user quoting the phrase cannot disable thinking by accident.
+    so a user quoting the phrase cannot disable thinking by accident, and
+    non-string content (parts lists) never matches.
     """
     for msg in raw_messages:
         if msg.get("role") != "system":
             continue
-        if NO_THINK_MARKER in (msg.get("content") or ""):
+        content = msg.get("content")
+        if not isinstance(content, str):
+            continue
+        if NO_THINK_MARKER in content or any(m in content for m in SIDE_REQUEST_MARKERS):
             return True
     return False
 

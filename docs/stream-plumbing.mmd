@@ -21,7 +21,7 @@ flowchart TB
 
   stream_tokens -->|"messages: build ChatHistory"| think_switch
   stream_tokens -->|"prompt= (native tool render):<br/>the string as-is, apply_chat_template<br/>off, no thinking switch"| apply_tuning
-  think_switch["_apply_thinking_switch<br/>ChatHistory.set_extra_context(<br/>enable_thinking=false) when the UI's<br/>no-think prose is in a SYSTEM message"]
+  think_switch["_apply_thinking_switch<br/>ChatHistory.set_extra_context(<br/>enable_thinking=false) when the UI's<br/>no-think prose, or a known agent side<br/>request (OpenCode's title prompt), is in<br/>a SYSTEM message"]
   think_switch --> apply_tuning
   apply_tuning["_apply_tuning<br/>clamp to the FAMILY's measured limits<br/>(model-tuning.json, keyed on config.json<br/>model_type). Only ever LOWERS."]
   apply_tuning --> worker
