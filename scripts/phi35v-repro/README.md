@@ -41,7 +41,7 @@ git pull
 ```
 
 That is the whole thing. It downloads the model if missing (2.2 GB), runs
-`scriptsare-probe.py` under the release venv and the nightly venv if one
+`scripts\bare-probe.py` under the release venv and the nightly venv if one
 exists, and writes a timestamped `phi35v-report-*.txt` at the repo root to
 paste into issue #24. It never starts NoLlama -- the probe drives
 `openvino_genai` directly, so the server cannot be blamed for the result.

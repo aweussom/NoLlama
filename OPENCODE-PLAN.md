@@ -129,7 +129,7 @@ hand-run corrected them [OBSERVED 2026-09-23, 140V, `Qwen3-30B-A3B-int4`]:
   0.8 GB and the pagefile working; they measured my own mess.
 - **`Qwen3-30B-A3B` passes the fix task.** My probe scored it 0/2 and two
   fixture files appeared in the NoLlama repo, from which I inferred the model
-  had written to the wrong project. Run by hand in `C:	mp\opencode-30b` it
+  had written to the wrong project. Run by hand in `C:\tmp\opencode-30b` it
   edits `calc.py` in place, correctly, and both tests pass. The probe was the
   variable; the mechanism is still unidentified, which is why the probe now
   checks whether the agent wrote outside its workdir.
@@ -146,7 +146,7 @@ Two harness lessons, recorded because both produced a false negative first:
 
 - `opencode run` **auto-rejects edits outside the project directory**. A fixture
   under a scratch path failed with the model having diagnosed the bug correctly;
-  the same fixture at `C:\develrena` passed. A rejected tool call reads like
+  the same fixture at `C:\devel\arena` passed. A rejected tool call reads like
   a model failure in the transcript.
 - **Qwen3-8B cannot drive OpenCode.** It invented `src/calc.py` and never
   recovered, in both arms. Use it to measure plumbing, never to judge whether

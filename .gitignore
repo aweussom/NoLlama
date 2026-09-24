@@ -44,3 +44,4 @@ medium-article-*.txt
 # Per-model load durations, used to estimate progress on the next load.
 # Machine-specific timings - never shared.
 .load-times.json
+bench/side-lane-*.log

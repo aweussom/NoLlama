@@ -55,7 +55,7 @@ if ($ExtraArgs) {
 # user-created junction under a network logon (an SSH session), and pip walks
 # PATH during install: it dies with ERROR_UNTRUSTED_MOUNT_POINT / WinError 448.
 # The OpenAI Codex CLI ships exactly such a junction at
-# %LOCALAPPDATA%\Programs\OpenAI\Codexin. Probed rather than name-matched,
+# %LOCALAPPDATA%\Programs\OpenAI\Codex\bin. Probed rather than name-matched,
 # so any future offender is handled too. Interactive installs never see this.
 $badPath = @()
 $env:Path = (($env:Path -split ';') | Where-Object {
