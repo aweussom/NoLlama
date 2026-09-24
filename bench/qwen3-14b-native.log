@@ -1,0 +1,155 @@
+
+=== NoLlama 2026-09-18-67cf641 log opened 2026-09-23 23:28:15 ===
+  tool turns: native chat template (--tool-template)
+
+  Devices:
+    CPU: Intel(R) Core(TM) Ultra 7 258V
+    GPU: Intel(R) Arc(TM) 140V GPU (16GB) (iGPU)
+    NPU: Intel(R) AI Boost
+
+  NoLlama 2026-09-18-67cf641 starting on port 8000...
+  Web UI (chat):  http://localhost:8000/
+  OpenAI API:     http://localhost:8000/v1
+  Ollama API:     disabled
+  Idle unload after 1800s of inactivity
+  OpenAI API on port 8000
+  [GPU] Detected: LLM (Qwen3-14B)
+  [GPU] KV pool 3 GB ~ 19k tokens for this model (160 KB/token) — agent prompts (20k+ tokens) will exhaust it; raise --cache-size-gb
+  [GPU] Loading...
+  [GPU] last load took 19s
+  [GPU] still loading... 5s (~26% of last run's 19s)
+  [GPU] still loading... 15s (~78% of last run's 19s)
+  [GPU] prefix caching on (3 GB KV pool)
+  [GPU] loaded in 15s
+  [GPU] Warmup... done (2.1s)
+
+================================================
+  NoLlama ready
+    GPU  : Qwen3-14B (LLM) -- Intel(R) Arc(TM) 140V GPU (16GB) (iGPU)
+    API  : http://localhost:8000  (OpenAI)
+================================================
+
+
+23:29:05 <- [GPU] 2250 chars, max_tokens=16384 (stream)
+
+23:29:08 <- [GPU] 39332 chars, max_tokens=16384 (stream)
+23:30:36 -> [GPU] 735 tokens in 91.0s (8.1 tok/s, TTFT 1473ms)
+23:33:13 -> [GPU] 444 tokens in 244.6s (1.8 tok/s, TTFT 117539ms)
+23:33:13 -> [GPU] 2 tool call(s): glob, glob
+
+23:33:15 <- [GPU] 39734 chars, max_tokens=16384 (stream)
+23:34:06 -> [GPU] 350 tokens in 51.3s (6.8 tok/s, TTFT 1242ms)
+23:34:06 -> [GPU] 2 tool call(s): read, read
+
+23:34:08 <- [GPU] 41549 chars, max_tokens=16384 (stream)
+23:37:06 -> [GPU] 1230 tokens in 178.7s (6.9 tok/s, TTFT 2326ms)
+23:37:06 -> [GPU] 1 tool call(s): edit
+
+23:37:09 <- [GPU] 41927 chars, max_tokens=16384 (stream)
+23:37:18 -> [GPU] 47 tokens in 8.7s (5.4 tok/s, TTFT 659ms)
+
+23:37:23 <- [GPU] 2409 chars, max_tokens=16384 (stream)
+23:37:25 -> [GPU] 11 tokens in 2.0s (5.4 tok/s, TTFT 564ms)
+
+23:37:27 <- [GPU] 39491 chars, max_tokens=16384 (stream)
+23:38:32 -> [GPU] 443 tokens in 64.8s (6.8 tok/s, TTFT 588ms)
+23:38:32 -> [GPU] 2 tool call(s): glob, glob
+
+23:38:33 <- [GPU] 40063 chars, max_tokens=16384 (stream)
+23:39:19 -> [GPU] 333 tokens in 45.6s (7.3 tok/s, TTFT 561ms)
+23:39:19 -> [GPU] 3 tool call(s): edit, edit, bash
+
+23:39:21 <- [GPU] 41445 chars, max_tokens=16384 (stream)
+23:40:52 -> [GPU] 631 tokens in 91.7s (6.9 tok/s, TTFT 704ms)
+23:40:52 -> [GPU] 2 tool call(s): read, read
+
+23:40:54 <- [GPU] 43400 chars, max_tokens=16384 (stream)
+23:43:31 -> [GPU] 1055 tokens in 157.5s (6.7 tok/s, TTFT 2650ms)
+23:43:31 -> [GPU] 3 tool call(s): write, write, bash
+
+23:43:34 <- [GPU] 44290 chars, max_tokens=16384 (stream)
+23:44:34 -> [GPU] 399 tokens in 60.3s (6.6 tok/s, TTFT 577ms)
+23:44:34 -> [GPU] 1 tool call(s): bash
+
+23:44:37 <- [GPU] 44535 chars, max_tokens=16384 (stream)
+23:45:06 -> [GPU] 173 tokens in 29.4s (5.9 tok/s, TTFT 451ms)
+
+=== NoLlama 2026-09-18-67cf641 log opened 2026-09-23 23:57:22 ===
+  tool turns: native chat template (--tool-template)
+
+  Devices:
+    CPU: Intel(R) Core(TM) Ultra 7 258V
+    GPU: Intel(R) Arc(TM) 140V GPU (16GB) (iGPU)
+    NPU: Intel(R) AI Boost
+
+  NoLlama 2026-09-18-67cf641 starting on port 8000...
+  Web UI (chat):  http://localhost:8000/
+  OpenAI API:     http://localhost:8000/v1
+  Ollama API:     disabled
+  Idle unload after 1800s of inactivity
+  OpenAI API on port 8000
+  [GPU] Detected: LLM (Qwen3-14B)
+  [GPU] KV pool 3 GB ~ 19k tokens for this model (160 KB/token) — agent prompts (20k+ tokens) will exhaust it; raise --cache-size-gb
+  [GPU] Loading...
+  [GPU] last load took 15s
+  [GPU] still loading... 5s (~32% of last run's 15s)
+  [GPU] still loading... 15s (~98% of last run's 15s)
+  [GPU] prefix caching on (3 GB KV pool)
+  [GPU] loaded in 15s
+  [GPU] Warmup... done (2.1s)
+
+================================================
+  NoLlama ready
+    GPU  : Qwen3-14B (LLM) -- Intel(R) Arc(TM) 140V GPU (16GB) (iGPU)
+    API  : http://localhost:8000  (OpenAI)
+================================================
+
+
+23:58:10 <- [GPU] 2250 chars, max_tokens=16384 (stream)
+
+23:58:13 <- [GPU] 39332 chars, max_tokens=16384 (stream)
+23:59:35 -> [GPU] 735 tokens in 84.9s (8.7 tok/s, TTFT 1528ms)
+00:01:56 -> [GPU] 444 tokens in 223.3s (2.0 tok/s, TTFT 105715ms)
+00:01:56 -> [GPU] 2 tool call(s): glob, glob
+
+00:01:57 <- [GPU] 39734 chars, max_tokens=16384 (stream)
+00:03:13 -> [GPU] 309 tokens in 75.4s (4.1 tok/s, TTFT 24857ms)
+00:03:13 -> [GPU] 2 tool call(s): read, read
+
+00:03:14 <- [GPU] 41549 chars, max_tokens=16384 (stream)
+00:04:51 -> [GPU] 720 tokens in 97.4s (7.4 tok/s, TTFT 2393ms)
+00:04:51 -> [GPU] 2 tool call(s): edit, bash
+
+00:04:53 <- [GPU] 42260 chars, max_tokens=16384 (stream)
+00:05:10 -> [GPU] 113 tokens in 16.9s (6.7 tok/s, TTFT 1261ms)
+
+00:05:14 <- [GPU] 2409 chars, max_tokens=16384 (stream)
+00:05:16 -> [GPU] 11 tokens in 2.0s (5.6 tok/s, TTFT 734ms)
+
+00:05:17 <- [GPU] 39491 chars, max_tokens=16384 (stream)
+00:07:01 -> [GPU] 773 tokens in 104.4s (7.4 tok/s, TTFT 988ms)
+00:07:01 -> [GPU] 3 tool call(s): edit, edit, bash
+
+00:07:03 <- [GPU] 40893 chars, max_tokens=16384 (stream)
+00:08:41 -> [GPU] 702 tokens in 97.8s (7.2 tok/s, TTFT 1017ms)
+00:08:41 -> [GPU] 2 tool call(s): read, read
+
+00:08:42 <- [GPU] 42738 chars, max_tokens=16384 (stream)
+00:10:11 -> [GPU] 637 tokens in 88.4s (7.2 tok/s, TTFT 2755ms)
+00:10:11 -> [GPU] 3 tool call(s): edit, edit, bash
+
+00:10:13 <- [GPU] 44451 chars, max_tokens=16384 (stream)
+00:11:24 -> [GPU] 495 tokens in 70.9s (7.0 tok/s, TTFT 1349ms)
+00:11:24 -> [GPU] 1 tool call(s): edit
+
+00:11:25 <- [GPU] 44855 chars, max_tokens=16384 (stream)
+00:11:50 -> [GPU] 180 tokens in 25.3s (7.1 tok/s, TTFT 848ms)
+00:11:50 -> [GPU] 1 tool call(s): bash
+
+00:11:52 <- [GPU] 45556 chars, max_tokens=16384 (stream)
+00:12:40 -> [GPU] 334 tokens in 47.9s (7.0 tok/s, TTFT 1468ms)
+00:12:40 -> [GPU] 1 tool call(s): edit
+
+00:12:41 <- [GPU] 45923 chars, max_tokens=16384 (stream)
+00:12:47 -> [GPU] 37 tokens in 5.8s (6.4 tok/s, TTFT 766ms)
+  [GPU] Idle — unloading Qwen3-14B
