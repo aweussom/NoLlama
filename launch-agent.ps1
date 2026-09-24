@@ -122,9 +122,9 @@ function Wait-ServerReady {
     Deliberately stricter than /health's own top-level status, which reports
     "ready" as soon as ANY slot is ready (nollama.py overall_status: "a dead
     secondary shouldn't kill the primary"). That is the right answer for a
-    liveness probe and the wrong one here: OpenCode's small_model traffic is
-    routed to the NPU slot, so handing over while that slot is still loading
-    sends the client's first title request at a model that cannot answer it.
+    liveness probe and the wrong one here: in dual mode opencode.json declares
+    both slots, and handing over while one is still loading lets the client
+    address a model that cannot answer yet.
     We wait for every slot to leave the loading states, then report.
 
     In: a port and a timeout in seconds. Out: $true once every slot has

@@ -11,9 +11,10 @@ manual install: give it the names and devices and it prints where it wrote.
 
 In: model DIRECTORY names (what is on disk — the script derives the id the
 server advertises the same way nollama.py does), the devices, and a mode.
-"two-servers" = coder on :Port, small model on :SmallPort (docs/AGENTS.md,
-"Two servers"). "dual" = one NoLlama process serving both, addressed as
-<name>@GPU / <name>@NPU. Out: the JSON file at -Out; existing file is
+"two-servers" = the coder on :Port (plus, if -SmallDir is given, a small model
+declared on :SmallPort for manual selection). "dual" = one NoLlama process
+serving both, addressed as <name>@GPU / <name>@NPU. small_model is never set
+(2026-09-24, see below). Out: the JSON file at -Out; existing file is
 overwritten (it is generated, like start.ps1).
 #>
 param(
@@ -90,20 +91,18 @@ $cfg = [ordered]@{
     provider = $providers
     model = $model
 }
-# small_model is only set where a side model measurably helps: a CPU slot
-# beside a DISCRETE GPU. Measured 2026-09-23 on a 140V -- the same 128-token
-# side request takes 1.6 s with the box idle and 40 s while an integrated GPU
-# prefills, because the CPU shares the package. The NPU is not the answer
-# either: it cannot hold a coding session, and pointing small_model at an NPU
-# slot is what shipped before this.
+# small_model is never set: OpenCode's side requests (session titles) go to
+# the coder. Under real OpenCode traffic a side lane gets one small request
+# per task, and on a single server that title took 0.7 s with no queue behind
+# it [OBSERVED 2026-09-24, Arc Pro B60, OPENCODE-PLAN.md] -- the 46.8 s queue
+# that once justified a side lane was a thinking model reasoning about a
+# title, removed in 7272dc7. A second model now costs RAM and buys nothing.
 #
-# The model stays DECLARED in `models` either way, so it can still be selected
-# by hand in OpenCode -- this only stops us choosing it automatically.
-if ($smallRef -and $SmallDevice -eq "CPU") {
-    $cfg["small_model"] = $smallRef
-} elseif ($smallRef) {
-    Write-Host "[i] small_model left unset: a side model on the $SmallDevice does not pay" -ForegroundColor DarkGray
-    Write-Host "    off here (docs/AGENTS.md). $smallRef is still selectable by hand." -ForegroundColor DarkGray
+# A small model passed in stays DECLARED in `models`, so it can still be
+# selected by hand in OpenCode -- this only stops us choosing it for titles.
+if ($smallRef) {
+    Write-Host "[i] small_model left unset: titles go to the coder (docs/AGENTS.md)." -ForegroundColor DarkGray
+    Write-Host "    $smallRef is still selectable by hand." -ForegroundColor DarkGray
     $smallRef = $null
 }
 # The two knobs that keep a weak model's tool fan-out from flooding the pool

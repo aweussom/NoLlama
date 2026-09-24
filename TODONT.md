@@ -529,6 +529,31 @@ that fails.
 and skipped as not worth the time, since these models are superseded regardless.
 If someone wants them back, re-run `scripts/agent-probe.ps1` before arguing.
 
+## The OpenCode side lane (small_model on a second server) in coding installs (2026-09-24)
+
+Idea: OpenCode sends a small title request beside each turn; on one server it
+queues in front of the turn, so give it a second, small NoLlama and point
+`small_model` there. The installer did this on discrete GPUs, and briefly
+refused it on iGPUs after a measured "1.6 s -> 40 s starvation".
+
+**Verdict:** dropped from coding installs. One server; titles go to the coder.
+Two-model setups stay for chat + vision and chat + agent, where the second
+model does real work.
+
+**Why not.** Under real OpenCode traffic (`agent-probe.ps1 -SmallUrl`, B60,
+Qwen3-Coder-30B + Phi-3.5-mini) the side lane gets **one small request per
+task**, not per turn, and on a single server that title took **0.7 s** with
+the next turn's TTFT at 173 ms [OBSERVED 2026-09-24]. The 46.8 s queue that
+justified a side lane was a thinking model reasoning about a title, which
+7272dc7 removed. The iGPU "starvation" did not reproduce in six scripted runs
+on two machines, clean or RAM-starved (OPENCODE-PLAN.md). What a side lane
+still costs is a second model's RAM -- on a 32 GB laptop with Coder-30B, the
+last ~2 GB.
+
+**Not measured:** the side-lane A/B on the laptop iGPU under OpenCode traffic.
+Not needed for the verdict -- the benefit is gone on every box -- but it is
+the one cell missing.
+
 ## MoE offload as the 16 GB route to an agent model (2026-09-23)
 
 Idea: `Qwen3-Coder-30B-A3B` is the one model that passes the agent probe, and

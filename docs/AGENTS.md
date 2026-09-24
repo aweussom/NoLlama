@@ -47,10 +47,9 @@ and bare-JSON outputs — so most instruct/coder models work.
 ## OpenCode
 
 **`install.ps1` writes this file for you.** Pick the "Coding agent" use-case
-and it offers a small model for OpenCode's side-tasks (NPU if present, CPU
-otherwise), generates `start-small.ps1` for that second server, and writes
-`opencode.json` with the model ids NoLlama will actually advertise, an honest
-context limit, the raised timeouts and the tool-output caps. The "Chat +
+and it writes `opencode.json` for one server, with the model id NoLlama will
+actually advertise, an honest context limit, the raised timeouts and the
+tool-output caps. The "Chat +
 Coding agent" combo writes the dual-mode form instead (one process,
 `<name>@GPU` / `<name>@NPU`). Manual installs can run
 `scripts/New-OpenCodeConfig.ps1` with the same arguments. What follows is
@@ -94,15 +93,17 @@ The model key is the name NoLlama prints in its banner (`/v1/models` lists
 `--idle-timeout 0` so the prefix cache survives between turns, and size the
 pool as above.
 
-### Two servers: the GPU does the turn, the NPU does the side-tasks
+### Two servers: optional, and no longer the installer's default
 
-OpenCode sends **two requests per turn**: a small one (~2k chars, its
-`title` agent — session titles and similar housekeeping) and the turn itself
-(30k+ chars). On one server they serialise on the device lock, so the turn
-waits out a whole title generation before its own prefill starts. OpenCode
-has a `small_model` setting for exactly that light work, and NoLlama can run
-a second server on the NPU — which is where a 2k-char, tool-free request
-belongs.
+OpenCode sends a small request (~2k chars, its `title` agent) beside the
+turn, and `small_model` can point it at a second server. **The installer no
+longer does this** (2026-09-24): under real OpenCode traffic the side lane
+gets one such request per task, and on a single server the title took 0.7 s
+on the coder with no queue behind it. The long queue that once justified a
+second server was a *thinking* model reasoning about a title, which NoLlama
+now prevents. A second server costs a second model's RAM and buys nothing
+measurable. Measurements in `OPENCODE-PLAN.md`; the recipe below still works
+if you want it.
 
 ```powershell
 # terminal 1 — the coder, on the GPU

@@ -42,7 +42,7 @@ install.ps1             Setup wizard (cross-platform; the shims above call it)
 download-model.ps1      Download/convert any HuggingFace model
 benchmark.py            Device performance benchmark
 start.ps1               Auto-generated launcher (after install)
-start-small.ps1         Auto-generated second launcher (coding-agent installs: the small model for OpenCode side-tasks)
+start-small.ps1         No longer generated (2026-09-24); an old install may still have one (the second launcher for OpenCode side-tasks)
 opencode.json           Auto-generated OpenCode provider config (coding-agent installs; scripts/New-OpenCodeConfig.ps1)
 models.json             Curated model registry
 model/                  Primary model (NPU or GPU)

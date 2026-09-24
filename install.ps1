@@ -463,6 +463,37 @@ function Get-FitTag {
     return ""
 }
 
+# Whether at least one verified agent model fits the detected memory budget.
+function Test-AgentFits {
+    param([object[]]$Coders)
+    @($Coders | Where-Object { -not (Get-FitTag $_.est_size_gb).Contains("WON'T FIT") }).Count -gt 0
+}
+
+# The coding-agent menu's registry entries: the verified models, plus the slow
+# fallback when none of them fits.
+#
+# Why: on a 16 GB machine the verified model is tagged WON'T FIT, and the one
+# thing that does work there -- Qwen3-14B, 7 of 8 OpenCode tasks, 3-17 min a
+# task on an iGPU -- was only named in a message, so the menu offered nothing
+# installable (2026-09-24). Entries flagged agent_fallback in models.json are
+# added at the top, their notes led by "SLOW", only when needed: where the
+# fast model fits, the slow one would be a worse default, not an option.
+#
+# In: the verified entries. Out: the list to show. Copies, never the
+# registry objects themselves -- the notes are rewritten -- and property
+# enumeration rather than .Copy(), so it runs in ConstrainedLanguage.
+function Get-AgentRegistry {
+    param([object[]]$Coders)
+    if (Test-AgentFits $Coders) { return $Coders }
+    $slow = foreach ($m in @($Registry.gpu_llm | Where-Object { $_.PSObject.Properties['agent_fallback'] -and $_.agent_fallback })) {
+        $h = [ordered]@{}
+        foreach ($p in $m.PSObject.Properties) { $h[$p.Name] = $p.Value }
+        $h["notes"] = "SLOW: works, 3-17 min per small task on an iGPU; check its work. " + $m.notes
+        [PSCustomObject]$h
+    }
+    return @($slow) + @($Coders)
+}
+
 # Say so before the coding-agent menu when the verified agent model won't fit.
 #
 # Why: the menu only lists verified agent models, so on a 16 GB machine it
@@ -475,8 +506,7 @@ function Get-FitTag {
 # In: the verified agent entries. Out: nothing; prints only when none fits.
 function Write-NoAgentFits {
     param([object[]]$Coders)
-    $fitting = @($Coders | Where-Object { -not (Get-FitTag $_.est_size_gb).Contains("WON'T FIT") })
-    if ($fitting.Count -gt 0) { return }
+    if (Test-AgentFits $Coders) { return }
     Write-Host ""
     Write-Host "  The fast coding-agent model does not fit this machine (~$($script:UsableModelGB) GB for models)." -ForegroundColor Yellow
     Write-Host "  Qwen3-14B (9 GB) works, slowly: 3-17 minutes per small task on a laptop iGPU, and it" -ForegroundColor Yellow
@@ -865,7 +895,8 @@ function Find-RegistryEntry {
 #
 # Why: the agent menu was listing every folder in ~/models alphabetically --
 # embedders included -- so the models measured to FAIL sat above the one that
-# works (2026-09-23). Verified-capable first, untested next, measured-failures
+# works (2026-09-23). Verified-capable first, then the slow-but-working
+# fallback (agent_fallback in models.json), untested next, measured-failures
 # last and labelled. Nothing is hidden: a model you downloaded stays visible,
 # it just stops being presented as a candidate.
 function Sort-AgentLocal {
@@ -876,6 +907,8 @@ function Sort-AgentLocal {
         if ($null -ne $reg -and $reg.PSObject.Properties['agent']) {
             if ($reg.agent) { $rank = 0; $tag = "verified agent model" }
             else            { $rank = 2; $tag = "NOT an agent model (tested)" }
+        } elseif ($null -ne $reg -and $reg.PSObject.Properties['agent_fallback'] -and $reg.agent_fallback) {
+            $rank = 0.5; $tag = "works, SLOWLY (3-17 min a task on an iGPU)"
         }
         [PSCustomObject]@{ M = $m; Rank = $rank; Tag = $tag }
     }
@@ -885,6 +918,7 @@ function Sort-AgentLocal {
     # coding agent candidate on any hardware. The count of what was left out
     # is printed by the caller -- summarised, not silently dropped.
     $keep = @($sorted | Where-Object { $_.Rank -eq 0 }) +
+            @($sorted | Where-Object { $_.Rank -eq 0.5 }) +
             @($sorted | Where-Object { $_.Rank -eq 1 } | Select-Object -First $KeepUntested) +
             @($sorted | Where-Object { $_.Rank -eq 2 })
     $script:AgentLocalOmitted = $sorted.Count - $keep.Count
@@ -941,7 +975,6 @@ while ($null -eq $useKey) {
 
 $coders = @($Registry.gpu_llm | Where-Object { $_.agent })   # OpenCode/Copilot-ready
 $isAgent = $false
-$SmallModelDir = Join-Path $ScriptDir "small-model"
 $OpenCodeArgs = $null   # set by the agent cases; consumed after start.ps1 is written
 
 function Install-Primary { param($Sel, [string]$Device)
@@ -975,49 +1008,20 @@ switch ($useKey) {
             -Note "GPU is usually faster; CPU often wins on strong desktops / weak iGPUs."
         $loc = Get-AgentLocal
         Write-NoAgentFits $coders
-        $sel = Show-ModelMenu -Title "Coding agent model ($dev) - OpenCode / Copilot ready" -RegistryModels $coders -LocalModels $loc
+        $sel = Show-ModelMenu -Title "Coding agent model ($dev) - OpenCode / Copilot ready" -RegistryModels (Get-AgentRegistry $coders) -LocalModels $loc
         if ($sel) {
             Install-Primary $sel $dev; $StartArgs += @("--prewarm", "prewarm.json", "--vscode-compat", "--idle-timeout", "0"); $isAgent = $true
-            # The two-server recipe (docs/AGENTS.md): OpenCode sends a small
-            # "title" request beside every turn; on one server it queues in
-            # front of the turn. A second NoLlama takes it, and opencode.json
-            # points OpenCode's small_model there.
-            #
-            # Only offered on a DISCRETE GPU. Measured 2026-09-23 on a 140V:
-            # the same 128-token side request runs in 1.6 s with the box idle
-            # and 40 s while the iGPU prefills, because an integrated GPU
-            # shares its package with the CPU. The NPU is not the alternative
-            # either — it cannot hold a coding session at all (4k prompt cap,
-            # no tool calling). So on an iGPU the split trades a 5-second
-            # request on the coder for a 40-second one, and we do not ask.
-            $smallDev = "CPU"
-            if (-not $IsDiscreteGPU -or $dev -eq "CPU") {
-                Write-Host ""
-                Write-Host "  Single server: on an integrated GPU a second model on the CPU is starved while" -ForegroundColor DarkGray
-                Write-Host "  the GPU prefills (measured: a side request goes 1.6s -> 40s). OpenCode's side" -ForegroundColor DarkGray
-                Write-Host "  requests will use the coder itself. See docs/AGENTS.md." -ForegroundColor DarkGray
-                $OpenCodeArgs = @{ CoderDir = (Get-InstalledDirName $sel); CoderDevice = $dev; Mode = "two-servers" }
-                break
-            }
-            Write-Host ""
-            Write-Host "  OpenCode sends a small side request with every turn. A second, small model on the CPU" -ForegroundColor Cyan
-            Write-Host "  keeps it off the coder's queue — worth it here because your GPU is discrete, so the" -ForegroundColor DarkGray
-            Write-Host "  CPU is genuinely free (Enter to skip; docs/AGENTS.md explains)." -ForegroundColor DarkGray
-            # Models flagged small_model come first. A side-request slot wants a
-            # model that ANSWERS, not the best reasoner: a thinking model spends
-            # the whole side-request budget in <think> and can return empty
-            # content (SmolLM3-3B on NPU 4 did exactly that, 3/3 — models.json
-            # carries the measurement). Menu order is the recommendation, so the
-            # non-thinking ones have to be at the top.
-            $smallUsable = Where-NpuUsable $Registry.npu $smallDev
-            $smallModels = @($smallUsable | Where-Object { $_.small_model }) +
-                           @($smallUsable | Where-Object { -not $_.small_model })
-            $smallSel = Show-ModelMenu -Title "Small model for OpenCode side-tasks ($smallDev)" -RegistryModels $smallModels -LocalModels (Get-ChatLocal $smallDev -Exclude $sel.Name) -AllowSkip $true
-            if ($smallSel -and (Install-Model -Selected $smallSel -TargetDir $SmallModelDir)) {
-                $OpenCodeArgs = @{ CoderDir = (Get-InstalledDirName $sel); CoderDevice = $dev; SmallDir = (Get-InstalledDirName $smallSel); SmallDevice = $smallDev; Mode = "two-servers" }
-            } else {
-                $OpenCodeArgs = @{ CoderDir = (Get-InstalledDirName $sel); CoderDevice = $dev; Mode = "two-servers" }
-            }
+            # One server, always: OpenCode's side requests (session titles)
+            # go to the coder itself. The second "side lane" server is gone
+            # from coding installs (2026-09-24). Under real OpenCode traffic
+            # it gets one small request per task, and on a single server that
+            # title took 0.7 s with no queue behind it (B60) -- since titles
+            # stopped triggering thinking (7272dc7), the 46.8 s queue that
+            # justified it no longer exists. What it still cost was a second
+            # model's RAM. The 1.6 s -> 40 s "starvation" behind the old
+            # iGPU-only rule did not reproduce in six runs on two machines.
+            # OPENCODE-PLAN.md has the measurements; TODONT.md the verdict.
+            $OpenCodeArgs = @{ CoderDir = (Get-InstalledDirName $sel); CoderDevice = $dev; Mode = "two-servers" }
         }
     }
     "vision" {
@@ -1032,11 +1036,14 @@ switch ($useKey) {
             Install-Primary $chatSel $chatDev
             $cloc = Get-AgentLocal -Exclude $chatSel.Name
             Write-NoAgentFits $coders
-            $coderSel = Show-ModelMenu -Title "Coding agent model (GPU) - OpenCode / Copilot ready" -RegistryModels $coders -LocalModels $cloc -AllowSkip $true
+            $coderSel = Show-ModelMenu -Title "Coding agent model (GPU) - OpenCode / Copilot ready" -RegistryModels (Get-AgentRegistry $coders) -LocalModels $cloc -AllowSkip $true
             if ($coderSel -and (Install-Model -Selected $coderSel -TargetDir $GpuModelDir)) {
                 $StartArgs += @("--gpu-model-dir", "gpu-model", "--prewarm", "prewarm.json", "--vscode-compat", "--idle-timeout", "0"); $isAgent = $true
-                # Dual mode: one process, two slots — OpenCode addresses them
-                # as <name>@GPU (the coder) and <name>@NPU/CPU (small_model).
+                # Dual mode: one process, two slots — the chat model serves
+                # chat, the coder serves OpenCode. The chat slot is declared in
+                # opencode.json as <name>@NPU/CPU so it can be picked by hand,
+                # but it is not OpenCode's small_model: titles go to the coder
+                # (no side lane in coding installs, see the "agent" case).
                 $OpenCodeArgs = @{ CoderDir = (Get-InstalledDirName $coderSel); CoderDevice = "GPU"; SmallDir = (Get-InstalledDirName $chatSel); SmallDevice = $chatDev; Mode = "dual" }
             }
         }
@@ -1077,16 +1084,9 @@ $Content += "& '$(Join-Path $ScriptDir "start-template.ps1")' -ServerArgs '$Args
 Set-Content -Path $StartScript -Value $Content -Encoding UTF8
 Write-Host "[OK] Generated start.ps1" -ForegroundColor Green
 
-# Coding-agent installs also get opencode.json — and, for the two-server
-# recipe, start-small.ps1 for the second server (same template, other args).
+# Coding-agent installs also get opencode.json. No start-small.ps1 any more:
+# coding installs run one server (see the "agent" case above).
 if ($OpenCodeArgs) {
-    if ($OpenCodeArgs.Mode -eq "two-servers" -and $OpenCodeArgs.SmallDir) {
-        $SmallArgs = "--port 8002 --ollama-port 0 --device $($OpenCodeArgs.SmallDevice) --model-dir small-model --idle-timeout 0"
-        $SmallContent = "# Auto-generated by install.ps1 — the second NoLlama server for OpenCode's small_model`n"
-        $SmallContent += "& '$(Join-Path $ScriptDir "start-template.ps1")' -ServerArgs '$SmallArgs' -VenvName '$VenvName' @args"
-        Set-Content -Path (Join-Path $ScriptDir "start-small.ps1") -Value $SmallContent -Encoding UTF8
-        Write-Host "[OK] Generated start-small.ps1 (port 8002, $($OpenCodeArgs.SmallDevice))" -ForegroundColor Green
-    }
     & (Join-Path $ScriptDir "scripts" "New-OpenCodeConfig.ps1") @OpenCodeArgs -Out (Join-Path $ScriptDir "opencode.json")
 }
 
@@ -1100,7 +1100,6 @@ Write-Host ""
 Write-Host "To start the server:"
 Write-Host "  .\start.ps1"
 if ($OpenCodeArgs) {
-    if ($OpenCodeArgs.SmallDir -and $OpenCodeArgs.Mode -eq "two-servers") { Write-Host "  .\start-small.ps1        # second terminal: the small model for OpenCode's side-tasks" }
     Write-Host ""
     Write-Host "For OpenCode, one command does the rest:" -ForegroundColor Cyan
     Write-Host "  .\launch-agent.ps1 -Path <your project>"

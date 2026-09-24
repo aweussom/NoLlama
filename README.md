@@ -133,16 +133,12 @@ an agent's fixed system prompt is prefilled once rather than every turn.
 The installer writes an `opencode.json` for you. Two shapes, depending on the
 use-case you pick:
 
-- **"Coding agent"** → on a **discrete** GPU, *two servers*: the coder on one
-  port, a small model on the CPU on a second (`start.ps1` + `start-small.ps1`),
-  so OpenCode's side-requests (session titles, summaries) skip the coder's
-  queue. On an **integrated** GPU, one server: there the CPU shares the chip
-  and its memory, and a side request measured 1.6 s idle went to 40 s while the
-  iGPU prefilled.
+- **"Coding agent"** → *one server*, the coder. OpenCode's side requests
+  (session titles) go to the coder too: they cost under a second there, so a
+  second server would only spend RAM.
 - **"Chat + Coding agent"** → *dual mode*: **one** server, one port, two
-  devices — the coder on the GPU and the small model on the NPU or CPU,
-  addressed as `<model>@GPU` and `<model>@NPU`. One process, one prefix cache,
-  no second terminal.
+  devices — the coder on the GPU for OpenCode, and a chat model on the NPU or
+  CPU for everything else, addressed as `<model>@GPU` and `<model>@NPU`.
 
 Either way: `.\launch-agent.ps1 -Path <your project>` starts the server if it
 is down, waits for the model to load, and opens OpenCode against it. Nothing is
