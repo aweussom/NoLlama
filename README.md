@@ -100,10 +100,12 @@ Full methodology, MoE disk offload, and the Ollama and RTX 5090 comparisons:
 |---|---|---|---|
 | NPU chat | Qwen3 8B (INT4-CW) | `OpenVINO/Qwen3-8B-int4-cw-ov` | ~5 GB |
 | GPU vision | Qwen3-VL 8B (INT8) | `OpenVINO/Qwen3-VL-8B-Instruct-int8-ov` | ~9 GB |
-| Coding agent | Qwen2.5-Coder 7B (INT4) | `OpenVINO/Qwen2.5-Coder-7B-Instruct-int4-ov` | ~5 GB |
+| Coding agent | Qwen3 Coder 30B-A3B MoE (INT4) | `OpenVINO/Qwen3-Coder-30B-A3B-Instruct-int4-ov` | ~17 GB |
 
 All pre-exported — no conversion. `install.ps1` offers these; the menu adapts to
-the devices it finds. More, plus how to convert anything from HuggingFace:
+the devices it finds. The coding-agent pick needs a 24 GB GPU or a 32 GB laptop:
+**on a 16 GB machine no model we have tested can drive an agent** — the smaller
+ones invent file paths or cannot finish a two-file change. More, plus how to convert anything from HuggingFace:
 **[docs/MODELS.md](docs/MODELS.md)**.
 
 ## When to use NoLlama, and when to use Ollama
@@ -128,12 +130,15 @@ OpenCode, Goose and VS Code Copilot Chat all work, with tool-calling on GPU or C
 (never the NPU — it has a hard prompt cap). Prefix caching is on by default, so
 an agent's fixed system prompt is prefilled once rather than every turn.
 
-The installer writes an `opencode.json` for you and keeps OpenCode's small
-side-requests (session titles, summaries) off the coder's queue. Two shapes,
-depending on the use-case you pick:
+The installer writes an `opencode.json` for you. Two shapes, depending on the
+use-case you pick:
 
-- **"Coding agent"** → *two servers*: the coder on one port, the small model on
-  a second (`start.ps1` + `start-small.ps1`).
+- **"Coding agent"** → on a **discrete** GPU, *two servers*: the coder on one
+  port, a small model on the CPU on a second (`start.ps1` + `start-small.ps1`),
+  so OpenCode's side-requests (session titles, summaries) skip the coder's
+  queue. On an **integrated** GPU, one server: there the CPU shares the chip
+  and its memory, and a side request measured 1.6 s idle went to 40 s while the
+  iGPU prefilled.
 - **"Chat + Coding agent"** → *dual mode*: **one** server, one port, two
   devices — the coder on the GPU and the small model on the NPU or CPU,
   addressed as `<model>@GPU` and `<model>@NPU`. One process, one prefix cache,

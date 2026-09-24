@@ -337,7 +337,8 @@ if ($HasGPU) {
         Write-Host "      competes with everything else you run. Budgeting $UsableModelGB GB for models." -ForegroundColor DarkGray
     }
     if ($DeviceInfo.GPU.xmx) {
-        Write-Host "      XMX: yes — large MoE models can stream experts from disk (OpenVINO 2026.3+)" -ForegroundColor DarkGray
+        Write-Host "      XMX: yes — large MoE models can stream experts from disk (OpenVINO 2026.3+);" -ForegroundColor DarkGray
+        Write-Host "      fine for chat, too slow for coding agents (every turn re-streams them)" -ForegroundColor DarkGray
     } else {
         Write-Host "      XMX: no — MoE disk offload will NOT work on this GPU; models must fit" -ForegroundColor Yellow
         Write-Host "      entirely in GPU memory. Size your model choice accordingly." -ForegroundColor Yellow
@@ -460,6 +461,26 @@ function Get-FitTag {
         return "  [TIGHT: ~$needGB GB with a cache — close the browser]"
     }
     return ""
+}
+
+# Say so before the coding-agent menu when no verified agent model fits.
+#
+# Why: the menu only lists verified agent models, so on a 16 GB machine it
+# showed one entry tagged WON'T FIT and left the user to work out that there
+# is no alternative. There is none: every smaller model we tested fails a real
+# OpenCode task -- Qwen3-8B, LFM2.5-8B-A1B, Qwen3-14B on two GPUs and in both
+# tool formats (docs/MODELS.md, 2026-09-24). Saying it plainly beats letting
+# someone download 9 GB to find out.
+#
+# In: the verified agent entries. Out: nothing; prints only when none fits.
+function Write-NoAgentFits {
+    param([object[]]$Coders)
+    $fitting = @($Coders | Where-Object { -not (Get-FitTag $_.est_size_gb).Contains("WON'T FIT") })
+    if ($fitting.Count -gt 0) { return }
+    Write-Host ""
+    Write-Host "  No verified coding-agent model fits this machine (~$($script:UsableModelGB) GB for models)." -ForegroundColor Yellow
+    Write-Host "  Every smaller model we tested fails real OpenCode tasks. Qwen3-14B (9 GB) lands a" -ForegroundColor Yellow
+    Write-Host "  single focused fix if you check its work, but it is not an agent. See docs/MODELS.md." -ForegroundColor Yellow
 }
 
 # ---------------------------------------------------------------------------
@@ -953,6 +974,7 @@ switch ($useKey) {
         $dev = Select-Device -Purpose "the coding agent" -Choices $agentDevices `
             -Note "GPU is usually faster; CPU often wins on strong desktops / weak iGPUs."
         $loc = Get-AgentLocal
+        Write-NoAgentFits $coders
         $sel = Show-ModelMenu -Title "Coding agent model ($dev) - OpenCode / Copilot ready" -RegistryModels $coders -LocalModels $loc
         if ($sel) {
             Install-Primary $sel $dev; $StartArgs += @("--prewarm", "prewarm.json", "--vscode-compat", "--idle-timeout", "0"); $isAgent = $true
@@ -1009,6 +1031,7 @@ switch ($useKey) {
         if ($chatSel) {
             Install-Primary $chatSel $chatDev
             $cloc = Get-AgentLocal -Exclude $chatSel.Name
+            Write-NoAgentFits $coders
             $coderSel = Show-ModelMenu -Title "Coding agent model (GPU) - OpenCode / Copilot ready" -RegistryModels $coders -LocalModels $cloc -AllowSkip $true
             if ($coderSel -and (Install-Model -Selected $coderSel -TargetDir $GpuModelDir)) {
                 $StartArgs += @("--gpu-model-dir", "gpu-model", "--prewarm", "prewarm.json", "--vscode-compat", "--idle-timeout", "0"); $isAgent = $true
