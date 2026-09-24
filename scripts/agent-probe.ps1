@@ -29,6 +29,9 @@ printed before the run so the verdict cannot be written afterwards.
 param(
     [string]$Url = "http://127.0.0.1:8000/v1",
     [string]$Model,
+    # A second server for OpenCode's small_model (titles, summaries). Off by
+    # default: only for measuring the side lane under real OpenCode traffic.
+    [string]$SmallUrl,
     [int]$TimeoutSec = 900,
     [string]$WorkDir = (Join-Path ([System.IO.Path]::GetTempPath()) "nollama-agent-probe"),
     [switch]$KeepWorkdir
@@ -122,8 +125,9 @@ function Write-OpenCodeConfig {
     # Why no small_model: the split is a discrete-GPU recipe (measured
     # 2026-09-23 -- a CPU side model is starved while an iGPU prefills), and a
     # probe that quietly added one would be measuring a different setup than
-    # the installer builds.
-    param([string]$Dir, [string]$Url, [string]$ModelId)
+    # the installer builds. -SmallUrl adds one on request, to measure exactly
+    # that side lane with OpenCode's own traffic rather than a script's.
+    param([string]$Dir, [string]$Url, [string]$ModelId, [string]$SmallUrl, [string]$SmallModelId)
     $cfg = @{
         '$schema' = "https://opencode.ai/config.json"
         provider  = @{ probe = @{
@@ -138,6 +142,15 @@ function Write-OpenCodeConfig {
             models  = @{ $ModelId = @{ limit = @{ context = 32000; output = 16384 } } }
         } }
         model     = "probe/$ModelId"
+    }
+    if ($SmallUrl) {
+        $cfg.provider["probesmall"] = @{
+            npm     = "@ai-sdk/openai-compatible"
+            name    = "NoLlama probe side lane"
+            options = @{ baseURL = $SmallUrl; chunkTimeout = 1800000; headerTimeout = 1800000 }
+            models  = @{ $SmallModelId = @{ limit = @{ context = 4096; output = 1024 } } }
+        }
+        $cfg["small_model"] = "probesmall/$SmallModelId"
     }
     $cfg | ConvertTo-Json -Depth 8 | Set-Content -Path (Join-Path $Dir "opencode.json") -Encoding utf8
 }
@@ -279,6 +292,11 @@ $base = $Url.TrimEnd('/')
 if (-not $Model) {
     $Model = (Invoke-RestMethod -Uri "$base/models" -TimeoutSec 30).data[0].id
 }
+$smallBase = $null; $SmallModel = $null
+if ($SmallUrl) {
+    $smallBase = $SmallUrl.TrimEnd('/')
+    $SmallModel = (Invoke-RestMethod -Uri "$smallBase/models" -TimeoutSec 30).data[0].id
+}
 if (-not (Get-Command opencode -ErrorAction SilentlyContinue)) {
     Write-Host "ERROR: opencode is not on PATH" -ForegroundColor Red; exit 2
 }
@@ -286,12 +304,13 @@ if (-not (Get-Command opencode -ErrorAction SilentlyContinue)) {
 Write-Host "=== agent probe ===" -ForegroundColor Cyan
 Write-Host "  server : $base"
 Write-Host "  model  : $Model"
+if ($SmallUrl) { Write-Host "  small  : $SmallModel at $smallBase (OpenCode small_model)" }
 Write-Host "  PASS   : the tests pass afterwards, unaided, within $TimeoutSec s" -ForegroundColor DarkGray
 Write-Host "  (criteria printed before the run on purpose)" -ForegroundColor DarkGray
 Write-Host ""
 
 New-Fixture -Dir $WorkDir
-Write-OpenCodeConfig -Dir $WorkDir -Url $base -ModelId $Model
+Write-OpenCodeConfig -Dir $WorkDir -Url $base -ModelId $Model -SmallUrl $smallBase -SmallModelId $SmallModel
 
 $py = if (Test-Path ".\venv\Scripts\python.exe") { (Resolve-Path ".\venv\Scripts\python.exe").Path } else { "python" }
 $results = @()
