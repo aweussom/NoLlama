@@ -4351,6 +4351,7 @@ def _sse_tool_stream(slot, raw_messages, gen, tools, completion_id, created, t0,
     was_cancelled = False
     done = False  # set only after [DONE]; False in finally means the client left
     tool_calls = []
+    raw = []  # the unprocessed generation, kept only for --debug (_log_raw_tool_turn)
 
     def route(pieces):
         """Reasoning goes straight out; answer text goes through the gate."""
@@ -4372,6 +4373,8 @@ def _sse_tool_stream(slot, raw_messages, gen, tools, completion_id, created, t0,
                 # Wall-clock TTFT: prefill is over when the first token lands.
                 slot.last_ttft_ms = (time.perf_counter() - t0) * 1000
             token_count += 1
+            if debug:
+                raw.append(token)
             yield from route(splitter.feed(token))
         yield from route(splitter.close())
 
@@ -4385,6 +4388,7 @@ def _sse_tool_stream(slot, raw_messages, gen, tools, completion_id, created, t0,
         # Only the held text can contain a call: the gate released nothing
         # past an opener, and the bare-JSON case held the whole answer.
         leftover, tool_calls = parse_tool_calls(gate.held, tools)
+        _log_raw_tool_turn(slot, "".join(raw), tool_calls)
         if tool_calls:
             if leftover.strip():
                 yield frame({"content": leftover})
@@ -4568,6 +4572,29 @@ def _prewarm_slot(slot):
 # ---------------------------------------------------------------------------
 # Debug logging
 # ---------------------------------------------------------------------------
+
+def _log_raw_tool_turn(slot, raw, tool_calls):
+    """--debug dump of a tool turn's unprocessed output, and what it became.
+
+    Why: a turn can end with no call and no content and leave nothing to
+    diagnose. A B60 Qwen3-14B turn produced 382 tokens, OpenCode ended the
+    run, and whether the text was all <think> or a call written inside
+    <think> (where _ToolCallGate never looks) could not be told [OBSERVED
+    2026-09-24]. The splitter and gate consume the stream as it arrives, so
+    the raw text only exists if it is kept on purpose.
+
+    In: the slot, the full generated text (reasoning included, untouched),
+    and the parsed calls. Out: nothing; prints only under --debug.
+    """
+    if not debug:
+        return
+    outcome = f"{len(tool_calls)} call(s) parsed" if tool_calls else "NO call parsed"
+    print(f"{datetime.now():%H:%M:%S} [DEBUG] [{slot.device_name}] raw tool-turn output "
+          f"({len(raw)} chars, {outcome}):", flush=True)
+    for line in raw.splitlines() or [""]:
+        print(f"  | {line}", flush=True)
+    print(f"{datetime.now():%H:%M:%S} [DEBUG] [{slot.device_name}] end raw output", flush=True)
+
 
 def _log_request(api_label):
     """--debug dump of an inbound request (method, path, UA, pretty body).
@@ -4999,7 +5026,9 @@ def chat_completions():
 
         tool_calls = []
         if tools_active:
+            raw_text = text
             text, tool_calls = parse_tool_calls(text, tools)
+            _log_raw_tool_turn(slot, raw_text, tool_calls)
             if tool_calls:
                 print(f"{datetime.now():%H:%M:%S} -> [{slot.device_name}] "
                       f"{len(tool_calls)} tool call(s): "
@@ -5057,7 +5086,9 @@ def chat_completions():
 
     tool_calls = []
     if tools_active:
+        raw_text = text
         text, tool_calls = parse_tool_calls(text, tools)
+        _log_raw_tool_turn(slot, raw_text, tool_calls)
         if tool_calls:
             print(f"{datetime.now():%H:%M:%S} -> [{slot.device_name}] "
                   f"{len(tool_calls)} tool call(s): "
@@ -5316,7 +5347,9 @@ def ollama_chat():
 
         message = {"role": "assistant", "content": text}
         if tools_active:
+            raw_text = text
             text, tool_calls = parse_tool_calls(text, tools)
+            _log_raw_tool_turn(slot, raw_text, tool_calls)
             message["content"] = text
             if tool_calls:
                 # Ollama shape: arguments are an object, not a JSON string.
@@ -5358,7 +5391,9 @@ def ollama_chat():
 
     message = {"role": "assistant", "content": text}
     if tools_active:
+        raw_text = text
         text, tool_calls = parse_tool_calls(text, tools)
+        _log_raw_tool_turn(slot, raw_text, tool_calls)
         message["content"] = text
         if tool_calls:
             # Ollama shape: arguments are an object, not a JSON string.
@@ -5985,7 +6020,8 @@ def parse_args():
                         "own — a scheduled task, an SSH session, a launcher — and "
                         "for keeping a benchmark's log beside its numbers.")
     p.add_argument("--debug", action="store_true",
-                   help="Log every inbound API request (method, path, User-Agent, body)")
+                   help="Log every inbound API request (method, path, User-Agent, body), and the "
+                        "raw model output of every tool turn before it is parsed")
     p.add_argument("--vscode-compat", action="store_true",
                    help=f"Report an Ollama-shaped version ({VSCODE_OLLAMA_VERSION}) on "
                         f"/api/version so VS Code's Ollama client accepts the server. "

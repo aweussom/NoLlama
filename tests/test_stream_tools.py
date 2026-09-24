@@ -328,6 +328,28 @@ def test_native_render_honours_no_think_and_falls_back():
     assert nollama.render_native_tool_prompt(broken, msgs, TOOLS) is None
 
 
+def test_debug_logs_the_raw_turn_including_a_call_hidden_in_think():
+    # The B60 case: a call written inside <think> reaches neither the gate
+    # nor the client. --debug must show the untouched text so that is visible.
+    import contextlib
+    import io
+    buf = io.StringIO()
+    nollama.debug = True
+    try:
+        with contextlib.redirect_stdout(buf):
+            (deltas, finish), _ = run_tool_stream(["<think>", "plan\n", CALL, "</think>"])
+    finally:
+        nollama.debug = False
+    out = buf.getvalue()
+    assert finish == "stop"                                  # no call reached the client
+    assert "NO call parsed" in out
+    assert "  | <function=get_weather>" in out               # ...but the log shows it
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        run_tool_stream(["hi ", CALL])
+    assert "raw tool-turn output" not in buf.getvalue()      # silent without --debug
+
+
 def test_opencode_title_request_skips_thinking():
     # The first sentence of opencode 1.18.32's title system prompt, verbatim
     # from a captured request; the rest of that prompt varies with the task.
