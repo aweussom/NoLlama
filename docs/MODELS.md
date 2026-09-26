@@ -230,7 +230,7 @@ Recall comes from 200 synthetic mismatches (camera 1 of one vehicle, camera 2 of
 | Qwen2.5-VL-3B INT8 | 15.6% | 70% / 9 of 14 | 41% | 88% / 13 of 14 |
 | Qwen3.8-27B INT4, thinking off | 5.7% | 82% / 13 of 14 | 24% | 90% / 13 of 14 |
 
-- The colour check (describe each vehicle, compare the two colours in Python) found nothing real on Qwen3.8. 0 of 150 colour-only flags were a real mismatch. It mostly reacts to the blue cast these cameras have in low light. White balance did not change that, greyscale cost too much recall. One question is the right setting.
+- The colour check (describe each vehicle, compare the two colours in Python) found nothing real on Qwen3.8. 0 of 150 colour-only flags were a real mismatch. It flags more at night, but white balance did not help, so it is the model's colour naming, not only the blue cast. Greyscale cost too much recall. One question is the right setting.
 - Qwen3.8 is a thinking model. Send a system message containing `Reasoning strength: minimal` and it answers in about a second. Before 2026-09-24 NoLlama ignored that switch on turns with images, so a thinking VLM just talked until it ran out of tokens.
 - B60 speed with three requests per pair: 3B 1.7 s a pair, Qwen3.8 3.3 s. Qwen3.8 needs ~19 GB with its cache, so no 16 GB machine. On the 140V iGPU it loads but is far too slow for thousands of images.
 - Not measured yet: Qwen3-VL-8B, the obvious 16 GB candidate. The manual review covered what Qwen3.8 flagged plus blind samples, so a mismatch only the 3B would catch is under-counted. One job, 14 real positives. A strong hint, not a verdict.
