@@ -50,7 +50,7 @@
             "revision": "2026.3.1",
             "source": "pre-exported",
             "est_size_gb": 15,
-            "notes": "Needs OpenVINO 2026.3.1+ (the 2026.3.1 release enabled it; install.ps1 pulls it). Pinned to the repo's 2026.3.1 branch on purpose: its main branch is a 2026.4-toolchain export that SEGFAULTS the 2026.3.x runtime at load. Verified 2026-08-30 on Arc 140V (2026.3.1 release): correct answers, 3.6-4.8 tok/s — dense 27B, so the 15 GB must be resident (24 GB card, or a raised iGPU shared-memory budget) and --offload-ratio does nothing. Quality over speed; a 24-core CPU is ~2-3 tok/s. Template pre-seeds <think>; NoLlama detects that at load."
+            "notes": "Best vision model we have measured on a real job (same car in two camera photos, 7,144 pairs, Arc Pro B60, 2026-09-25): one yes/no question flagged 5.7% of pairs and caught 13 of 14 real mismatches, against 15.6% and 9 of 14 for Qwen2.5-VL-3B. Send a system message with 'Reasoning strength: minimal' or it thinks instead of answering. 24 GB GPU; too slow on a laptop iGPU for batch work. docs/MODELS.md has the numbers and caveats. Needs OpenVINO 2026.3.1+ (the 2026.3.1 release enabled it; install.ps1 pulls it). Pinned to the repo's 2026.3.1 branch on purpose: its main branch is a 2026.4-toolchain export that SEGFAULTS the 2026.3.x runtime at load. Verified 2026-08-30 on Arc 140V (2026.3.1 release): correct answers, 3.6-4.8 tok/s — dense 27B, so the 15 GB must be resident (24 GB card, or a raised iGPU shared-memory budget) and --offload-ratio does nothing. Quality over speed; a 24-core CPU is ~2-3 tok/s. Template pre-seeds <think>; NoLlama detects that at load."
         },
         {
             "name": "Muse Glimmer 30B (INT4)",
@@ -99,7 +99,7 @@
             "hf_id": "aweussom/Qwen2.5-VL-3B-Instruct-int8-ov",
             "source": "pre-exported",
             "est_size_gb": 4,
-            "notes": "Recommended (proven). INT8 retains fine detail (OCR, numbers) better than INT4. Research license (non-commercial) — see model card."
+            "notes": "Recommended (proven). INT8 retains fine detail (OCR, numbers) better than INT4. On the same-car job (docs/MODELS.md, 2026-09-25) it needed a second colour check to reach 13 of 14 real mismatches, and then flagged 41% of pairs; still the one to use on a laptop iGPU. Research license (non-commercial) — see model card."
         },
         {
             "name": "Gemma 4 E2B Vision (INT4)",

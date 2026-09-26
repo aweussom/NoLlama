@@ -217,6 +217,25 @@ verified yet — be honest about what's measured vs. assumed.
 | Gemma 3 12B Vision (INT4) | ~7 GB | Untested. Needs ~12 GB RAM with KV cache. |
 | InternVL2 4B (INT4) | ~3 GB | Untested. |
 | Phi 3.5 Vision (INT4) | ~3 GB | Untested. |
+| Qwen3.8 27B (INT4) | ~15 GB | 24 GB GPU. Best on the same-car job below; thinking off. |
+
+### Same car or not? A real job (2026-09-25)
+
+The kind of job NoLlama was built for. Two cameras photograph each vehicle a few seconds apart, from different angles. Both photos go to the VLM with one question: same vehicle, yes or no. 7,144 photo pairs from two sites, run on an Arc Pro B60 through the OpenAI endpoint. The harness and images are private - the photos are personal data - so only the numbers are here.
+
+Recall comes from 200 synthetic mismatches (camera 1 of one vehicle, camera 2 of one a few minutes later) plus 14 real mismatches confirmed by hand.
+
+| Model | Flagged, one question | Caught: synthetic / real | Flagged, with colour check | Caught: synthetic / real |
+|---|---|---|---|---|
+| Qwen2.5-VL-3B INT8 | 15.6% | 70% / 9 of 14 | 41% | 88% / 13 of 14 |
+| Qwen3.8-27B INT4, thinking off | 5.7% | 82% / 13 of 14 | 24% | 90% / 13 of 14 |
+
+- The colour check (describe each vehicle, compare the two colours in Python) found nothing real on Qwen3.8. 0 of 150 colour-only flags were a real mismatch. It mostly reacts to the blue cast these cameras have in low light. White balance did not change that, greyscale cost too much recall. One question is the right setting.
+- Qwen3.8 is a thinking model. Send a system message containing `Reasoning strength: minimal` and it answers in about a second. Before 2026-09-24 NoLlama ignored that switch on turns with images, so a thinking VLM just talked until it ran out of tokens.
+- B60 speed with three requests per pair: 3B 1.7 s a pair, Qwen3.8 3.3 s. Qwen3.8 needs ~19 GB with its cache, so no 16 GB machine. On the 140V iGPU it loads but is far too slow for thousands of images.
+- Not measured yet: Qwen3-VL-8B, the obvious 16 GB candidate. The manual review covered what Qwen3.8 flagged plus blind samples, so a mismatch only the 3B would catch is under-counted. One job, 14 real positives. A strong hint, not a verdict.
+
+So; 24 GB GPU - Qwen3.8-27B, one question, thinking off. Laptop iGPU - Qwen2.5-VL-3B still does it, with the colour check on and about seven times as much to look through. 16 GB - wait for the 8B numbers.
 
 ### GPU large LLMs (smarter than NPU)
 
