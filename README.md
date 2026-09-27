@@ -99,7 +99,8 @@ Full methodology, MoE disk offload, and the Ollama and RTX 5090 comparisons:
 | Use-case | Pick in the menu | HuggingFace | Size |
 |---|---|---|---|
 | NPU chat | Qwen3 8B (INT4-CW) | `OpenVINO/Qwen3-8B-int4-cw-ov` | ~5 GB |
-| GPU vision | Qwen3-VL 8B (INT8) | `OpenVINO/Qwen3-VL-8B-Instruct-int8-ov` | ~9 GB |
+| GPU vision, 24 GB GPU | Qwen3.8 27B (INT4) | `OpenVINO/Qwen3.8-27B-int4-ov` | ~15 GB |
+| GPU vision, 16 GB | Qwen3-VL 8B (INT4) | `OpenVINO/Qwen3-VL-8B-Instruct-int4-ov` | ~6 GB |
 | Coding agent | Qwen3 Coder 30B-A3B MoE (INT4) | `OpenVINO/Qwen3-Coder-30B-A3B-Instruct-int4-ov` | ~17 GB |
 
 All pre-exported — no conversion. `install.ps1` offers these; the menu adapts to

@@ -494,6 +494,32 @@ function Get-AgentRegistry {
     return @($slow) + @($Coders)
 }
 
+# Name the recommended vision model for this machine before the vision menu.
+#
+# Why: the recommendation is by memory -- Qwen3.8 27B on a 24 GB GPU (newest,
+# and best on the same-car job in docs/MODELS.md, 2026-09-25/26), Qwen3-VL 8B
+# INT4 on 16 GB (nearly as good, twice as fast), Qwen2.5-VL 3B below that --
+# and the menu alone shows three entries with fit tags, leaving the reader to
+# work out which one is meant for their box. models.json lists them in this
+# order, so the named pick is also the first entry that fits.
+#
+# In: nothing (reads $Registry and the budget via Get-FitTag). Out: one line.
+function Write-VisionPick {
+    foreach ($name in @("Qwen3.8 27B (INT4)", "Qwen3-VL 8B (INT4)", "Qwen2.5-VL 3B (INT8)")) {
+        $e = @($Registry.gpu_vlm | Where-Object { $_.name -eq $name })[0]
+        if ($null -eq $e) { continue }
+        if (-not (Get-FitTag $e.est_size_gb).Contains("WON'T FIT")) {
+            Write-Host ""
+            Write-Host "  Recommended for this machine: $name (~$($e.est_size_gb) GB) - the newest" -ForegroundColor Cyan
+            Write-Host "  recommended vision model that fits. Numbers in docs/MODELS.md." -ForegroundColor DarkGray
+            return
+        }
+    }
+    Write-Host ""
+    Write-Host "  No recommended vision model fits comfortably; Qwen2.5-VL 3B (~4 GB) is the" -ForegroundColor Yellow
+    Write-Host "  smallest proven one." -ForegroundColor Yellow
+}
+
 # Say so before the coding-agent menu when the verified agent model won't fit.
 #
 # Why: the menu only lists verified agent models, so on a 16 GB machine it
@@ -1086,6 +1112,7 @@ switch ($useKey) {
     }
     "vision" {
         $loc = @($LocalModels | Where-Object { $_.Type -eq "vlm" })
+        Write-VisionPick
         $sel = Show-ModelMenu -Title "Vision model (GPU)" -RegistryModels $Registry.gpu_vlm -LocalModels $loc
         if ($sel) { Install-Primary $sel "GPU" }
     }
@@ -1114,6 +1141,7 @@ switch ($useKey) {
         if ($chatSel) {
             Install-Primary $chatSel $chatDev
             $vloc = @($LocalModels | Where-Object { $_.Type -eq "vlm" })
+            Write-VisionPick
             $visSel = Show-ModelMenu -Title "Vision model (GPU)" -RegistryModels $Registry.gpu_vlm -LocalModels $vloc -AllowSkip $true
             if ($visSel -and (Install-Model -Selected $visSel -TargetDir $GpuModelDir)) {
                 $StartArgs += @("--gpu-model-dir", "gpu-model")
