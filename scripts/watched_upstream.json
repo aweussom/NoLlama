@@ -9,8 +9,8 @@
   "openvinotoolkit/openvino#38026": {
     "draft": false,
     "kind": "pull",
-    "merged": false,
-    "state": "open",
+    "merged": true,
+    "state": "closed",
     "title": "[GGUF FE] Add Q1_0 (binary, 1-bit) quantization support"
   },
   "openvinotoolkit/openvino#38076": {
