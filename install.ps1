@@ -496,28 +496,37 @@ function Get-AgentRegistry {
 
 # Name the recommended vision model for this machine before the vision menu.
 #
-# Why: the recommendation is by memory -- Qwen3.8 27B on a 24 GB GPU (newest,
-# and tied with the 8B on the same-car job in docs/MODELS.md, 2026-09-25/28),
-# Qwen3-VL 8B INT4 on 16 GB (as good, twice as fast), Qwen2.5-VL 3B below that --
-# and the menu alone shows three entries with fit tags, leaving the reader to
-# work out which one is meant for their box. models.json lists them in this
-# order, so the named pick is also the first entry that fits.
+# Why: the menu alone shows several entries with fit tags, leaving the reader
+# to work out which one is meant for their box. The rule (docs/MODELS.md,
+# same-car job 2026-09-25/28): Qwen3-VL 8B INT4 wherever it fits -- tied with
+# Qwen3.8 on catches, twice as fast, fewest false alarms; Qwen3.8 27B offered
+# on top when it fits, for users who want the newest; Qwen2.5-VL 3B only where
+# the 8B does not fit. models.json lists them in this order.
 #
-# In: nothing (reads $Registry and the budget via Get-FitTag). Out: one line.
+# In: nothing (reads $Registry and the budget via Get-FitTag). Out: one to
+# three lines; a fallback line when not even the 3B fits.
 function Write-VisionPick {
-    foreach ($name in @("Qwen3.8 27B (INT4)", "Qwen3-VL 8B (INT4)", "Qwen2.5-VL 3B (INT8)")) {
+    $fits = {
+        param($name)
         $e = @($Registry.gpu_vlm | Where-Object { $_.name -eq $name })[0]
-        if ($null -eq $e) { continue }
-        if (-not (Get-FitTag $e.est_size_gb).Contains("WON'T FIT")) {
-            Write-Host ""
-            Write-Host "  Recommended for this machine: $name (~$($e.est_size_gb) GB) - the newest" -ForegroundColor Cyan
-            Write-Host "  recommended vision model that fits. Numbers in docs/MODELS.md." -ForegroundColor DarkGray
-            return
-        }
+        if ($null -ne $e -and -not (Get-FitTag $e.est_size_gb).Contains("WON'T FIT")) { return $e }
+        return $null
     }
+    $pick = & $fits "Qwen3-VL 8B (INT4)"
+    if ($null -eq $pick) { $pick = & $fits "Qwen2.5-VL 3B (INT8)" }
     Write-Host ""
-    Write-Host "  No recommended vision model fits comfortably; Qwen2.5-VL 3B (~4 GB) is the" -ForegroundColor Yellow
-    Write-Host "  smallest proven one." -ForegroundColor Yellow
+    if ($null -eq $pick) {
+        Write-Host "  No recommended vision model fits comfortably; Qwen2.5-VL 3B (~4 GB) is the" -ForegroundColor Yellow
+        Write-Host "  smallest proven one." -ForegroundColor Yellow
+        return
+    }
+    Write-Host "  Recommended for this machine: $($pick.name) (~$($pick.est_size_gb) GB)." -ForegroundColor Cyan
+    $newest = & $fits "Qwen3.8 27B (INT4)"
+    if ($null -ne $newest) {
+        Write-Host "  Want the newest? Qwen3.8 27B (~$($newest.est_size_gb) GB) fits too: same results on our" -ForegroundColor DarkGray
+        Write-Host "  test, half the speed." -ForegroundColor DarkGray
+    }
+    Write-Host "  Numbers in docs/MODELS.md." -ForegroundColor DarkGray
 }
 
 # Say so before the coding-agent menu when the verified agent model won't fit.

@@ -8,14 +8,15 @@ the proven models per role on a Core Ultra laptop (NPU + ARC iGPU):
 | Use-case | Role | Pick in the menu | HuggingFace | Size |
 |---|---|---|---|---|
 | Chat | **NPU chat** | Qwen3 8B (INT4-CW) | `OpenVINO/Qwen3-8B-int4-cw-ov` | ~5 GB |
-| Vision, 24 GB GPU | **GPU vision** | Qwen3.8 27B (INT4) | `OpenVINO/Qwen3.8-27B-int4-ov` | ~15 GB |
-| Vision, 16 GB | **GPU vision** | Qwen3-VL 8B (INT4) | `OpenVINO/Qwen3-VL-8B-Instruct-int4-ov` | ~6 GB |
+| Vision | **GPU vision** | Qwen3-VL 8B (INT4) | `OpenVINO/Qwen3-VL-8B-Instruct-int4-ov` | ~6 GB |
+| Vision, newest (24 GB GPU) | **GPU vision** | Qwen3.8 27B (INT4) | `OpenVINO/Qwen3.8-27B-int4-ov` | ~15 GB |
 | Coding agent | **GPU coder** | Qwen3-Coder 30B-A3B (INT4) | `OpenVINO/Qwen3-Coder-30B-A3B-Instruct-int4-ov` | ~17 GB |
 
 Qwen3 8B is the best-quality text model verified on the NPU. For vision,
-pick by memory: Qwen3.8 27B on a 24 GB GPU (the newest, and the best we
-measured), Qwen3-VL 8B INT4 on 16 GB (nearly as good, twice as fast),
-Qwen2.5-VL 3B below that. The installer names the one that fits. Numbers
+Qwen3-VL 8B INT4 wherever it fits (about 8 GB with its cache, so a 16 GB
+laptop): tied with Qwen3.8 on a real job, twice as fast, fewest false alarms.
+Qwen3.8 27B if you want the newest and have a 24 GB GPU. Qwen2.5-VL 3B only
+where the 8B does not fit. The installer names the one that fits. Numbers
 are under "GPU vision models". For **coding agents** (VS Code Copilot
 Chat, OpenCode, Goose), pick the "Coding agent" use-case: **Qwen3-Coder 30B-A3B**,
 which needs a 24 GB GPU or a 32 GB laptop. It is the only model verified to drive
@@ -190,9 +191,10 @@ Once a model proves itself, add it to `models.json` so it appears in
 the install menu. Keep "Untested" tags on entries that haven't been
 verified yet — be honest about what's measured vs. assumed.
 
-> **Recommended VLM:** by memory. Qwen3.8 27B (INT4, ~15 GB) on a 24 GB
-> GPU, Qwen3-VL 8B (INT4, ~6 GB) on 16 GB, Qwen2.5-VL 3B (INT8, ~4 GB) below
-> that. All three measured on a real job, see "Same car or not?" below. The
+> **Recommended VLM:** Qwen3-VL 8B (INT4, ~6 GB) wherever it fits. Qwen3.8
+> 27B (INT4, ~15 GB) on a 24 GB GPU if you want the newest. Qwen2.5-VL 3B
+> (INT8, ~4 GB) only where the 8B does not fit. All three measured on a real
+> job, see "Same car or not?" below. The
 > Qwen3-VL 8B INT8 build (~9 GB) was verified on the Arc 140V in dual mode
 > (2026-06-16) but not on that job.
 
@@ -210,9 +212,9 @@ verified yet — be honest about what's measured vs. assumed.
 
 | Model | Size | Notes |
 |---|---|---|
-| Qwen3.8 27B (INT4) | ~15 GB | 24 GB GPU. Newest; tied with the 8B on the same-car job below; thinking off. |
-| Qwen3-VL 8B (INT4) | ~6 GB | 16 GB pick. Tied with Qwen3.8 on the same-car job, twice as fast. |
-| Qwen2.5-VL 3B (INT8, convert) | ~4 GB | Below 16 GB. Proven; needs the colour check to keep up. |
+| Qwen3-VL 8B (INT4) | ~6 GB | The pick wherever it fits. Tied with Qwen3.8 on the same-car job below, twice as fast. |
+| Qwen3.8 27B (INT4) | ~15 GB | Newest, if you want it. 24 GB GPU; tied with the 8B; thinking off. |
+| Qwen2.5-VL 3B (INT8, convert) | ~4 GB | Only where the 8B does not fit. Proven; needs the colour check to keep up. |
 | Qwen3-VL 8B (INT8) | ~9 GB | Keeps fine detail (OCR, numbers). Not measured on the same-car job. |
 | Gemma 3 4B Vision (INT4) | ~3 GB | Untested. |
 | Gemma 3 12B Vision (INT4) | ~7 GB | Untested. Needs ~12 GB RAM with KV cache. |
@@ -238,7 +240,7 @@ Recall comes from 200 synthetic mismatches (camera 1 of one vehicle, camera 2 of
 - B60 speed, one question per pair: Qwen3-VL-8B 0.38 s, Qwen3.8 0.75 s (both measured over all 7,144 pairs). With the colour check, three requests per pair: 3B 1.7 s, Qwen3.8 3.3 s. Qwen3.8 needs ~19 GB with its cache, so no 16 GB machine. On the 140V iGPU it loads but is far too slow for thousands of images.
 - Qwen3-VL-8B ran the one question only, needs no thinking switch. The first pass was built around what Qwen3.8 flagged, which flattered it: 13 of 14 there, 10 of 14 in the blind pass. The 8B got 11, then 12. The blind pass is the fairer test, and it is small. The 133 pairs only the 8B called different are still not reviewed. 28 real positives from one site. A strong hint, not a verdict.
 
-So; Qwen3.8-27B and Qwen3-VL-8B are tied on this job, and the 8B is twice as fast. 24 GB GPU - Qwen3.8-27B if you want the newest, one question, thinking off; the 8B does the same job in half the time. 16 GB - Qwen3-VL-8B INT4. Less than that - Qwen2.5-VL-3B still does it, with the colour check on and about seven times as much to look through.
+So; Qwen3-VL-8B INT4 wherever it fits. Qwen3.8-27B on a 24 GB GPU if you want the newest - one question, thinking off, same result in twice the time. Where the 8B does not fit - Qwen2.5-VL-3B still does it, with the colour check on and about seven times as much to look through.
 
 ### GPU large LLMs (smarter than NPU)
 
