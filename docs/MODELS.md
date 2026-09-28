@@ -210,8 +210,8 @@ verified yet — be honest about what's measured vs. assumed.
 
 | Model | Size | Notes |
 |---|---|---|
-| Qwen3.8 27B (INT4) | ~15 GB | 24 GB GPU. Newest, best on the same-car job below; thinking off. |
-| Qwen3-VL 8B (INT4) | ~6 GB | 16 GB pick. Nearly as good on the same-car job, twice as fast. |
+| Qwen3.8 27B (INT4) | ~15 GB | 24 GB GPU. Newest; tied with the 8B on the same-car job below; thinking off. |
+| Qwen3-VL 8B (INT4) | ~6 GB | 16 GB pick. Tied with Qwen3.8 on the same-car job, twice as fast. |
 | Qwen2.5-VL 3B (INT8, convert) | ~4 GB | Below 16 GB. Proven; needs the colour check to keep up. |
 | Qwen3-VL 8B (INT8) | ~9 GB | Keeps fine detail (OCR, numbers). Not measured on the same-car job. |
 | Gemma 3 4B Vision (INT4) | ~3 GB | Untested. |
@@ -219,24 +219,24 @@ verified yet — be honest about what's measured vs. assumed.
 | InternVL2 4B (INT4) | ~3 GB | Untested. |
 | Phi 3.5 Vision (INT4) | ~3 GB | Untested. |
 
-### Same car or not? A real job (2026-09-25)
+### Same car or not? A real job (2026-09-25, updated 2026-09-28)
 
 The kind of job NoLlama was built for. Two cameras photograph each vehicle a few seconds apart, from different angles. Both photos go to the VLM with one question: same vehicle, yes or no. 7,144 photo pairs from two sites, run on an Arc Pro B60 through the OpenAI endpoint. The harness and images are private - the photos are personal data - so only the numbers are here.
 
-Recall comes from 200 synthetic mismatches (camera 1 of one vehicle, camera 2 of one a few minutes later) plus 14 real mismatches confirmed by hand.
+Recall comes from 200 synthetic mismatches (camera 1 of one vehicle, camera 2 of one a few minutes later) plus 28 real mismatches confirmed by hand, in two passes. First pass went through what the models flagged plus some blind samples, found 14. Second pass was blind: 350 random pairs, no model verdicts shown. Found 14 more. All 28 are from one site. The other site had 0 in 91 random pairs, so the mismatches belong to that site, and the question itself is not the problem.
 
 | Model | Flagged, one question | Caught: synthetic / real | Flagged, with colour check | Caught: synthetic / real |
 |---|---|---|---|---|
-| Qwen2.5-VL-3B INT8 | 15.6% | 70% / 9 of 14 | 41% | 88% / 13 of 14 |
-| Qwen3-VL-8B INT4 | 5.4% | 79% / 11 of 14 | - | - |
-| Qwen3.8-27B INT4, thinking off | 5.7% | 82% / 13 of 14 | 24% | 90% / 13 of 14 |
+| Qwen2.5-VL-3B INT8 | 15.6% | 70% / 17 of 28 | 41% | 88% / 23 of 28 |
+| Qwen3-VL-8B INT4 | 5.4% | 79% / 23 of 28 | - | - |
+| Qwen3.8-27B INT4, thinking off | 5.7% | 82% / 23 of 28 | 24% | 90% / 25 of 28 |
 
-- The colour check (describe each vehicle, compare the two colours in Python) found nothing real on Qwen3.8. 0 of 150 colour-only flags were a real mismatch. It flags more at night, but white balance did not help, so it is the model's colour naming, not only the blue cast. Greyscale cost too much recall. One question is the right setting.
-- Qwen3.8 is a thinking model. Send a system message containing `Reasoning strength: minimal` and it answers in about a second. Before 2026-09-24 NoLlama ignored that switch on turns with images, so a thinking VLM just talked until it ran out of tokens.
+- The colour check (describe each vehicle, compare the two colours in Python) buys little. On Qwen3.8 it caught 2 real mismatches the one question missed, and quadrupled what there is to look through (24% of pairs against 5.7%). 0 of 150 sampled colour-only flags were real. It flags more at night, but white balance did not help, so it is the model's colour naming, not only the blue cast. Greyscale cost too much recall.
+- Qwen3.8 is a thinking model. Send a system message with `Reasoning strength: minimal` and it answers in about a second. Before 2026-09-24 NoLlama ignored that switch on turns with images, so a thinking VLM just talked until it ran out of tokens.
 - B60 speed, one question per pair: Qwen3-VL-8B 0.38 s, Qwen3.8 0.75 s (both measured over all 7,144 pairs). With the colour check, three requests per pair: 3B 1.7 s, Qwen3.8 3.3 s. Qwen3.8 needs ~19 GB with its cache, so no 16 GB machine. On the 140V iGPU it loads but is far too slow for thousands of images.
-- Qwen3-VL-8B ran the one question only, and needs no thinking switch. The manual review covered what Qwen3.8 flagged plus blind samples, so a mismatch only the 3B or the 8B would catch is under-counted. The 8B called 133 pairs different that Qwen3.8 called the same, and nobody has looked at those yet. One job, 14 real positives. A strong hint, not a verdict.
+- Qwen3-VL-8B ran the one question only, needs no thinking switch. The first pass was built around what Qwen3.8 flagged, which flattered it: 13 of 14 there, 10 of 14 in the blind pass. The 8B got 11, then 12. The blind pass is the fairer test, and it is small. The 133 pairs only the 8B called different are still not reviewed. 28 real positives from one site. A strong hint, not a verdict.
 
-So; 24 GB GPU - Qwen3.8-27B, one question, thinking off. 16 GB - Qwen3-VL-8B INT4, nearly as good at twice the speed. Less than that - Qwen2.5-VL-3B still does it, with the colour check on and about seven times as much to look through.
+So; Qwen3.8-27B and Qwen3-VL-8B are tied on this job, and the 8B is twice as fast. 24 GB GPU - Qwen3.8-27B if you want the newest, one question, thinking off; the 8B does the same job in half the time. 16 GB - Qwen3-VL-8B INT4. Less than that - Qwen2.5-VL-3B still does it, with the colour check on and about seven times as much to look through.
 
 ### GPU large LLMs (smarter than NPU)
 

@@ -50,21 +50,21 @@
             "revision": "2026.3.1",
             "source": "pre-exported",
             "est_size_gb": 15,
-            "notes": "Recommended on a 24 GB GPU: the newest Qwen vision model, and the best we measured on a real job (same car in two camera photos, 7,144 pairs, Arc Pro B60, 2026-09-25): one yes/no question flagged 5.7% of pairs and caught 13 of 14 real mismatches, 0.75 s a pair. Send a system message with 'Reasoning strength: minimal' or it thinks instead of answering. 24 GB GPU; too slow on a laptop iGPU for batch work. docs/MODELS.md has the numbers and caveats. Needs OpenVINO 2026.3.1+ (the 2026.3.1 release enabled it; install.ps1 pulls it). Pinned to the repo's 2026.3.1 branch on purpose: its main branch is a 2026.4-toolchain export that SEGFAULTS the 2026.3.x runtime at load. Verified 2026-08-30 on Arc 140V (2026.3.1 release): correct answers, 3.6-4.8 tok/s — dense 27B, so the 15 GB must be resident (24 GB card, or a raised iGPU shared-memory budget) and --offload-ratio does nothing. Quality over speed; a 24-core CPU is ~2-3 tok/s. Template pre-seeds <think>; NoLlama detects that at load."
+            "notes": "Recommended on a 24 GB GPU: the newest Qwen vision model. On a real job (same car in two camera photos, 7,144 pairs, Arc Pro B60, 2026-09-25/28) one yes/no question flagged 5.7% of pairs and caught 23 of 28 real mismatches, 0.75 s a pair - tied with Qwen3-VL 8B, which is twice as fast. Send a system message with 'Reasoning strength: minimal' or it thinks instead of answering. 24 GB GPU; too slow on a laptop iGPU for batch work. docs/MODELS.md has the numbers and caveats. Needs OpenVINO 2026.3.1+ (the 2026.3.1 release enabled it; install.ps1 pulls it). Pinned to the repo's 2026.3.1 branch on purpose: its main branch is a 2026.4-toolchain export that SEGFAULTS the 2026.3.x runtime at load. Verified 2026-08-30 on Arc 140V (2026.3.1 release): correct answers, 3.6-4.8 tok/s — dense 27B, so the 15 GB must be resident (24 GB card, or a raised iGPU shared-memory budget) and --offload-ratio does nothing. Quality over speed; a 24-core CPU is ~2-3 tok/s. Template pre-seeds <think>; NoLlama detects that at load."
         },
         {
             "name": "Qwen3-VL 8B (INT4)",
             "hf_id": "OpenVINO/Qwen3-VL-8B-Instruct-int4-ov",
             "source": "pre-exported",
             "est_size_gb": 6,
-            "notes": "Recommended on 16 GB machines. On the same-car job (2026-09-26) one yes/no question flagged 5.4% of pairs and caught 11 of 14 real mismatches, twice as fast as Qwen3.8 (0.38 s a pair on a B60); no thinking switch needed. One generation behind Qwen3.5. Verified on Xe-LPG iGPU for OCR, color/count, no hallucination on empty input. Like all VLMs, prone to confident hallucination on ambiguous images (e.g., invented make/model/year from unbadged photos) — prompt for visible features only and ask for uncertainty explicitly."
+            "notes": "Recommended on 16 GB machines. On the same-car job (2026-09-26/28) one yes/no question flagged 5.4% of pairs and caught 23 of 28 real mismatches - tied with Qwen3.8, at twice its speed (0.38 s a pair on a B60); no thinking switch needed. One generation behind Qwen3.5. Verified on Xe-LPG iGPU for OCR, color/count, no hallucination on empty input. Like all VLMs, prone to confident hallucination on ambiguous images (e.g., invented make/model/year from unbadged photos) — prompt for visible features only and ask for uncertainty explicitly."
         },
         {
             "name": "Qwen2.5-VL 3B (INT8)",
             "hf_id": "aweussom/Qwen2.5-VL-3B-Instruct-int8-ov",
             "source": "pre-exported",
             "est_size_gb": 4,
-            "notes": "Proven and small: the pick below 16 GB. INT8 retains fine detail (OCR, numbers) better than INT4. On the same-car job (docs/MODELS.md, 2026-09-25) it needed a second colour check to reach 13 of 14 real mismatches, and then flagged 41% of pairs; still the one to use on a laptop iGPU. Research license (non-commercial) — see model card."
+            "notes": "Proven and small: the pick below 16 GB. INT8 retains fine detail (OCR, numbers) better than INT4. On the same-car job (docs/MODELS.md, 2026-09-25/28) one question caught 17 of 28 real mismatches; a second colour check brought it to 23 of 28, and then it flagged 41% of pairs; still the one to use on a laptop iGPU. Research license (non-commercial) — see model card."
         },
         {
             "name": "Qwen3-VL 8B (INT8)",

@@ -497,8 +497,8 @@ function Get-AgentRegistry {
 # Name the recommended vision model for this machine before the vision menu.
 #
 # Why: the recommendation is by memory -- Qwen3.8 27B on a 24 GB GPU (newest,
-# and best on the same-car job in docs/MODELS.md, 2026-09-25/26), Qwen3-VL 8B
-# INT4 on 16 GB (nearly as good, twice as fast), Qwen2.5-VL 3B below that --
+# and tied with the 8B on the same-car job in docs/MODELS.md, 2026-09-25/28),
+# Qwen3-VL 8B INT4 on 16 GB (as good, twice as fast), Qwen2.5-VL 3B below that --
 # and the menu alone shows three entries with fit tags, leaving the reader to
 # work out which one is meant for their box. models.json lists them in this
 # order, so the named pick is also the first entry that fits.
