@@ -53,12 +53,12 @@
     "sha": "b4c7ae8b276be0e539fb46f484bcd964cbeca23e"
   },
   "OpenVINO/Qwen3.5-4B-int4-ov": {
-    "lastModified": "2026-06-12",
-    "sha": "d481b7fd22e6d2cfedef12e534973dbb3f32c690"
+    "lastModified": "2026-09-25",
+    "sha": "f2377291372c62c0114ee20a094261fa3b193b0b"
   },
   "OpenVINO/Qwen3.8-27B-int4-ov": {
-    "lastModified": "2026-08-21",
-    "sha": "1842e0d32ae0b9307b7e0579874b400af47e70e2"
+    "lastModified": "2026-09-25",
+    "sha": "7b20ea8c7df7223a85ff27bab5c473f0cb038943"
   },
   "OpenVINO/gemma-4-26b-a4b-it-int4-ov": {
     "lastModified": "2026-09-17",
