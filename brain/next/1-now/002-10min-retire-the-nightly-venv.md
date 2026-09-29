@@ -12,10 +12,12 @@ It still earns its keep as the harness for "does the next runtime fix X" — use
 2026-08-30 for the LFM2/NPU 4 question, which is how we learned the answer was
 no across three OpenVINO versions.
 
-Constraint worth knowing before deciding: **the B60 box cannot run the nightly
-stack at all** — its application-control policy blocks the unsigned
-`py_openvino_genai` DLL and elevation does not lift it. So "release vs nightly
-on a discrete Intel GPU" already has nowhere to run.
+Used again on 2026-09-29, on the B60 this time (Smart App Control is off
+there now), to verify the #37501 fix before it reaches a release. That makes
+the case for **a** stronger. One trap: `pip install --pre -U` picks
+`2026.5.0b1` over newer `.dev` nightlies, because pip ranks a beta above a
+dev release. Pin `==2026.5.0.dev<date>` for openvino, tokenizers and genai
+together.
 
 ## The decision
 

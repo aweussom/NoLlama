@@ -20,7 +20,8 @@ theory in, is a good way to get both triaged slowly.
       `ShapePredictor::Settings`, or the option rejects bad input without
       killing construction
 
-Gate: file it once #37501 is resolved.
+Gate: met. #37501 was closed 2026-09-24 and verified on 2026-09-29. Re-run
+the repro on the nightly too, since that is where a fix would land first.
 
 ## Done when
 

@@ -70,30 +70,24 @@ Reachable over SSH at **`wossn@100.81.4.88`** (Tailscale range; hostname
 - The Tailscale interface is on the Private profile; the RX 580 shares the
   box with the B60 (see the table); RAM is the constraint, not disk (630 GB
   free).
-**An application-control policy blocks venv console-script shims here**
-[OBSERVED 2026-09-01]. `venv\Scripts\hf.exe` — a generated launcher, not a
-signed binary — is refused with *"En programkontrollpolicy har blokkert
-denne filen"*, while `python.exe` from the same venv runs fine.
-`download-model.ps1` no longer depends on it (it calls
-`scripts/hf_download.py` through python instead, and `optimum-cli` now goes
-through `python -m optimum.commands.optimum_cli`). Prefer `python -m
-<module>` or a small script over a console-script name when writing anything
-that has to run here.
+**Smart App Control is OFF here since 2026-09-29, so this box runs the
+nightly stack.** Until then it blocked two things with *"En
+programkontrollpolicy har blokkert denne filen"* [OBSERVED 2026-09-01]:
+venv console-script shims such as `venv\Scripts\hf.exe`, and the nightly's
+`py_openvino_genai.pyd`. Intel signs that module in release wheels but
+**not in nightlies** (`Get-AuthenticodeSignature`, 2026-09-29; the nightly's
+`openvino_genai.dll` is signed). Elevation never helped. The block is
+**not in Windows Security's protection history**, only in Event Viewer
+under `Microsoft-Windows-CodeIntegrity/Operational`, events 3033/3077,
+policy `{0283ac0f-fff1-49ae-ada1-8a933130cad6}`. Check the state with
+`(Get-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy).VerifiedAndReputablePolicyState`
+(0 off, 1 enforce, 2 evaluation). The switch was turned off with no reboot,
+and should be assumed one-way.
 
-**It is not only `.exe` shims — the policy blocks unsigned native modules
-too, so `venv-nightly` cannot import openvino_genai on this box at all:**
-
-```
-ImportError: DLL load failed while importing py_openvino_genai:
-En programkontrollpolicy har blokkert denne filen.
-```
-
-The release venv is fine; the nightly wheels are not. **Elevation does not
-help** — this is code-integrity policy, not a permission check. So *the B60
-box cannot run the nightly stack*, which matters when planning: anything
-needing "release vs nightly" on a discrete Intel GPU has nowhere to run
-today. Check what is enforcing it with
-`Get-CimInstance Win32_DeviceGuard | Select CodeIntegrityPolicyEnforcementStatus`.
+Users can have SAC on, so `download-model.ps1` still avoids console-script
+names (`scripts/hf_download.py` through python, `python -m
+optimum.commands.optimum_cli`). Keep writing `python -m <module>` rather
+than a shim name.
 
 Watch the RAM: 32 GB with ~19-26 GB typically free. Loading a big model
 stages through host RAM at roughly model size, so **one model server at a

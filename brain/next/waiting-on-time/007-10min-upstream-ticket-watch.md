@@ -10,7 +10,7 @@ Intel marks acceptance into engineering triage.
 | ticket | what | status |
 |---|---|---|
 | [openvino#38100](https://github.com/openvinotoolkit/openvino/issues/38100) | LFM2 350M/1.2B word salad on NPU 4, correct on NPU 3 | filed 2026-09-13, scoped to 350M + 1.2B with DavidDohmen's working 2.6B as the boundary. **No `Ref.` yet** |
-| [openvino#37501](https://github.com/openvinotoolkit/openvino/issues/37501) | USM OOM: a full-sequence logits allocation, `vocab_size x seq_len x width` | `Ref. 193991`, accepted |
+| [openvino#37501](https://github.com/openvinotoolkit/openvino/issues/37501) | USM OOM: a full-sequence logits allocation, `vocab_size x seq_len x width` | **closed 2026-09-24, fixed by genai#4511** (not in 2026.4). Verified on the B60 2026-09-29: 2026.4 release still requests 32,095,728,896 B on attempt 1, nightly `dev20260928` passes 3/3. Drop the row once a release carries it |
 | [genai#4405](https://github.com/openvinotoolkit/openvino.genai/issues/4405) | Phi-3.5-vision asserts under `repetition_penalty` | `Ref. 194483`, accepted |
 | [genai#4343](https://github.com/openvinotoolkit/openvino.genai/issues/4343) | VLMPipeline's `scheduler_config` / prefix caching is undocumented | **the documentation ask is still unanswered.** Restated so it does not close as "E4B fixed" with the docs untouched |
 | [openvino#38211](https://github.com/openvinotoolkit/openvino/issues/38211) | MoE `matmul primitive` on Xe-LPG+ with XMX | filed 2026-09-17, see N-006 |
