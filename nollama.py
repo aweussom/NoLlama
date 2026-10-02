@@ -1111,8 +1111,14 @@ def read_ir_rt_info(model_dir):
     large model) and the model-level block is the last <rt_info> in it —
     per-node ones live inside <layers>, which precedes <edges> and the
     trailing block.
+
+    In: a model directory. Out: flat {"a/b": "x"} dict; {} when no IR is
+    found or the block is unparseable. Covers LLM, VLM and Whisper exports
+    (the encoder IR carries the same block), so ir_runtime_mismatch can
+    gate every slot type.
     """
-    for base in ("openvino_model", "openvino_language_model"):
+    for base in ("openvino_model", "openvino_language_model",
+                 "openvino_encoder_model"):
         xml = os.path.join(model_dir, base + ".xml")
         if not os.path.isfile(xml):
             continue
@@ -1129,6 +1135,63 @@ def read_ir_rt_info(model_dir):
         except (OSError, ET.ParseError):
             return {}
     return {}
+
+
+def _runtime_pair(version):
+    """(major, minor) from an OpenVINO version string, or None.
+
+    Why: the toolchain generation is what decides whether an IR is readable,
+    and both the installed runtime ("2026.4.0-22959-...") and an IR's
+    Runtime_version ("2026.4.0-22959-...-releases/2026/4") lead with it.
+    Compare numerically: "2026.10" sorts before "2026.4" as a string.
+
+    In: any string or None. Out: tuple of two ints, or None when the string
+    does not start with digits.digits.
+    """
+    m = re.match(r"\s*(\d+)\.(\d+)", version or "")
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
+
+def ir_runtime_mismatch(model_dir, installed=None, rt=None):
+    """Refuse an IR exported by a newer OpenVINO than the one installed.
+
+    Why: a newer IR on an older runtime does not fail, it takes the process
+    down in native code with no message [OBSERVED 2026-09-23, 258V laptop:
+    Intel's 2026.4-built gemma-4-E4B int8 under 2026.3.1, GPU and CPU alike,
+    bare openvino_genai; and 2026-08-30, Qwen3.8 main-branch IR under
+    2026.3.0]. Every Hub model Intel rebuilds is exposed, so this is a floor
+    on the runtime itself rather than a per-model guard. Major.minor is the
+    toolchain generation; patch releases have not been seen to matter
+    [INFERRED] — a 2026.3.1 IR loading on 2026.3.0 would confirm it.
+
+    A check, never an upgrade: reaching into someone's venv is what
+    TODONT.md rules out for the nightly stack, and the same holds here.
+
+    In: model dir; `installed` overrides openvino.__version__ (tests);
+    `rt` reuses an already-read rt_info. Out: a message naming the two
+    versions and the pip line, or None when the IR is not newer, either
+    version is unreadable, or --ignore-ir-version is set. Unreadable means
+    pass: an IR with no Runtime_version is older than this convention, and
+    a runtime that will not import fails loudly on its own.
+    """
+    if IGNORE_IR_VERSION:
+        return None
+    rt = read_ir_rt_info(model_dir) if rt is None else rt
+    ir_ver = rt.get("Runtime_version")
+    if installed is None:
+        try:
+            import openvino as _ov
+            installed = _ov.__version__
+        except Exception:
+            return None
+    ir_pair, inst_pair = _runtime_pair(ir_ver), _runtime_pair(installed)
+    if not ir_pair or not inst_pair or ir_pair <= inst_pair:
+        return None
+    return (f"this IR was exported with OpenVINO {ir_ver} but the installed "
+            f"runtime is {installed}. A newer IR takes the older runtime down "
+            f"in native code with no error message, so NoLlama refuses it. "
+            f"Fix: pip install -U openvino openvino-genai openvino-tokenizers "
+            f"(or re-run install.ps1). To try anyway: --ignore-ir-version")
 
 
 def _count_sdpa_ops(model_dir):
@@ -2208,6 +2271,9 @@ class DeviceSlot:
         integrity_err = _verify_weights_integrity(model_dir)
         if integrity_err:
             raise RuntimeError(integrity_err)
+        mismatch = ir_runtime_mismatch(model_dir)
+        if mismatch:
+            raise RuntimeError(mismatch)
         self._resolve_kv_pool(vlm)
         self._preflight_memory(vlm)
         print(f"  [{self.device_name}] Loading...", flush=True)
@@ -3684,6 +3750,9 @@ class OptimumSlot(DeviceSlot):
         integrity_err = _verify_weights_integrity(model_dir)
         if integrity_err:
             raise RuntimeError(integrity_err)
+        mismatch = ir_runtime_mismatch(model_dir)
+        if mismatch:
+            raise RuntimeError(mismatch)
         self._preflight_memory(vlm=False)
         self._lazy_import()
         if self.device_name == "GPU":
@@ -4015,6 +4084,9 @@ class EmbedSlot:
             print(f"  [{self.device_name}] --embed-threads is a CPU-only setting; ignoring it.",
                   flush=True)
             self.threads = 0
+        mismatch = ir_runtime_mismatch(model_dir)
+        if mismatch:
+            raise RuntimeError(mismatch)
         self.pipe = EmbedPipe(str(model_dir), self.device_id, cfg, **props)
 
     def warmup(self):
@@ -4141,6 +4213,9 @@ class WhisperSlot:
                 "No WhisperPipeline in this openvino_genai build. "
                 "Upgrade to openvino-genai >= 2025.1."
             )
+        mismatch = ir_runtime_mismatch(model_dir)
+        if mismatch:
+            raise RuntimeError(mismatch)
         self.pipe = WhisperPipe(str(model_dir), self.device_id)
 
     def warmup(self):
@@ -4225,6 +4300,9 @@ AUTO_KV_HOST_RESERVE_GB = 8  # left for the OS, the user's applications and the 
 AUTO_KV_HEADROOM_SHARE = 3  # auto takes at most 1/(this) of what's left after weights —
                             # iGPU "device memory" and the CPU pool are the same RAM the
                             # agent's own compilers and tests run in
+IGNORE_IR_VERSION = False  # --ignore-ir-version: load an IR exported by a newer OpenVINO
+                           # than the installed one. Off because the default outcome
+                           # is a native crash with no message (ir_runtime_mismatch).
 GPU_LARGE_ALLOC = False  # force GPU_ENABLE_LARGE_ALLOCATIONS (--gpu-large-alloc). Off by
                          # default: it costs load time, and the automatic weight-based
                          # check in _gpu_large_alloc_props covers load-time failures. This
@@ -5964,7 +6042,8 @@ def _load_in_background(slot, model_dir, devices, port, ollama_port, banner_slot
         slot.status = "error"
         print(f"\n  [{slot.device_name}] ERROR: Failed to load model: {explain_genai_error(e, slot)}")
         if not any(s in str(e) for s in ("Could not find a model", "is truncated",
-                                         "Compilation failed", "dynamic shape")):
+                                         "Compilation failed", "dynamic shape",
+                                         "exported with OpenVINO")):
             # Device-contention hint only where it's plausible — for a
             # missing/truncated model or a compiler failure it sends people
             # chasing ghosts (#17, #20 — the latter is literally titled
@@ -6103,6 +6182,13 @@ def parse_args():
                    help="Disable prefix (KV) caching on GPU/CPU LLM slots. Caching is "
                         "ON by default — it prefills a repeated prompt prefix (e.g. an "
                         "agent's fixed system prompt) once instead of every turn.")
+    p.add_argument("--ignore-ir-version", action="store_true",
+                   help="Load a model whose IR was exported by a newer OpenVINO than "
+                        "the installed runtime. Refused by default: a newer IR takes "
+                        "an older runtime down in native code with no error message. "
+                        "The fix is 'pip install -U openvino openvino-genai "
+                        "openvino-tokenizers'; this flag is for proving a case where "
+                        "it loads anyway.")
     p.add_argument("--gpu-large-alloc", action="store_true",
                    help="Let one GPU buffer exceed the device per-allocation cap. "
                         "Needed only when a request dies with 'Exceeded max size "
@@ -6165,7 +6251,7 @@ def main():
     global primary, secondary, whisper_slot, embed_slot, max_dim, debug, vscode_compat
     global PREWARM_SLOT
     global PROMPT_CACHE, PROMPT_CACHE_GB, PREWARM_FILE, OFFLOAD_RATIO, THINK_IN_CONTENT
-    global GPU_LARGE_ALLOC, TOOL_TEMPLATE
+    global GPU_LARGE_ALLOC, TOOL_TEMPLATE, IGNORE_IR_VERSION
     global VSCODE_OLLAMA_VERSION
 
     args = parse_args()
@@ -6192,6 +6278,7 @@ def main():
     if TOOL_TEMPLATE != "ours":
         print(f"  tool turns: {TOOL_TEMPLATE} chat template (--tool-template)", flush=True)
     GPU_LARGE_ALLOC = args.gpu_large_alloc
+    IGNORE_IR_VERSION = args.ignore_ir_version
     OFFLOAD_RATIO = max(0, min(99, args.offload_ratio))
     if OFFLOAD_RATIO:
         # Offload is a silent no-op without XMX — say so up front instead of

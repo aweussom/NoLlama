@@ -33,7 +33,32 @@ confirm or kill it. That is the ask.
 The `CL_PROFILING_INFO_NOT_AVAILABLE` lines in his logs are verbose-profiler
 noise — present on passing runs too, so do not chase them.
 
+## Intel's ask (2026-09-30): run the nightly
+
+`Ref. 196134` landed, then Zulkifli asked for a nightly run. We promised in
+#33 to ping the reporter if Intel asked for something; this is that.
+
+Expectation, so the result is read right [INFERRED, from upstream git on
+2026-10-02]: the nightly (2026.5.0.dev) pins the **same oneDNN** as 2026.4.1
+(`a3d45972`, rls-v3.13), so the gemm generator that reports "Insufficient
+registers" is byte-identical. Three MoE commits are master-only: #38147 adds
+`fpmath:f16` to `moe_gemm_onednn.cpp`, but the reporter's failing descriptor
+already carried `attr-fpmath:f16:true` via `grouped_matmul_helper.hpp` on
+2026.3.1, so it cannot be the fix; #37637 (scatter-reduce row LUT) and #37800
+(dGPU offload USM) do not touch dispatch. A clean nightly run would be a
+surprise worth a bisect; a failing one is the expected result and still moves
+the ticket, because Intel asked.
+
+Recipe for the reporter (a second venv, stable one untouched):
+`.\install.ps1 -Nightly`, then bare `probe.py` on the real prompt and one
+OpenCode session, both with `ONEDNN_VERBOSE=1`. 2026.4.1 (released
+2026-10-01) is worth one run too, as the nearest release.
+
+Asked in #33 on 2026-10-02 (comment 5948051083), recipe and expectation
+included. Waiting on the reporter.
+
 ## Saying yes means
 
-One comment asking for that one run. Nothing here is actionable without it —
-the hardware is a device the project does not own.
+Nothing until he answers. Then one reply upstream either way: a fail is the
+expected result and still moves the ticket; a pass means a bisect across the
+three master-only MoE commits.

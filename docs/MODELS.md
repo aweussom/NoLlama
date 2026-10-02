@@ -516,7 +516,11 @@ spent two weeks needing a nightly runtime; OpenVINO **2026.3.1**
 branch is a 2026.4-toolchain export that segfaults the 2026.3.x runtime at
 load** (no error, the process just dies); the IR that matches the release
 lives on the **`2026.3.1` branch**, so the registry entry carries
-`"revision": "2026.3.1"` and `download-model.ps1` takes `-Revision`. Verified
+`"revision": "2026.3.1"` and `download-model.ps1` takes `-Revision`. Since
+2026-10-02 NoLlama also checks this at load for every model: an IR built by
+a newer OpenVINO than the installed one is refused with the `pip install -U
+openvino openvino-genai openvino-tokenizers` line, instead of the crash
+(`--ignore-ir-version` to try anyway). Verified
 2026-08-30 on the Arc 140V with the release wheels: correct answers,
 **3.6–4.8 tok/s** — a dense 27B on an iGPU is quality-over-speed. Its chat
 template opens the `<think>` block itself; NoLlama detects that at load so
