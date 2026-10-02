@@ -24,6 +24,7 @@ import argparse
 import base64
 import json
 import os
+import platform
 import statistics
 import sys
 import time
@@ -158,6 +159,41 @@ def get_models(url):
     with urllib.request.urlopen(req, timeout=10) as resp:
         data = json.loads(resp.read().decode())
     return data.get("data", [])
+
+
+def collect_provenance(health):
+    """Everything a results file needs to be cited upstream without a
+    follow-up question: the server's runtime versions, drivers and flags,
+    the slots it served from, and the client's own platform.
+
+    Why: three reporters' numbers (#24, #32, #33) each needed "which
+    OpenVINO, which driver, which flags?" asked back before they could go
+    into an issue. CLAUDE.md's standing order records the driver with every
+    measurement; this is the tool that produces them (T-008).
+
+    In: the /health payload, or None on the Ollama backend. Out: a dict;
+    server fields are None when the server is older than the provenance
+    block or is not NoLlama, so an old server still benchmarks.
+    """
+    out = {
+        "client_platform": platform.platform(),
+        "client_python": platform.python_version(),
+        "server_version": None,
+        "server": None,
+        "server_devices": None,
+        "prompt_cache": None,
+    }
+    if not health:
+        return out
+    out["server_version"] = health.get("version")
+    out["server"] = health.get("provenance")
+    out["prompt_cache"] = health.get("prompt_cache_info")
+    out["server_devices"] = {
+        name: {k: info.get(k) for k in ("model", "type", "device", "backend", "kv_pool_gb")}
+        for name, info in (health.get("devices") or {}).items()
+        if info.get("status") == "ready"
+    }
+    return out
 
 
 def check_health(url):
@@ -477,6 +513,7 @@ def main():
 
     vlm_model = None
     llm_model = None
+    health = None  # NoLlama only; the Ollama branch has no provenance source
 
     if args.backend == "ollama":
         # Sanity-check: hit /v1/models, confirm requested model exists
@@ -524,6 +561,13 @@ def main():
         # Allow --model to override discovered LLM model
         if args.model:
             llm_model = args.model
+
+    prov = collect_provenance(health)
+    srv = prov.get("server") or {}
+    print(f"Provenance: openvino {srv.get('openvino')}, genai {srv.get('openvino_genai')}, "
+          f"gpu driver {srv.get('gpu_driver')}, offload {srv.get('offload_ratio')}, "
+          f"cache {srv.get('cache_size_gb')}  (server {prov.get('server_version')}; "
+          f"client {prov['client_platform']})" + chr(10))
 
     all_results = {}
 
@@ -613,6 +657,7 @@ def main():
             "vlm_model": vlm_model,
             "runs_per_test": args.runs,
             "timestamp": ts,
+            "provenance": prov,
             "results": all_results,
         }
         with open(out_path, "w") as f:

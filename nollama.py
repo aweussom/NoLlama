@@ -4300,6 +4300,7 @@ AUTO_KV_HOST_RESERVE_GB = 8  # left for the OS, the user's applications and the 
 AUTO_KV_HEADROOM_SHARE = 3  # auto takes at most 1/(this) of what's left after weights —
                             # iGPU "device memory" and the CPU pool are the same RAM the
                             # agent's own compilers and tests run in
+PROVENANCE = {}  # runtime versions, drivers, flags — build_provenance() in main, served on /health
 IGNORE_IR_VERSION = False  # --ignore-ir-version: load an IR exported by a newer OpenVINO
                            # than the installed one. Off because the default outcome
                            # is a native crash with no message (ir_runtime_mismatch).
@@ -4781,7 +4782,9 @@ def gui():
 @app.route("/health", methods=["GET"])
 def health():
     """Liveness + per-slot state. Contract notes are inline below; the
-    field set is consumed by the web UI status dot and external launchers."""
+    field set is consumed by the web UI status dot and external launchers.
+    ``provenance`` is the runtime/driver/flags block benchmark.py copies into
+    every results file (build_provenance)."""
     devices = {}
     if primary and primary.status != "not_configured":
         devices[primary.device_name.lower()] = primary.info
@@ -4792,6 +4795,7 @@ def health():
     # and prewarm state are in each device's info block).
     result = {"status": overall_status(), "version": __version__,
               "devices": devices,
+              "provenance": PROVENANCE,
               "prompt_cache": PROMPT_CACHE,
               "prompt_cache_info": {
                   "enabled": PROMPT_CACHE,
@@ -5875,6 +5879,12 @@ def detect_devices(npu_platform=None):
     to the kwarg in load() (the in-process isolation it first suggested
     turned out to be unproven and was dropped — driver-correlated). Detection
     itself is in-process, as on main.
+
+    Driver strings ride along for /health's provenance block, because every
+    number this project records must name the driver: NPU_DRIVER_VERSION as
+    ``driver`` on the NPU, GPU_UARCH_VERSION as ``uarch`` on the GPU (the
+    GPU plugin exposes no driver property [OBSERVED 2026-10-02, OpenVINO
+    2026.4, 140V]; the display driver comes from _gpu_driver_version).
     """
     devices = {}
     core = ov.Core()
@@ -5899,7 +5909,84 @@ def detect_devices(npu_platform=None):
                 plat = None
         if plat:
             devices["NPU"]["platform"] = plat
+        try:
+            devices["NPU"]["driver"] = str(core.get_property("NPU", "NPU_DRIVER_VERSION"))
+        except Exception:
+            pass
+    if "GPU" in devices:
+        try:
+            devices["GPU"]["uarch"] = str(core.get_property(devices["GPU"]["id"], "GPU_UARCH_VERSION"))
+        except Exception:
+            pass
     return devices
+
+
+def _gpu_driver_version():
+    """The Intel display driver version, or None when it cannot be read.
+
+    Why: every measurement in this repo is recorded against a driver, because
+    "update your driver" is the first thing Intel says to a report, and a
+    number with no driver beside it cannot answer that. The GPU plugin has no
+    driver property, so this asks the OS.
+
+    Twin of scripts/idle-residency-probe.py:gpu_driver_version, kept separate
+    on purpose: the probe runs standalone outside the server's venv.
+
+    In: nothing. Out: version string, or None on any failure or off Windows.
+    Vendor-matched, not "Arc"-matched: the 285K's iGPU enumerates as the bare
+    "Intel(R) Graphics" [OBSERVED 2026-09-16], and vendor-matching also keeps
+    an RX 580, an RTX 5090 and TeamViewer's virtual adapter out.
+    """
+    import platform
+    import subprocess
+    if platform.system() != "Windows":
+        return None
+    try:
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             "(Get-CimInstance Win32_VideoController | "
+             "Where-Object { $_.Name -match 'Intel' } | "
+             "Select-Object -First 1 -ExpandProperty DriverVersion)"],
+            capture_output=True, text=True, timeout=30)
+        return (out.stdout or "").strip() or None
+    except Exception:
+        return None
+
+
+def build_provenance(devices):
+    """The runtime-and-driver block /health publishes, computed once at start.
+
+    Why: three reporters in one week (#24, #32, #33) sent benchmark numbers
+    that named no OpenVINO version, no driver and no server flags, and each
+    needed a follow-up question before the number could go upstream. The
+    server is the only party that knows all of them, so it says them, and
+    benchmark.py copies the block into every results file (T-008).
+
+    Computed once because _gpu_driver_version shells out to PowerShell
+    (about a second) and the web UI polls /health.
+
+    In: the detect_devices dict. Out: a JSON-safe dict; a value that cannot
+    be read is None, never an exception, because provenance must not stop
+    a server from starting.
+    """
+    import platform
+    try:
+        genai_ver = ovg.__version__
+    except Exception:
+        genai_ver = None
+    return {
+        "nollama": __version__,
+        "openvino": getattr(ov, "__version__", None),
+        "openvino_genai": genai_ver,
+        "python": platform.python_version(),
+        "platform": platform.platform(),
+        "gpu_driver": _gpu_driver_version() if "GPU" in devices else None,
+        "devices": {k: {kk: vv for kk, vv in v.items() if kk != "id"}
+                    for k, v in devices.items()},
+        "offload_ratio": OFFLOAD_RATIO,
+        "cache_size_gb": PROMPT_CACHE_GB,
+        "prompt_cache": PROMPT_CACHE,
+    }
 
 
 def _keepalive_eligible(slot):
@@ -6251,7 +6338,7 @@ def main():
     global primary, secondary, whisper_slot, embed_slot, max_dim, debug, vscode_compat
     global PREWARM_SLOT
     global PROMPT_CACHE, PROMPT_CACHE_GB, PREWARM_FILE, OFFLOAD_RATIO, THINK_IN_CONTENT
-    global GPU_LARGE_ALLOC, TOOL_TEMPLATE, IGNORE_IR_VERSION
+    global GPU_LARGE_ALLOC, TOOL_TEMPLATE, IGNORE_IR_VERSION, PROVENANCE
     global VSCODE_OLLAMA_VERSION
 
     args = parse_args()
@@ -6349,10 +6436,14 @@ def main():
 
     # 2. Detect devices
     devices = detect_devices(npu_platform=args.npu_platform)
+    PROVENANCE = build_provenance(devices)
     print("  Devices:", flush=True)
     for kind, info in devices.items():
         suffix = f" [{info['id']}]" if info['id'] != kind else ""
-        print(f"    {kind}{suffix}: {info['name']}")
+        drv = info.get("driver") or (PROVENANCE["gpu_driver"] if kind == "GPU" else None)
+        print(f"    {kind}{suffix}: {info['name']}" + (f"  driver {drv}" if drv else ""))
+    print(f"  OpenVINO {PROVENANCE['openvino']}, genai {PROVENANCE['openvino_genai']}, "
+          f"{PROVENANCE['platform']}", flush=True)
     print()
 
     def _id_of(kind):

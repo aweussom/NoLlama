@@ -111,7 +111,11 @@ thinking models multiply by your patience.
 
 ### Benchmark (Core Ultra 7 258V, ARC 140V 16 GB) — laptop, LPDDR5X
 
-Tested with `benchmark.py` — 1 warmup + 5 runs, outliers discarded.
+Tested with `benchmark.py` — 1 warmup + 5 runs, outliers discarded. Since
+2026-10-02 every `bench-results/*.json` carries a `provenance` block copied
+from the server's `/health`: OpenVINO and genai versions, drivers, OS,
+`--offload-ratio`, `--cache-size-gb`, and the slots it ran against. Older
+files do not, which is why the rows above name their driver by hand.
 
 ```powershell
 # Text-only (no images required)
