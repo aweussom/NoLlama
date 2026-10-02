@@ -341,8 +341,8 @@ For which models to use and how to convert one, see
 ### Other endpoints
 
 - `GET /health` — device status, model names, readiness. Also `provenance`:
-  OpenVINO / genai versions, Python and OS, the Intel display driver (Windows)
-  and NPU driver, `--offload-ratio` and `--cache-size-gb`. `benchmark.py`
+  OpenVINO / genai versions, Python and OS, the Intel GPU driver (display
+  driver on Windows, compute-runtime package on Linux) and NPU driver, `--offload-ratio` and `--cache-size-gb`. `benchmark.py`
   copies it into every results file, so a number can be cited upstream
   without asking the reporter what it ran on
 - `GET /v1/models` — list loaded models (OpenAI format)

@@ -5922,35 +5922,59 @@ def detect_devices(npu_platform=None):
 
 
 def _gpu_driver_version():
-    """The Intel display driver version, or None when it cannot be read.
+    """The Intel GPU driver version the OS knows, or None when unreadable.
 
     Why: every measurement in this repo is recorded against a driver, because
     "update your driver" is the first thing Intel says to a report, and a
     number with no driver beside it cannot answer that. The GPU plugin has no
     driver property, so this asks the OS.
 
-    Twin of scripts/idle-residency-probe.py:gpu_driver_version, kept separate
-    on purpose: the probe runs standalone outside the server's venv.
+    Windows: the display driver from WMI. Vendor-matched, not "Arc"-matched:
+    the 285K's iGPU enumerates as the bare "Intel(R) Graphics" [OBSERVED
+    2026-09-16], and vendor-matching also keeps an RX 580, an RTX 5090 and
+    TeamViewer's virtual adapter out. Twin of
+    scripts/idle-residency-probe.py:gpu_driver_version, kept separate on
+    purpose: the probe runs standalone outside the server's venv.
 
-    In: nothing. Out: version string, or None on any failure or off Windows.
-    Vendor-matched, not "Arc"-matched: the 285K's iGPU enumerates as the bare
-    "Intel(R) Graphics" [OBSERVED 2026-09-16], and vendor-matching also keeps
-    an RX 580, an RTX 5090 and TeamViewer's virtual adapter out.
+    Linux: the compute-runtime package, which is what Intel means by "driver"
+    there; the kernel module version says nothing about it. Debian/Ubuntu:
+    `intel-opencl-icd` is the name both the distro and Intel's own release
+    .deb use (the Dockerfile installs exactly that), `libze-intel-gpu1` is
+    its Level Zero sibling. Fedora: `intel-compute-runtime` [INFERRED from
+    the Fedora package index, not run on a Fedora box]. The answer carries
+    the package name so a reader knows which stack produced it.
+
+    In: nothing. Out: "32.0.101.8991" on Windows, "intel-opencl-icd 25.35..."
+    on Linux, None on any failure, a missing package, or another OS.
     """
     import platform
     import subprocess
-    if platform.system() != "Windows":
-        return None
+    system = platform.system()
     try:
-        out = subprocess.run(
-            ["powershell", "-NoProfile", "-Command",
-             "(Get-CimInstance Win32_VideoController | "
-             "Where-Object { $_.Name -match 'Intel' } | "
-             "Select-Object -First 1 -ExpandProperty DriverVersion)"],
-            capture_output=True, text=True, timeout=30)
-        return (out.stdout or "").strip() or None
+        if system == "Windows":
+            out = subprocess.run(
+                ["powershell", "-NoProfile", "-Command",
+                 "(Get-CimInstance Win32_VideoController | "
+                 "Where-Object { $_.Name -match 'Intel' } | "
+                 "Select-Object -First 1 -ExpandProperty DriverVersion)"],
+                capture_output=True, text=True, timeout=30)
+            return (out.stdout or "").strip() or None
+        if system == "Linux":
+            queries = [("intel-opencl-icd", ["dpkg-query", "-W", "-f=${Version}", "intel-opencl-icd"]),
+                       ("libze-intel-gpu1", ["dpkg-query", "-W", "-f=${Version}", "libze-intel-gpu1"]),
+                       ("intel-compute-runtime", ["rpm", "-q", "--qf", "%{VERSION}-%{RELEASE}",
+                                                  "intel-compute-runtime"])]
+            for pkg, cmd in queries:
+                try:
+                    out = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+                except (OSError, subprocess.SubprocessError):
+                    continue  # dpkg on Fedora, rpm on Ubuntu: not an error
+                ver = (out.stdout or "").strip()
+                if out.returncode == 0 and ver:
+                    return f"{pkg} {ver}"
     except Exception:
-        return None
+        pass
+    return None
 
 
 def build_provenance(devices):
