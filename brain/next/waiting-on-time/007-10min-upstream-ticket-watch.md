@@ -27,6 +27,15 @@ Intel marks acceptance into engineering triage.
   generate first, measured 2026-08-25, fails identically. It tightens the
   predicted length from prompt+55 to prompt+7, i.e. 0.12% against a 7.0 GB gap.
 
+## Also on each release: re-walk TODONT's "Last checked" lines
+
+Folded in from T-029 on 2026-10-02. Every runtime-dependent `TODONT.md` entry
+carries a **Last checked** line. On a new OpenVINO release, re-run the cheap
+ones (the lines name the probe) and re-date the rest. First walk done against
+2026.4.0: seven re-run on the laptop, all held; one trigger fired (gemma-4 E4B
+prefix cache on Intel's IR, registry flip pending); three need the B60 or the
+285K.
+
 ## Saying yes means
 
 Nothing, until one of them moves. Quote the `Ref.` number if anyone asks.

@@ -3,6 +3,11 @@
 Things we tried that didn't work, or that work but aren't worth doing. Each
 entry explains *why not* so we don't re-litigate it in six months.
 
+Entries whose verdict rests on a runtime, driver or plugin limitation carry a
+**Last checked** line naming the OpenVINO version and box it was last held
+against. Runtimes change; a verdict with no date is a guess wearing a verdict's
+clothes. Re-walk them on each release (N-007). Design decisions carry none.
+
 ## `VLMPipeline.set_chat_template()` as the VLM no-think switch (2026-09-18)
 
 Idea: the LLM path turns thinking off structurally with
@@ -22,6 +27,10 @@ supported` — it is routed through the chat-mode API, which the
 continuous-batching backend does not implement. Every GPU/CPU VLM slot
 runs on that backend because that is where prefix caching lives, so the
 swap and the cache are mutually exclusive.
+
+**Last checked:** genai 2026.4.0.0-3407, 2026-10-02, 140V, Qwen2.5-VL-3B on
+the CB backend: `set_chat_template` still throws `Chat mode is not supported`.
+Holds.
 
 **What shipped instead:** render the prompt ourselves through the
 pipeline's tokenizer — `Tokenizer.apply_chat_template(raw_messages, True,
@@ -416,6 +425,9 @@ grows a device-passthrough flag, or a `/dev/accel*` node appearing in a
 distro. Both are ten-second checks. Do not re-open this on press coverage —
 that is what sent us round the loop the first time.
 
+**Last checked:** WSL 2.9.3.0, kernel 6.18.35.2, 2026-10-02, 258V laptop:
+`/dev/dxg` only, no `/dev/accel*`. Holds.
+
 ## The stock `openvino/ubuntu24_runtime` image as the container base (2026-08-24)
 
 Idea: Intel publishes an OpenVINO runtime image; use it as the base for a
@@ -450,6 +462,10 @@ use. Measurements and the full result set are in `DOCKER-INSTALL.md`.
 Re-evaluate when Intel's runtime image ships a NEO recent enough for the
 hardware in question — the check is one `available_devices` call, and the
 answer is unambiguous.
+
+**Last checked:** 2026-08-24, `openvino/ubuntu24_runtime` at OpenVINO 2026.3
+(NEO 24.48). Not re-pulled since; a 2026.4-tagged image may carry a newer
+NEO, and the Dockerfile builds its own stack regardless.
 
 ## A Gemma-family guard to honour upstream's `requires_sdpa()` (2026-08-21)
 
@@ -490,6 +506,10 @@ measurements looks like corrupted attention.
 Also note the guard is gone on master (`requires_sdpa()` is a stub returning
 false), so upstream considers this fixed for 2026.4 -- a special case would
 have been dead on arrival there anyway.
+
+**Last checked:** the runtime floor moved to 2026.4 on 2026-09-23, where the
+guard is already a stub. The verdict (do not add a special case) is now moot
+as well as right.
 
 Re-evaluate if: a Gemma vision model shows *systematic* divergence between
 the CB and plain paths on the same inputs -- multi-image, long-context, or
@@ -680,6 +700,16 @@ We also argued upstream that re-uploading one artifact is the narrow fix:
 2.1.0 **and** 2.2.0.dev0+dd4ed1a, so the export environment keeps deciding
 and the next gemma4 export can land decomposed again.
 
+**Last checked 2026-10-02 -- the trigger has fired.** The runtime floor is
+2026.4 (since 2026-09-23), and on 2026.4.0 Intel's re-exported IR scans
+`Prefix caching: yes, 42 fused SDPA ops` and ran with a working cache on
+2026-09-23 (STATUS: ~13k-char prefix 10.3 s cold, then 1.4 / 0.9 s). The
+"until NoLlama ships a runtime of 2026.4 or newer" condition is met.
+`models.json` still points at `aweussom/gemma-4-E4B-it-int8-ov` with a note
+calling Intel's build defective, which is no longer true for a default
+install. Flipping the entry is a registry decision (Intel's is ~2.2x faster
+cold; ours is the one with two months of field use), not a TODONT one.
+
 ## Phi-3.5-vision as a GPU VLM entry (2026-09-01)
 
 Idea: `OpenVINO/Phi-3.5-vision-instruct-int4-ov` is small (2.2 GB), Intel
@@ -762,6 +792,10 @@ confirmed to reproduce it -- that was the bar for filing, since an
 Intel-GPU-only repro is one they may not be able to run. The report carries
 an 18-line CPU-only script against their own published model, and the full
 matrix: genai 2026.3 and 2026.5, CPU plus three Arc GPUs, both backends.
+
+**Last checked:** genai 2026.4.0.0-3407, 2026-10-02, 140V, `bare-probe.py`:
+image + `repetition_penalty=1.05` still asserts, every other row OK. The
+guard stays; genai#4405 is open.
 
 ## Pointing every Gemma download at our own re-exports (2026-09-01)
 
@@ -900,6 +934,10 @@ its GPU warning on the runtime version, not the device. Everything after this
 paragraph is the pre-fix evidence; keep it, because it is what that version
 check is protecting users from, and because the *method* (same-venv CPU
 control) is what made the verdict trustworthy in both directions.
+
+**Last checked:** the floor is 2026.4 since 2026-09-23, so a default install
+is past the fix and the version-keyed GPU warning no longer fires there. The
+check stays for anyone on an older venv.
 
 **Verdict (OpenVINO <= 2026.3):** don't, on **any Intel GPU — integrated or
 discrete** — until a new OpenVINO GPU plugin passes the comprehension test
@@ -1245,6 +1283,11 @@ Re-evaluate if: an NPU driver or openvino release notes gemma4 fixes —
 retest is `scripts/vlm-bench.py`, three minutes; or Intel ships a
 `-int4-cw-ov` build of a gemma-4 (none exist today, unlike gemma-3).
 
+**Last checked:** OpenVINO 2026.4.0, NPU driver 1005540, 2026-10-02, 258V
+laptop (NPU 4), Intel's 2026.4-built E4B int8 IR, bare `VLMPipeline`:
+compiles in 250 s, answers `2 + 2 = **4**` coherently, **0.11 tok/s** (8
+tokens in 70 s). Coherent on NPU 4, still ~100x too slow. Holds.
+
 ## OFFLOAD_RATIO (2026.3 MoE disk offload) on the desktop 285K iGPU (2026-08-06)
 
 Idea: OpenVINO 2026.3's MoE disk offload ("30B on 16 GB of memory") should
@@ -1332,6 +1375,10 @@ Re-evaluate if: (a) testing on an XMX GPU (Arc 140V laptop / any Arc dGPU)
 (watch `transformations_pipeline.cpp`); (c) recommending it to anyone —
 ask for their GPU model first, `OPTIMIZATION_CAPABILITIES` containing
 `GPU_HW_MATMUL` is the tell.
+
+**Last checked:** 2026-10-02, upstream source: the `supports_immad` gate is
+unchanged in `transformations_pipeline.cpp` on tag 2026.4.1 (line 649) and
+on master (line 700). Holds.
 
 **Update 2026-08-06 (same evening):** condition (a) tested on the Arc 140V
 laptop (Core Ultra 7 258V, XMX confirmed) — **offload works exactly as
@@ -1449,6 +1496,10 @@ Re-evaluate if: a newer NPU driver or openvino release changes either half
 timing), or Intel publishes a fast LFM int8 NPU build — read its rt_info
 for the recipe before assuming ours was wrong.
 
+**Last checked:** genai 2026.3 on the 285K (NPU 3), 2026-08-06. Not re-run on
+2026.4: the only NPU 3 box is the 285K, and NPU 4 cannot test it because LFM2
+is garbage there at any precision (entry below).
+
 ## LFM2 / LFM2.5 on the Lunar Lake NPU 4 (2026-08-30)
 
 Idea: the two LFM builds are the fastest NPU models we publish (38.8 /
@@ -1535,6 +1586,10 @@ NPU 4 firmware changes; or Intel publishes an LFM2 build validated on
 Lunar Lake. Retest is `npu-probe.sh LFM2.5-1.2B-Instruct-int4-cw-ov`
 (two minutes) plus the SmolLM3 control.
 
+**Last checked:** OpenVINO 2026.4.0, driver 1005540, 2026-10-02,
+`bare-probe.py --device NPU`: `cohclclclcl…` on all six cases, byte-identical
+to every earlier run. Four OpenVINO versions now. #38100 open. Holds.
+
 ## Qwen3.6-35B-A3B (Qwen3.5-MoE arch) on the NPU (2026-08-06)
 
 Idea: with OpenVINO 2026.3 passing regression, put the new Qwen3.6-35B-A3B
@@ -1567,6 +1622,10 @@ Re-evaluate if: a later OpenVINO release notes NPU support for Qwen3.5-MoE /
 `Qwen3_5MoeForConditionalGeneration` (retest is one `--scan`-verified dir +
 a 3-second load attempt), or Intel publishes an NPU-targeted export of this
 family.
+
+**Last checked:** genai 2026.3.0.0-3277, 2026-08-06, 285K. Not re-run on
+2026.4: the export is not on the laptop. The retest is three seconds once it
+is.
 
 ## `--model-name` / `--model-description` override flags (2026-08-06)
 
@@ -1779,3 +1838,7 @@ Re-evaluate if: a later OpenVINO makes the split honour the ratio on discrete
 hardware, or someone measures offload against `--device CPU` on a dGPU that
 genuinely cannot fit the model. That second case is the only one where offload
 on a dGPU might still be the right answer, and nobody has measured it.
+
+**Last checked:** 2026-08-18, B60, OpenVINO 2026.3. Not re-run; needs the
+B60, which now runs the nightly stack (N-007), so the next run there answers
+this for 2026.5 as well.
