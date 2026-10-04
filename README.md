@@ -69,6 +69,18 @@ that cannot work on it off the menu, and the server warns if you load one
 anyway — but if you are picking models by hand,
 [docs/MODELS.md](docs/MODELS.md) carries the per-generation list.
 
+**Raising the iGPU memory budget.** On Core Ultra the iGPU gets about half of system RAM by default, and a 13 GB model plus a KV pool does not fit in half of 32 GB. Intel Graphics Software has a "Shared GPU Memory Override" slider for it (driver 101.6987 and up). Run the app as Administrator; unelevated the toggle is greyed out and the app crashes, on two machines so far. If the slider refuses to stick, which one user hit on an Arc Pro 140T across three drivers ([#38](https://github.com/aweussom/NoLlama/issues/38)), set the value it writes directly, from an elevated PowerShell:
+
+```powershell
+reg add "HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers\MemoryManager" /v SystemPartitionCommitLimitPercentage /t REG_DWORD /d 70 /f
+```
+
+Reboot. The number is a percentage of RAM. 57 is the default, 70 is a sane start, and my 32 GB laptop runs at 87 set through the app, so it is the same value either way. Microsoft documents this key as able to destabilise the machine, so do not go straight to the ceiling. A driver update can reset it to 57, so check it after every driver install:
+
+```powershell
+Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\GraphicsDrivers\MemoryManager' | Select-Object SystemPartitionCommitLimitPercentage
+```
+
 ## Speed at a glance
 
 Steady-state decode, tok/s, int4 weights, `count 1-100` test. Every number is a
