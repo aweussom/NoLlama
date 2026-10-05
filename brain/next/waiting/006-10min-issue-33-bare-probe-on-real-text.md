@@ -55,7 +55,9 @@ OpenCode session, both with `ONEDNN_VERBOSE=1`. 2026.4.1 (released
 2026-10-01) is worth one run too, as the nearest release.
 
 Asked in #33 on 2026-10-02 (comment 5948051083), recipe and expectation
-included. Waiting on the reporter.
+included. Told Intel upstream on 2026-10-05 (comment 5987730865) that the
+run is delegated to the reporter and that I expect the same failure.
+Waiting on the reporter.
 
 ## Saying yes means
 
