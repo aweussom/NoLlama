@@ -124,7 +124,18 @@ python benchmark.py --llm-only
 # With VLM tests — provide 4 images: two "same vehicle" + two "different"
 python benchmark.py --images-dir C:\path\to\images
 python benchmark.py --same-1 a.jpg --same-2 b.jpg --diff-1 c.jpg --diff-2 d.jpg
+
+# Long-context check: 3 runs of a ~100k-char prompt, pass/fail per run
+python benchmark.py --long
 ```
+
+The regular workloads have prompts of a few tokens and never reach the
+prefill failures people report from agent sessions (#33). `--long` sends a
+real ~100k-char prompt built from the repo's own code, with a different
+start each run so the prefix cache cannot help, and records each run as
+pass or fail with the server's error. It ends with a short block, versions
+and GPU driver included, meant to be pasted into an issue as it is. Exit
+code 1 if any run failed. `--long-chars` changes the size.
 
 **LLM text (Qwen3 8B INT4-CW, same model on NPU and CPU):**
 

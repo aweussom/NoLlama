@@ -6,6 +6,10 @@ Usage:
     python benchmark.py --label npu              # tag this run for later compare
     python benchmark.py --url http://host:9000
 
+    # Long-context check (#33): real ~100k-char prompt, 3 runs, pass/fail,
+    # versions and driver in a short block to paste into an issue:
+    python benchmark.py --long
+
     # Ollama backend (e.g. RTX 5090):
     python benchmark.py --backend ollama --model qwen3:8b --label rtx5090
 
@@ -50,8 +54,11 @@ def image_to_b64(path):
         return "data:image/jpeg;base64," + base64.b64encode(f.read()).decode()
 
 
-def stream_request(url, body):
+def stream_request(url, body, timeout=600):
     """Send a streaming chat request. Returns (text, tokens, elapsed, ttft).
+
+    `timeout` is per socket read, so it bounds the silent prefill; --long
+    raises it because a 25k-token prefill on an iGPU can outlast 600 s.
 
     Counts both `delta.content` and `delta.reasoning` (Ollama's thinking
     channel) as tokens. NoLlama doesn't separate <think> from content, so
@@ -79,7 +86,7 @@ def stream_request(url, body):
     content_text = ""
     reasoning_text = ""
 
-    with urllib.request.urlopen(req, timeout=600) as resp:
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
         while True:
             # readline, not read(4096): HTTPResponse.read(n) blocks until
             # it has n bytes, so on a stream it waited for ~4 KB of SSE
@@ -345,6 +352,110 @@ TESTS_LLM = [
 
 
 # ---------------------------------------------------------------------------
+# Long-context mode (--long)
+# ---------------------------------------------------------------------------
+
+LONG_CHARS = 100_000
+LONG_TIMEOUT = 1800  # seconds; a 25k-token prefill on a weak iGPU is minutes
+
+
+def long_corpus(n_chars, offset):
+    """Real text from this repo, n_chars long, starting at `offset`.
+
+    Why: the #33 matmul failure needs ~15k tokens of *varied* text. A
+    repeated sentence passed at 120k chars on the affected 140T, because it
+    routes to a handful of experts [INFERRED, brain N-006]. The repo's own
+    code and notes are real text every checkout already has, so the run
+    needs no download and is identical on every box.
+
+    In: wanted length, start offset (wraps). Out: a str of exactly n_chars;
+    the corpus repeats only if the repo is smaller than n_chars, which it
+    is not today (nollama.py alone is ~300k chars).
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    parts = []
+    for rel in ("nollama.py", "TODONT.md", "benchmark.py"):
+        try:
+            with open(os.path.join(here, rel), encoding="utf-8") as f:
+                parts.append(f.read())
+        except OSError:
+            pass
+    # nollama.py holds the server's own "[error: ...]" frame text; a model
+    # quoting it back must not read as a failure in run_long.
+    text = "\n\n".join(parts).replace("[error:", "[err:") or "No repo text found. " * 1000
+    offset %= len(text)
+    out = text[offset:] + "\n\n" + text
+    while len(out) < n_chars:
+        out += text
+    return out[:n_chars]
+
+
+def run_long(url, model, n_runs, n_chars):
+    """Send a long real-text prompt n_runs times and record pass/fail per run.
+
+    Why: the regular workloads are a few tokens of prompt and cannot reach
+    the prefill failures reporters hit (#33). Each run starts at a different
+    offset, so no two prompts share a prefix and the prefix cache cannot
+    turn the second run into a free one. No warmup: a warmup is one more
+    full prefill, and its failure is a result, not noise.
+
+    In: server url, model id, run count, prompt size in chars. Out: list of
+    dicts {ok, error, ttft, elapsed, tokens}. A failure is detected both as
+    an HTTP exception and as NoLlama's in-stream "[error: ...]" frame, which
+    arrives on a 200 and would otherwise count as a short answer.
+    """
+    results = []
+    for i in range(n_runs):
+        prompt = (long_corpus(n_chars, offset=i * 37_501)
+                  + "\n\nIn three sentences: what does the code above do?")
+        body = {"model": model, "stream": True, "max_tokens": 256, "temperature": 0,
+                "messages": [{"role": "user", "content": prompt}]}
+        print(f"    run {i+1}/{n_runs} ({n_chars} chars)...", end="", flush=True)
+        r = {"ok": False, "error": None, "ttft": None, "elapsed": None, "tokens": 0}
+        try:
+            text, tokens, elapsed, ttft = stream_request(url, body, timeout=LONG_TIMEOUT)
+            r.update(ttft=ttft, elapsed=elapsed, tokens=tokens)
+            if "\n[error: " in text:
+                r["error"] = text[text.rindex("\n[error: "):].strip()[:300]
+            elif tokens == 0:
+                r["error"] = "empty answer"
+            else:
+                r["ok"] = True
+        except Exception as e:
+            r["error"] = f"{type(e).__name__}: {e}"[:300]
+        results.append(r)
+        if r["ok"]:
+            print(f" ok, ttft {r['ttft']:.0f}s, {r['tokens']} tok", flush=True)
+        else:
+            print(f" FAIL: {r['error']}", flush=True)
+    return results
+
+
+def print_long_report(results, n_chars, prov, model):
+    """Print the short block a reporter pastes into an issue.
+
+    Why: the JSON file is the full record, but nobody pastes 200 lines into
+    a GitHub comment. This block is what we need to forward upstream: the
+    verdict per run and the versions and driver it ran on.
+
+    In: run_long's list, prompt size, collect_provenance's dict, model id.
+    Out: None; prints. Missing provenance prints as None (old server).
+    """
+    srv = prov.get("server") or {}
+    gpu = ((srv.get("devices") or {}).get("GPU") or {}).get("name")
+    passed = sum(r["ok"] for r in results)
+    print("\n----- paste from here -----")
+    print(f"long-context: {passed}/{len(results)} passed, {n_chars} chars, {model}")
+    for i, r in enumerate(results, 1):
+        print(f"  run {i}: " + (f"ok, ttft {r['ttft']:.0f}s" if r["ok"] else f"FAIL {r['error']}"))
+    print(f"openvino {srv.get('openvino')}, genai {srv.get('openvino_genai')}")
+    print(f"gpu {gpu}, driver {srv.get('gpu_driver')}")
+    print(f"prompt cache {srv.get('prompt_cache')}, nollama {srv.get('nollama')}, "
+          f"{srv.get('platform')}")
+    print("----- to here -----")
+
+
+# ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
 
@@ -449,8 +560,13 @@ def main():
                         help="Directory for JSON results (default: bench-results)")
     parser.add_argument("--no-save", action="store_true",
                         help="Skip saving results to JSON")
-    parser.add_argument("--runs", type=int, default=5,
-                        help="Number of test runs per workload (default: 5)")
+    parser.add_argument("--runs", type=int, default=None,
+                        help="Number of test runs per workload (default: 5; 3 with --long)")
+    parser.add_argument("--long", action="store_true",
+                        help="Only the long-context check: a ~100k-char real-text prompt, "
+                             "pass/fail per run, and a short block to paste into an issue")
+    parser.add_argument("--long-chars", type=int, default=LONG_CHARS,
+                        help=f"Prompt size for --long (default: {LONG_CHARS})")
     parser.add_argument("--llm-only", action="store_true",
                         help="Skip VLM tests")
     parser.add_argument("--vlm-only", action="store_true",
@@ -469,7 +585,11 @@ def main():
         args.url = "http://localhost:11434" if args.backend == "ollama" \
             else "http://localhost:8000"
     if args.label is None:
-        args.label = args.backend
+        args.label = "long" if args.long else args.backend
+    if args.runs is None:
+        args.runs = 3 if args.long else 5
+    if args.long:
+        args.llm_only = True  # the long check needs no images
 
     if args.backend == "ollama":
         if not args.model:
@@ -568,6 +688,26 @@ def main():
           f"gpu driver {srv.get('gpu_driver')}, offload {srv.get('offload_ratio')}, "
           f"cache {srv.get('cache_size_gb')}  (server {prov.get('server_version')}; "
           f"client {prov['client_platform']})" + chr(10))
+
+    if args.long:
+        model = llm_model or vlm_model
+        if not model:
+            print("ERROR: no model ready on the server.")
+            sys.exit(1)
+        print(f"=== Long-context check: {model} ===" + chr(10))
+        results = run_long(args.url, model, args.runs, args.long_chars)
+        print_long_report(results, args.long_chars, prov, model)
+        if not args.no_save:
+            os.makedirs(args.output_dir, exist_ok=True)
+            ts = time.strftime("%Y%m%d-%H%M%S")
+            safe = model.replace(":", "-").replace("/", "-").replace("@", "-at-")
+            out_path = os.path.join(args.output_dir, f"{args.label}-{safe}-{ts}.json")
+            with open(out_path, "w") as f:
+                json.dump({"label": args.label, "mode": "long", "url": args.url,
+                           "model": model, "chars": args.long_chars, "timestamp": ts,
+                           "provenance": prov, "runs": results}, f, indent=2, default=str)
+            print(chr(10) + f"Saved: {out_path}")
+        sys.exit(0 if results and all(r["ok"] for r in results) else 1)
 
     all_results = {}
 
