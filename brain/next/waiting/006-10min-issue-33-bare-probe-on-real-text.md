@@ -59,8 +59,28 @@ included. Told Intel upstream on 2026-10-05 (comment 5987730865) that the
 run is delegated to the reporter and that I expect the same failure.
 Waiting on the reporter.
 
+## His answer (2026-10-05): the nightly passed, once
+
+[OBSERVED 2026-10-05, reporter in #33] OpenVINO `2026.5.0-23326-6ce8fccc044`,
+genai `2026.5.0.0-3501-ff212f97cf5`, GPU driver 32.0.101.9033, Windows build
+26300. Through NoLlama (not bare `probe.py`), `--no-prompt-cache`, his usual
+prompt: no matmul error, ran until the context window was full. No
+`ONEDNN_VERBOSE` output posted.
+
+That contradicts the expectation above, and upstream was told to expect a fail.
+Two reasons it is not settled: the 2026-09-16 failure under the same flag was
+one of two, so a single pass is weak, and without the verbose log we cannot
+tell a new kernel from a dispatch that no longer asks for the grouped gemm.
+His driver in September was never recorded, so a driver change is not ruled
+out.
+
+Asked for: 2-3 more nightly sessions, one with the prompt cache on, the same
+on 2026.4.1, one verbose log, and his September driver.
+
 ## Saying yes means
 
-Nothing until he answers. Then one reply upstream either way: a fail is the
-expected result and still moves the ticket; a pass means a bisect across the
-three master-only MoE commits.
+Post the #33 follow-up (drafted and detuned 2026-10-05). Upstream gets a
+reply once the repeats are in. Repeats pass and 2026.4.1 fails: tell Intel it
+is fixed on master and ask which change did it. Both pass: fixed in 2026.4.1,
+check the driver. Nightly fails again: it is intermittent and the ticket
+stays open.
