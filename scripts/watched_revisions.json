@@ -9,8 +9,8 @@
     "sha": ""
   },
   "OpenVINO/Muse-Glimmer-30B-int4-ov": {
-    "lastModified": "2026-08-21",
-    "sha": "53a0450269262f068d5b39088faf79379efb0656"
+    "lastModified": "2026-10-02",
+    "sha": "b997bba6efe1bc7bd577ae1ae9cbcfac8950f3a0"
   },
   "OpenVINO/Phi-3.5-mini-instruct-int4-cw-ov": {
     "lastModified": "2026-06-18",
