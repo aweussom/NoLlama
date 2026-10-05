@@ -449,6 +449,12 @@ that follows: cross-box GPU comparisons now carry a **driver delta between
 the laptop and the B60** (`.8991` vs `.8805`), and the B60 is the side to
 bring forward.
 
+**2026-10-05: `.9033` exists** (the #33 reporter runs it), so the laptop is
+one release behind again. Deliberately not updated (Tommy, 2026-10-05): it
+gets the new driver when a test needs it, not before. A test needs it when
+its result goes upstream or into an issue, or when we are trying to
+reproduce a report from a newer driver. Update the driver first, then measure.
+
 Latest Intel Arc driver at that date was **`32.0.101.8991`** (2026-08-25,
 WHQL, re-certified 08-29), with `.8974` before it on 08-15 — per the driver
 trackers; intel.com 403s an automated fetch, so confirm by hand before
