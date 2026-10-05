@@ -74,13 +74,16 @@ tell a new kernel from a dispatch that no longer asks for the grouped gemm.
 His driver in September was never recorded, so a driver change is not ruled
 out.
 
-Asked for: 2-3 more nightly sessions, one with the prompt cache on, the same
-on 2026.4.1, one verbose log, and his September driver.
+Asked in #33 on 2026-10-05 (comment 5998179892): `python benchmark.py
+--long` (added for this, 59d9364; 3 runs of 100k chars of real code, pass/fail
+plus versions and driver in a paste block) on the nightly with and without
+`--no-prompt-cache`, the same on his stable venv if he has time, and his
+September driver. The verbose log was dropped from the ask to keep it short;
+ask for it if the repeats pass.
 
 ## Saying yes means
 
-Post the #33 follow-up (drafted and detuned 2026-10-05). Upstream gets a
-reply once the repeats are in. Repeats pass and 2026.4.1 fails: tell Intel it
+Nothing until he answers. Upstream gets a reply once the repeats are in. Repeats pass and 2026.4.1 fails: tell Intel it
 is fixed on master and ask which change did it. Both pass: fixed in 2026.4.1,
 check the driver. Nightly fails again: it is intermittent and the ticket
 stays open.
