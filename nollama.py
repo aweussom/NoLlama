@@ -4420,9 +4420,12 @@ def _sse_tool_stream(slot, raw_messages, gen, tools, completion_id, created, t0,
     turn ended (issue #36). Reasoning streams as reasoning_content, answer
     text streams as content until _ToolCallGate sees a tool-call opener; from
     there the turn is held and, when generation ends, parse_tool_calls turns
-    the held text into structured tool_calls deltas. Keep-alive frames still
-    cover a long prefill (the seam's None marker), and OpenVINO still cannot
-    cancel a blocked prefill, so an aborted client leaves it churning.
+    the held text into structured tool_calls deltas. Keep-alive frames cover
+    a long prefill (the seam's None marker) and a long held call block (no
+    frame for HEARTBEAT_SECS while tokens flow into the gate, #51: OpenCode
+    gave up on a ~3800-token write call and retried it in a loop). OpenVINO
+    still cannot cancel a blocked prefill, so an aborted client leaves it
+    churning.
 
     vlm: (text_prompt, images) when the slot is a VLM — same frames, fed by
     stream_vlm_tokens. If the opener never became a call, the held text is
@@ -4479,9 +4482,11 @@ def _sse_tool_stream(slot, raw_messages, gen, tools, completion_id, created, t0,
 
     try:
         yield frame({"role": "assistant"})
+        last_out = time.monotonic()
         for token in tokens:
             if token is None:
                 yield frame({"content": ""})  # keep-alive during a long prefill
+                last_out = time.monotonic()
                 continue
             if token_count == 0:
                 # Wall-clock TTFT: prefill is over when the first token lands.
@@ -4489,7 +4494,22 @@ def _sse_tool_stream(slot, raw_messages, gen, tools, completion_id, created, t0,
             token_count += 1
             if debug:
                 raw.append(token)
-            yield from route(splitter.feed(token))
+            sent = False
+            for f in route(splitter.feed(token)):
+                sent = True
+                yield f
+            if sent:
+                last_out = time.monotonic()
+            elif time.monotonic() - last_out >= HEARTBEAT_SECS:
+                # Tokens are arriving but the gate is holding them (a long
+                # call block, e.g. a whole file for a write tool), so the
+                # seam's silence marker never fires. Without this the client
+                # saw minutes of nothing, timed out and retried, and the dead
+                # generation held the lock while the retry queued behind it;
+                # the write also fails fast if the client has already left,
+                # which stops the generation now instead of at the end (#51).
+                yield frame({"content": ""})
+                last_out = time.monotonic()
         yield from route(splitter.close())
 
         # Capture state BEFORE the finally-block safety-net sets the token

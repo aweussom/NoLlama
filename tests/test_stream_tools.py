@@ -191,6 +191,27 @@ def test_tool_turn_keepalive_and_plain_answer():
     assert not any(d.get("tool_calls") for d in deltas)
 
 
+def test_tool_turn_keepalive_while_the_gate_holds_a_long_call():
+    body = ["<tool_call>\n<function=get_weather>\n<parameter=city>\n"] + ["Oslo"] * 50 \
+        + ["\n</parameter>\n</function>\n</tool_call>"]
+    saved = nollama.HEARTBEAT_SECS
+    nollama.HEARTBEAT_SECS = 0  # every silent held token is past the deadline
+    try:
+        (deltas, finish), _ = run_tool_stream(body)
+    finally:
+        nollama.HEARTBEAT_SECS = saved
+    assert finish == "tool_calls"
+    assert sum(1 for d in deltas if d.get("content") == "") >= 50
+    assert joined(deltas, "content") == ""  # keep-alives carry nothing
+    tcs = [tc for d in deltas for tc in (d.get("tool_calls") or [])]
+    assert json.loads(tcs[0]["function"]["arguments"]) == {"city": "Oslo" * 50}
+
+
+def test_tool_turn_no_extra_keepalive_while_text_flows():
+    (deltas, _), _ = run_tool_stream(["Just ", "an ", "answer."])
+    assert not any(d.get("content") == "" for d in deltas)
+
+
 def test_tool_turn_false_alarm_opener_is_released():
     (deltas, finish), _ = run_tool_stream(["The tag <function=", "foo> is not a call"])
     assert finish == "stop"

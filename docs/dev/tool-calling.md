@@ -129,6 +129,18 @@ A slow prefill on a big agent prompt trips client idle watchdogs
   `_sse_tool_stream`) turns the seam's `None` marker — `HEARTBEAT_SECS` of
   silence — into an empty-content delta, which resets content- and
   byte-based client watchdogs alike and is a no-op for message assembly.
+- `_sse_tool_stream` also sends one when `HEARTBEAT_SECS` pass with tokens
+  arriving but nothing going out, which is what a held call block looks
+  like. Before that, a long call (a whole file for a `write`) was minutes
+  of silence. [OBSERVED 2026-10-06, #51, 140T, Qwen3-Coder-30B-A3B]
+  OpenCode gave up on a 55k-char turn whose call ran to ~3800 tokens and
+  resent it every 6–7 minutes. The server did not notice it had left, because
+  it wrote nothing, so each dead generation ran to the end holding the lock
+  and the retry queued behind it. Greedy decoding wrote the same call
+  every time, so it never ended. The ping also finds a departed client:
+  [OBSERVED 2026-10-06, 140V, Qwen3-1.7B] a client that closed 10 s into a
+  held `write` call was logged gone at 15.0 s and 508 tokens. Before, it
+  would have run to the end of the call.
 
 Big agent prompts (some agent clients ship ~21k-token system prompts; OpenCode ~8k) prefill slowly
 on weak iGPUs — ~6 min TTFT on the desktop 285K Xe-LPG. Mitigations: a
