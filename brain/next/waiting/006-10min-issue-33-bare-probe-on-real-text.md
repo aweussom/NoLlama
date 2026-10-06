@@ -81,9 +81,25 @@ plus versions and driver in a paste block) on the nightly with and without
 September driver. The verbose log was dropped from the ask to keep it short;
 ask for it if the repeats pass.
 
+## The repeats (2026-10-06): 6 of 6 pass on the nightly
+
+[OBSERVED 2026-10-06, reporter in #33, JSON attached there] Nightly
+`6ce8fccc044`, driver 32.0.101.9033, `benchmark.py --long`: 3/3 with
+`--no-prompt-cache` (TTFT 185–194 s), 3/3 with the cache (287–469 s; that gap
+went to T-039). His September driver is "the previous one", not known
+exactly; he updates through Intel's assistant as releases appear.
+
+So it is fixed on nightly + 9033, but the fix could be either one. He did
+not run his stable venv. That run is the one that tells them apart: stable
+(2026.4.x) on 9033 fails, the runtime fixed it; it passes, the driver (or
+2026.4.x) did.
+
 ## Saying yes means
 
-Nothing until he answers. Upstream gets a reply once the repeats are in. Repeats pass and 2026.4.1 fails: tell Intel it
+Post the #33 thanks plus the one stable-venv ask, and tell Intel upstream
+it passes 6/6 on nightly + 9033, with the stable run to follow. Close #33
+when the stable run is in, whichever way it goes, since either way the
+user-facing fix is "update". Repeats pass and 2026.4.1 fails: tell Intel it
 is fixed on master and ask which change did it. Both pass: fixed in 2026.4.1,
 check the driver. Nightly fails again: it is intermittent and the ticket
 stays open.

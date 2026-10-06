@@ -264,6 +264,16 @@ B60) or Xe3 (B390), where the published TTFT numbers for cached paths are
 short — the CPU-bound phase may be an Xe-LPG-only artefact. Worth an
 upstream question once someone has a second GPU class measured.
 
+Second GPU class [OBSERVED 2026-10-06, #33 reporter, Arc 140T (Xe-LPG+,
+*with* XMX), Qwen3-Coder-30B-A3B int8, OpenVINO 2026.5.0 nightly
+`6ce8fccc044`, driver 32.0.101.9033, `benchmark.py --long`, 100k chars of
+code, JSON attached to #33]: TTFT 192/194/185 s with `--no-prompt-cache`,
+469/397/287 s through the scheduler. Smaller gap than the 285K's 3×
+(1.5–2.5×) but the same direction, on a different GPU class, model and
+runtime, so "Xe-LPG-only" no longer covers it. CPU/GPU load was not
+sampled on that box. That is the second class the paragraph above asked
+for; the upstream question is now due.
+
 A process lesson from the same evening: three "stalls" chased for an hour
 were measurement cutoffs of 140 s and 330 s against a path whose real TTFT
 was 216–350 s. Set the budget from the plain-pipeline TTFT × 4 before
