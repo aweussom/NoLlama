@@ -96,10 +96,7 @@ not run his stable venv. That run is the one that tells them apart: stable
 
 ## Saying yes means
 
-Post the #33 thanks plus the one stable-venv ask, and tell Intel upstream
-it passes 6/6 on nightly + 9033, with the stable run to follow. Close #33
-when the stable run is in, whichever way it goes, since either way the
-user-facing fix is "update". Repeats pass and 2026.4.1 fails: tell Intel it
-is fixed on master and ask which change did it. Both pass: fixed in 2026.4.1,
-check the driver. Nightly fails again: it is intermittent and the ticket
-stays open.
+Posted 2026-10-06: #33 asks for the stable-venv run (comment 6022857980);
+upstream told it passes 6/6 on nightly + 9033, cause not yet split (#38211
+comment 6022858411). When his run is in: forward it upstream and close #33,
+since either way the user-facing fix is "update".
