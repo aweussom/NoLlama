@@ -250,9 +250,29 @@ function Invoke-Task {
         "*.bat" { "cmd.exe",  @("/c", $cmd.Source, "run", $Prompt) }
         default { $cmd.Source, @("run", $Prompt) }
     }
+    # stdin MUST be redirected from an empty file. Left inherited, `opencode
+    # run` under OpenCode 1.18.32 never produces a byte: it sits on the
+    # console stdin and the probe reads the silence as "never called a tool"
+    # or, after its own 60 s, "Cannot connect to API" [OBSERVED 2026-10-07,
+    # 258V laptop; 0/2 on a model that passed by hand in 74 s]. 1.18.30 on
+    # the B60 did not care, which is why the probe passed there the same
+    # evening. An empty file, not NUL: Start-Process wants a path.
+    $stdin = Join-Path $Dir ".probe-stdin"
+    Set-Content -Path $stdin -Value "" -NoNewline
+    # PWD MUST point at the fixture too. OpenCode 1.18.32 homes the session on
+    # the inherited PWD variable, not on the process's working directory:
+    # launched from the NoLlama checkout, it opened a second instance on the
+    # repo, read the repo's opencode.json, and tried its `nollama` provider on
+    # :8000 -- "Cannot connect to API" against a server that was never asked
+    # [OBSERVED 2026-10-07, 258V laptop, opencode.log: `creating instance
+    # directory=...NoLlama` after the fixture's]. Git Bash and pwsh both set
+    # PWD for children. 1.18.30 on the B60 used the real cwd and never saw it.
+    $savedPwd = $env:PWD; $env:PWD = $Dir
     $proc = Start-Process -FilePath $file -ArgumentList $argv `
         -WorkingDirectory $Dir -NoNewWindow -PassThru `
+        -RedirectStandardInput $stdin `
         -RedirectStandardOutput $log -RedirectStandardError "$log.err"
+    $env:PWD = $savedPwd
     # Cmdlets only, no .NET method calls on the Process object: a machine
     # strict enough to refuse Start-Job may also be in ConstrainedLanguage,
     # where methods on System.Diagnostics.Process are not callable.
