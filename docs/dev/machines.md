@@ -64,6 +64,13 @@ Reachable over SSH at **`wossn@100.81.4.88`** (Tailscale range; hostname
   output at all** -- the same script run with `-File` after `scp` works.
   When a remote step returns nothing, copy it over and run it as a file
   before believing the result.
+- **`localhost` costs 2 s per connection on this box** [OBSERVED 2026-10-07,
+  Ollama 0.40 bound to `127.0.0.1:11434`]: `localhost` resolves to `::1`
+  first, the IPv6 connect is refused only after 2.0 s, then the client falls
+  back. `127.0.0.1` answers in 4 ms, `GET /api/version` included, and the
+  laptop refuses `::1` instantly, so it is this box. Any IPv4-only listener
+  here reads as a flat 2 s TTFT when benchmarked through `localhost`; the
+  NoLlama server on 8010 did not show it. Use `127.0.0.1`.
 - **Inbound firewall**: rule "NoLlama 8000-8002 from Tailscale" allows TCP
   8000–8002 from `100.64.0.0/10`, created 2026-09-11. Health and chat on
   8002 verified from the 285K and from a container on the 285K.

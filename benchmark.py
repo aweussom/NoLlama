@@ -549,7 +549,8 @@ def main():
                              "ollama uses --model directly and skips health check.")
     parser.add_argument("--url", default=None,
                         help="Server URL. Default: http://localhost:8000 for nollama, "
-                             "http://localhost:11434 for ollama.")
+                             "http://127.0.0.1:11434 for ollama (Ollama binds IPv4 only; "
+                             "localhost tries ::1 first, 2 s per request on one box).")
     parser.add_argument("--model", default=None,
                         help="Model name to test (required for --backend ollama, "
                              "optional override for nollama).")
@@ -582,7 +583,7 @@ def main():
 
     # Default URL per backend
     if args.url is None:
-        args.url = "http://localhost:11434" if args.backend == "ollama" \
+        args.url = "http://127.0.0.1:11434" if args.backend == "ollama" \
             else "http://localhost:8000"
     if args.label is None:
         args.label = "long" if args.long else args.backend

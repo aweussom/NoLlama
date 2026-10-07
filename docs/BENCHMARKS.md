@@ -321,40 +321,83 @@ Three things in that table are worth more than their row:
   int4 of the same weights, on a memory-bound iGPU where the extra precision
   buys nothing measurable.
 
-### NoLlama vs Ollama on the Arc 140V iGPU
+### NoLlama vs Ollama (Vulkan): decode parity on a dGPU, 2026-10-07
 
-Ollama now runs on Intel iGPUs via its Vulkan backend, so this is the
-direct apples-to-apples question: **same Qwen3-8B, same 4-bit, same
-Arc 140V iGPU.** Measured 2026-06-16 with `benchmark.py` (3 runs), using
-the `count 1-100` test as the steady-state decode metric.
+Ollama runs on Intel GPUs through llama.cpp's Vulkan backend. Same Qwen3-8B,
+4-bit on both sides, same box, same morning: `OpenVINO/Qwen3-8B-int4-ov`
+(4.52 GiB) against Ollama's `qwen3:8b` (Q4_K_M, 5.2 GB), `benchmark.py --runs 3
+--llm-only`, temperature 0 on both. Arc Pro B60 in the 5950X box, driver
+`32.0.101.8805`, OpenVINO 2026.4.0 / genai 2026.4.0.0, Ollama 0.40.0.
+
+| Arc Pro B60, decode tok/s | NoLlama (OpenVINO int4) | Ollama 0.40 (Vulkan Q4_K_M) |
+|---|---|---|
+| count 1-100 (no-think) | 68.4 | 60.6 |
+| what is 2+2 (thinking) | 63.8 | 63.8 |
+| say hello (thinking) | 57.7 | 63.5 |
+| TTFT, short prompt | 0.15-0.19 s | 0.06-0.09 s |
+
+Parity, within 10% either way. The 1.6x from June (table below) is gone, and
+what moved is Ollama: 0.30.8 to 0.40.0, and four months of work on the Vulkan
+backend. Our side did not regress; the B60 rows match the September llama.cpp
+comparison (65.7 decode) to within noise. So on a discrete Intel GPU, tok/s is
+no longer a reason to pick NoLlama. The prefix cache is (19x on
+a repeated agent prefix, next section), vision models are, the NPU is, and so
+is not having to know about `OLLAMA_IGPU_ENABLE`.
+
+Four things I saw on the Ollama side while measuring, all 0.40.0:
+
+- An iGPU is still off by default. The stock tray instance on the 140V laptop
+  discovered `cpu` only; it took `OLLAMA_IGPU_ENABLE=1` to get the GPU
+  [OBSERVED 2026-10-07, 140V, driver `32.0.101.8991`]. Same as in June.
+- Thinking ignores the system prompt. The no-think tests, which hold Qwen3 to
+  1-9 tokens under NoLlama, produced 87-145 tokens of reasoning under Ollama.
+  Only `think: false` on the native API turns it off, and the OpenAI endpoint
+  has no equivalent. Decode rate is unaffected; the token counts are not
+  comparable across the two columns.
+- The count row ran to the 4096 cap three runs out of three inside the
+  benchmark sequence, yet the identical request on a freshly started server
+  stops at 546 tokens with the correct answer. I think it depends on what the
+  slot's prompt cache held from the previous test [INFERRED: llama.cpp reuses
+  the cached prefix, the logits are not bit-identical to a cold prefill, and
+  a greedy Qwen3 thinking run that forks on one token does not come back].
+  Decode rate is unaffected either way; the 60.6 is a 4094-token steady state.
+- `localhost` cost 2 s per request on the B60 box, and Ollama is not to blame.
+  `localhost` resolves to `::1` first, Ollama binds `127.0.0.1` only, and on
+  that box the refused IPv6 connect takes 2.0 s before the fallback (4 ms
+  straight to `127.0.0.1`; the laptop refuses instantly). The first run read a
+  flat 2.1 s TTFT on every request because of it. `benchmark.py` now defaults
+  the Ollama URL to `127.0.0.1`. See `docs/dev/machines.md`.
+
+#### The 140V laptop, same day: not reported
+
+I re-ran the laptop the same morning and I am withholding the numbers. It
+throttled inside the run: NoLlama went from 20 tok/s on the first test to 12 on
+the last within 2.5 minutes, and Ollama from 17.5 to 14 inside its own run, in
+a hot room. The first-minute NoLlama rate matches the June 21.7 below, and
+Ollama's 14-17 is above its June 13.4. That agrees with the B60 result, and it
+is all the laptop can say until a cool re-run.
+
+#### June 2026, Arc 140V: the number the README used to quote
+
+Measured 2026-06-16 with `benchmark.py` (3 runs), same Qwen3-8B 4-bit, Arc 140V
+iGPU, Ollama 0.30.8. Kept as history; this is the 1.6x the October run closed.
 
 | | NoLlama (OpenVINO INT4-CW) | Ollama 0.30.8 (Vulkan GGUF Q4) |
 |---|---|---|
-| **Decode tok/s** (count 1-100) | **21.7** | 13.4 |
+| Decode tok/s (count 1-100) | 21.7 | 13.4 |
 | Decode tok/s (2+2, thinking) | 18.6 | 11.2 |
 
-**NoLlama's OpenVINO GPU path is ~1.6× faster on decode.** Prefill isn't
-compared — the two were measured at different times. Two caveats that matter in
-practice:
-
-- **Ollama drops the iGPU by default** — it needs `OLLAMA_IGPU_ENABLE=1`,
-  or it silently runs on CPU. The out-of-the-box Ollama experience on
-  this laptop is *CPU*, not GPU.
-- Ollama can't use the **NPU** at all, and has no local **vision** model
-  on Intel — both are NoLlama-only.
-
-> **Roadmap note — GPU/CPU support is here to stay** *(updated 2026-08:
-> this reverses the earlier "provisional" stance)*. NoLlama's original
-> reason to exist is the Intel **NPU** (which Ollama doesn't support), and
-> the plan was to drop GPU/CPU once Ollama's Intel performance caught up.
-> That hasn't happened and isn't on the horizon: Ollama's Intel path runs
-> through a non-OpenVINO shim and remains much slower, while most real
-> NoLlama users drive coding agents (OpenCode, Copilot) on the GPU/CPU
-> path. So GPU/CPU — and with them tool calling, prefix caching, and
-> prewarm — are supported for the foreseeable future. If you outgrow a
-> single-user local server (multi-user, production serving of 30B+
-> models), the step up is [OpenVINO Model Server](https://github.com/openvinotoolkit/model_server)
-> — same runtime underneath, built for that job.
+> **Roadmap note: GPU/CPU support is here to stay** (updated 2026-10-07).
+> NoLlama's original reason to exist is the Intel NPU, which Ollama still
+> cannot target, and the plan was to drop GPU/CPU once Ollama's Intel
+> performance caught up. On decode it now has, on a dGPU. GPU/CPU stay
+> anyway. Most real NoLlama users drive coding agents (OpenCode, Copilot) on
+> this path, and what they get from it is the prefix cache, prewarm, tool
+> calling tuned for those clients, and vision. None of that is a tok/s
+> number. If you outgrow a single-user local server (multi-user, production
+> serving of 30B+ models), the step up is
+> [OpenVINO Model Server](https://github.com/openvinotoolkit/model_server),
+> same runtime underneath, built for that job.
 
 ### NoLlama vs llama.cpp's OpenVINO backend (Arc Pro B60)
 
@@ -362,7 +405,7 @@ llama.cpp took an **OpenVINO backend upstream** (`-DGGML_OPENVINO=ON`, preview
 alongside OpenVINO 2026.1), so on Intel hardware the runtime is no longer what
 separates us from it — it is the same OpenVINO underneath, reached through a
 different front-end. That makes this the sharper comparison than the Ollama one
-above, which still runs through Vulkan.
+above, which runs through Vulkan.
 
 Measured **2026-09-07** on the B60 box: Ryzen 9 5950X + **Arc Pro B60 24 GB**,
 native Windows (not WSL — see the note below), GPU driver `32.0.101.8805`.
@@ -447,9 +490,9 @@ is native.
   19x on every turn that reuses one.
 - `llama-bench` feeds raw tokens with no chat template, which flatters it
   slightly on the like-for-like rows.
-- **Stock Ollama has no OpenVINO path** as of 2026-09; only third-party forks
-  (`zhaohb/ollama_openvino`). The Ollama comparison above is therefore still
-  current — this section is about llama.cpp built from source.
+- **Stock Ollama has no OpenVINO path** as of 2026-10; only third-party forks
+  (`zhaohb/ollama_openvino`). The Ollama comparison above is Vulkan — this
+  section is llama.cpp built from source with the OpenVINO backend.
 
 ### Benchmark (Core Ultra 9 285K, RTX 5090) — desktop, DDR5
 

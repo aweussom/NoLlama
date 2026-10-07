@@ -129,7 +129,7 @@ doesn't reach. Pick per device, not per project:
 | Run on | Use | Why |
 |---|---|---|
 | **Intel NPU** | **NoLlama** | Ollama can't target it at all. This is the reason NoLlama exists — within the 4096-token, no-tool-calling limits above. |
-| **Intel iGPU / ARC**, text | **NoLlama** | OpenVINO INT4 is ~1.6× faster on decode than Ollama's Vulkan on an Arc 140V. Ollama also needs `OLLAMA_IGPU_ENABLE=1` or it silently falls back to CPU. |
+| **Intel iGPU / ARC**, text | **NoLlama** for agents, either for chat | Decode is at parity with Ollama 0.40's Vulkan on an Arc Pro B60 (2026-10, [numbers](docs/BENCHMARKS.md)). What NoLlama adds is the prefix cache: an 8k-token agent turn in 0.2 s against 4 s cold. Ollama on an iGPU still needs `OLLAMA_IGPU_ENABLE=1` or it silently runs on the CPU. |
 | **Intel iGPU / ARC**, images | **NoLlama** | Ollama has no Intel path for local vision models. |
 | **CPU only** | **Ollama** | llama.cpp's CPU backend is more mature, and `ollama pull` beats model conversion. |
 | **NVIDIA or AMD GPU** | **Ollama** | NoLlama is Intel-only by design. |
