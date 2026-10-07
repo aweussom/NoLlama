@@ -340,9 +340,14 @@ Parity, within 10% either way. The 1.6x from June (table below) is gone, and
 what moved is Ollama: 0.30.8 to 0.40.0, and four months of work on the Vulkan
 backend. Our side did not regress; the B60 rows match the September llama.cpp
 comparison (65.7 decode) to within noise. So on a discrete Intel GPU, tok/s is
-no longer a reason to pick NoLlama (the iGPU is a different story, below). The prefix cache is (19x on
-a repeated agent prefix, next section), vision models are, the NPU is, and so
-is not having to know about `OLLAMA_IGPU_ENABLE`.
+no longer a reason to pick NoLlama (the iGPU is a different story, below).
+Vision models are, the NPU is, and so is not having to know about
+`OLLAMA_IGPU_ENABLE`. The prefix cache is not: Ollama's llama-server keeps its
+slot's KV and reuses the longest common prefix [OBSERVED 2026-10-07, 140V
+laptop, Ollama 0.40 on CPU, 5.9k-token system prompt: 277 s cold, 0.3 s
+repeated, 3.7 s with a new question behind the same prefix]. The 19x in the
+next section is our cached path against our own cold path and against
+llama.cpp's stateless OpenVINO backend; Vulkan has the normal cache.
 
 Four things I saw on the Ollama side while measuring, all 0.40.0:
 
