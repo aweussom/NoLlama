@@ -321,7 +321,7 @@ Three things in that table are worth more than their row:
   int4 of the same weights, on a memory-bound iGPU where the extra precision
   buys nothing measurable.
 
-### NoLlama vs Ollama (Vulkan): decode parity on a dGPU, 2026-10-07
+### NoLlama vs Ollama (Vulkan): parity on the dGPU, 1.4x on the iGPU, 2026-10-07
 
 Ollama runs on Intel GPUs through llama.cpp's Vulkan backend. Same Qwen3-8B,
 4-bit on both sides, same box, same morning: `OpenVINO/Qwen3-8B-int4-ov`
@@ -340,7 +340,7 @@ Parity, within 10% either way. The 1.6x from June (table below) is gone, and
 what moved is Ollama: 0.30.8 to 0.40.0, and four months of work on the Vulkan
 backend. Our side did not regress; the B60 rows match the September llama.cpp
 comparison (65.7 decode) to within noise. So on a discrete Intel GPU, tok/s is
-no longer a reason to pick NoLlama. The prefix cache is (19x on
+no longer a reason to pick NoLlama (the iGPU is a different story, below). The prefix cache is (19x on
 a repeated agent prefix, next section), vision models are, the NPU is, and so
 is not having to know about `OLLAMA_IGPU_ENABLE`.
 
@@ -368,19 +368,32 @@ Four things I saw on the Ollama side while measuring, all 0.40.0:
   flat 2.1 s TTFT on every request because of it. `benchmark.py` now defaults
   the Ollama URL to `127.0.0.1`. See `docs/dev/machines.md`.
 
-#### The 140V laptop, same day: not reported
+#### The 140V iGPU, same day, cool: NoLlama still leads 1.3-1.5x
 
-I re-ran the laptop the same morning and I am withholding the numbers. It
-throttled inside the run: NoLlama went from 20 tok/s on the first test to 12 on
-the last within 2.5 minutes, and Ollama from 17.5 to 14 inside its own run, in
-a hot room. The first-minute NoLlama rate matches the June 21.7 below, and
-Ollama's 14-17 is above its June 13.4. That agrees with the B60 result, and it
-is all the laptop can say until a cool re-run.
+Core Ultra 7 258V laptop, Arc 140V, driver `32.0.101.8991`, OpenVINO 2026.4.0
+/ genai 2026.4.0.0, Ollama 0.40.0 with `OLLAMA_IGPU_ENABLE=1`, same
+`benchmark.py --runs 3 --llm-only`, NoLlama's `Qwen3-8B-int4-cw` against
+Ollama's `qwen3:8b`. Run in the evening with the room cool and everything
+else shut down; every test held its rate across all three runs on both sides.
+
+| Arc 140V, decode tok/s | NoLlama (OpenVINO int4-cw) | Ollama 0.40 (Vulkan Q4_K_M) |
+|---|---|---|
+| count 1-100 (no-think) | 20.3 | 13.7 |
+| what is 2+2 (thinking) | 19.0 | 14.6 |
+| say hello (thinking) | 20.8 | 14.5 |
+| TTFT, short prompt | 0.25-0.38 s | 0.24-0.45 s |
+
+So the iGPU and the dGPU answer differently. On the 140V NoLlama decodes 1.3
+to 1.5x faster than Ollama, down from June's 1.6x; on the B60 the two are at
+parity. Ollama's count run hit the 4096 cap here too, 3 of 3, and the 13.7 is
+a 4094-token steady state. An afternoon attempt the same day was thrown
+away: the laptop throttled inside both runs (NoLlama 20 to 12 tok/s, Ollama
+17.5 to 14) in a hot room, which is why the evening run exists.
 
 #### June 2026, Arc 140V: the number the README used to quote
 
 Measured 2026-06-16 with `benchmark.py` (3 runs), same Qwen3-8B 4-bit, Arc 140V
-iGPU, Ollama 0.30.8. Kept as history; this is the 1.6x the October run closed.
+iGPU, Ollama 0.30.8. Kept as history; the October re-run above put it at 1.3-1.5x.
 
 | | NoLlama (OpenVINO INT4-CW) | Ollama 0.30.8 (Vulkan GGUF Q4) |
 |---|---|---|
@@ -390,8 +403,8 @@ iGPU, Ollama 0.30.8. Kept as history; this is the 1.6x the October run closed.
 > **Roadmap note: GPU/CPU support is here to stay** (updated 2026-10-07).
 > NoLlama's original reason to exist is the Intel NPU, which Ollama still
 > cannot target, and the plan was to drop GPU/CPU once Ollama's Intel
-> performance caught up. On decode it now has, on a dGPU. GPU/CPU stay
-> anyway. Most real NoLlama users drive coding agents (OpenCode, Copilot) on
+> performance caught up. On a dGPU it now has; on the 140V iGPU NoLlama
+> still decodes 1.3-1.5x faster. GPU/CPU stay either way. Most real NoLlama users drive coding agents (OpenCode, Copilot) on
 > this path, and what they get from it is the prefix cache, prewarm, tool
 > calling tuned for those clients, and vision. None of that is a tok/s
 > number. If you outgrow a single-user local server (multi-user, production
