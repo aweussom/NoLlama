@@ -64,6 +64,14 @@ Reachable over SSH at **`wossn@100.81.4.88`** (Tailscale range; hostname
   output at all** -- the same script run with `-File` after `scp` works.
   When a remote step returns nothing, copy it over and run it as a file
   before believing the result.
+- **Ollama's runner is `llama-server.exe`, and it outlives `ollama.exe`.**
+  Stopping the serve task and killing `ollama*` leaves the runner holding
+  the model: six of them were found at once, 67 GB of private bytes between
+  them, the card refusing a 100 MB USM allocation to NoLlama and a clean
+  agent-probe pass running at 6.5 tok/s instead of 48 [OBSERVED 2026-10-07,
+  Ollama 0.40.0]. Kill `llama-server` by name as well, and check
+  `Get-Process | Sort-Object PrivateMemorySize64` (working set reads 0 for
+  a compressed process) before reading any GPU number on this box.
 - **`localhost` costs 2 s per connection on this box** [OBSERVED 2026-10-07,
   Ollama 0.40 bound to `127.0.0.1:11434`]: `localhost` resolves to `::1`
   first, the IPv6 connect is refused only after 2.0 s, then the client falls

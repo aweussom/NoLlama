@@ -395,6 +395,66 @@ a 4094-token steady state. An afternoon attempt the same day was thrown
 away: the laptop throttled inside both runs (NoLlama 20 to 12 tok/s, Ollama
 17.5 to 14) in a hot room, which is why the evening run exists.
 
+#### The real benchmark: an OpenCode session on both stacks, 2026-10-07
+
+Tokens per second is not what an agent user waits for. `scripts/agent-probe.ps1`
+is: two tasks in a throwaway project, OpenCode 1.18.x drives the model, pass or
+fail decided by running the tests. Same probe against both servers, same
+Qwen3-Coder-30B-A3B (our int4 export against Ollama's `qwen3-coder:30b`,
+Q4_K_M), Ollama with `OLLAMA_CONTEXT_LENGTH=32768` so neither side truncates.
+Per-call numbers come from the servers' own logs, not the client.
+
+Arc Pro B60, three alternating passes, B60 driver `32.0.101.8805`, OpenCode
+1.18.30:
+
+| B60, Qwen3-Coder-30B-A3B | NoLlama (OpenVINO int4) | Ollama 0.40 (Vulkan Q4_K_M) |
+|---|---|---|
+| fix task, wall, 3 passes | 36 / 37 / 35 s, all pass | 62 / 73 / 65 s, all pass |
+| feature task, wall, 3 passes | 66 pass / 63 fail / 107 fail | 52 / 48 pass / 34 fail |
+| first prompt of a session, ~12.3k tokens, cold | 14.0 s | 41.8 s |
+| TTFT on a cached prefix, median | 0.66 s | 0.56 s |
+| decode, calls over 100 tokens, median | 53 tok/s | 62 tok/s |
+
+Arc 140V laptop, one pass each, driver `32.0.101.8991`, OpenCode 1.18.32:
+
+| 140V, Qwen3-Coder-30B-A3B | NoLlama (OpenVINO int4) | Ollama 0.40 (Vulkan Q4_K_M) |
+|---|---|---|
+| fix task, wall | 126 s, pass | 222 s, pass |
+| feature task, wall | 300 s, pass | 30 s, fail |
+| first prompt of a session, ~11.7k tokens, cold | not captured, pool was warm | 140.7 s |
+| TTFT on a cached prefix, median | 1.9 s | 1.9 s |
+| decode, calls over 100 tokens, median | 15.7 tok/s (13 calls) | 17.2 tok/s (2 calls) |
+
+What the numbers say:
+
+- Per token the two are close, Ollama a little ahead on decode on both boxes.
+  Same as the chat benchmark above for this MoE; the dense 8B's iGPU edge does
+  not carry over to the 30B-A3B.
+- The cold prefill is where they differ, 3x on the B60. The fix task is the
+  first prompt of every session, and NoLlama wins it by the same ~28 s in all
+  four passes. Once the prefix is cached both sides answer in well under a
+  second on the dGPU and in about 2 s on the iGPU, and the feature task is
+  then decided by the model's path, not the stack.
+- The failures were the model's, with one exception. NoLlama's two feature
+  fails on the B60: the model implemented `apply_tax` taking a fraction and
+  wrote its own test to match, so the probe's `apply_tax(100.0, 25)` failed.
+  Ollama's B60 fail: an invented path outside the project. Ollama's laptop
+  fail is the exception: the model wrote its tool call as Qwen3-Coder XML
+  with a stray `</tool_call>`, Ollama's parser let it through as prose, and
+  OpenCode saw no call. That is the case `parse_tool_calls` exists for
+  (`docs/dev/tool-calling.md`), and it is what "agent plumbing" means in the
+  roadmap note.
+- Pass counts over the evening, both stacks, both boxes: NoLlama 8 of 10,
+  Ollama 6 of 8. Too few to rank the stacks on quality; enough to say neither
+  is broken.
+
+Not in the tables: a first B60 pass with NoLlama at 110 s and 381 s. Six
+orphaned `llama-server.exe` runners from the morning's Ollama tests held the
+card, and NoLlama decoded at 6.5 tok/s. Discarded; the runner lesson is in
+`docs/dev/machines.md`. Also not in the tables: three laptop passes at 0/2
+that were the probe's own launcher under OpenCode 1.18.32 (stdin and `PWD`,
+fixed in 8a3fc52), not the model.
+
 #### June 2026, Arc 140V: the number the README used to quote
 
 Measured 2026-06-16 with `benchmark.py` (3 runs), same Qwen3-8B 4-bit, Arc 140V
@@ -410,9 +470,10 @@ iGPU, Ollama 0.30.8. Kept as history; the October re-run above put it at 1.3-1.5
 > cannot target, and the plan was to drop GPU/CPU once Ollama's Intel
 > performance caught up. On a dGPU it now has; on the 140V iGPU NoLlama
 > still decodes 1.3-1.5x faster. GPU/CPU stay either way. Most real NoLlama users drive coding agents (OpenCode, Copilot) on
-> this path, and what they get from it is the prefix cache, prewarm, tool
-> calling tuned for those clients, and vision. None of that is a tok/s
-> number. If you outgrow a single-user local server (multi-user, production
+> this path, and what they get from it is a 3x faster cold prefill on the
+> first prompt, tool calling that recovers what Ollama's parser drops, and
+> vision. None of that is a tok/s number; the agent-session table above
+> is the measurement. If you outgrow a single-user local server (multi-user, production
 > serving of 30B+ models), the step up is
 > [OpenVINO Model Server](https://github.com/openvinotoolkit/model_server),
 > same runtime underneath, built for that job.
