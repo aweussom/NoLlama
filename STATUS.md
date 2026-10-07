@@ -42,6 +42,7 @@ Working state is `brain/next/` (needs Tommy), `brain/todo/` (startable cold) and
 | NoLlama vs llama.cpp's OpenVINO backend on a B60: cold prefill a tie, decode 65.7 vs 38.7 tok/s (1.7x), agent-shaped 8k prompt 3.98 s cold vs 0.205 s cached (19x) | 2026-09-07 |
 | llama.cpp's own CPU backend beats **every** OpenVINO row including ours (91.5/9.74 vs 78.3/9.08) — the measurement behind "use Ollama if you are CPU-only" | 2026-09-07 |
 | **Ollama 0.40's Vulkan path decodes at parity with us on the B60** (60.6 vs 68.4 on count, 63.8 vs 63.8 thinking; Qwen3-8B 4-bit). The June 1.6x is closed; the GPU case is the prefix cache, vision and agent plumbing, not tok/s. The 140V re-run throttled and is withheld | 2026-10-07 |
+| **#33 closed: the int8 MoE matmul failure on the Arc 140T is gone** on OpenVINO 2026.4.0 release and on the nightly, both on driver 32.0.101.9033 (3/3 and 6/6 of `benchmark.py --long`). Fix is in 2026.4.0 or the driver; not split further. Forwarded to openvino#38211 | 2026-10-07 |
 | Prefix caching on VLM slots: 33k-token prefix 53.7 s → 1.4 s TTFT through the serving path (B60/Glimmer) | 2026-08-18 |
 | Prewarm on VLM slots: first turn after restart 12.4 s → 0.65 s TTFT | 2026-08-18 |
 | GPU in a container at native throughput: 74-79 vs 76-78 tok/s; prefix cache 1.9→0.3 s vs 2.1→0.2 s native | 2026-08-24 |

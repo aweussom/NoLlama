@@ -9,6 +9,10 @@ for asking upstream is met:
   scheduler, same in bare genai. One CPU core at 100 %, GPU near idle.
 - #33 reporter's 140T, Xe-LPG+ with XMX, Qwen3-Coder-30B-A3B int8, nightly
   2026.5.0: 185–194 s plain vs 287–469 s scheduler (`benchmark.py --long`).
+  **Weakened 2026-10-07:** his 2026.4.0 *release* run, scheduler, cache on,
+  did it in 134-138 s, under the nightly's cache-off. No cache-off run on
+  2026.4.0 exists, so on the 140T the gap is a nightly-only observation and
+  the nightly looks slower overall there. The 285K case is the one to file on.
 
 Before filing: a bare-genai repro (`ContinuousBatchingPipeline` vs
 `LLMPipeline`, same prompt) on a box we own, plus a run on Xe2 (140V or B60)

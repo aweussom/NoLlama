@@ -274,6 +274,15 @@ runtime, so "Xe-LPG-only" no longer covers it. CPU/GPU load was not
 sampled on that box. That is the second class the paragraph above asked
 for; the upstream question is now due.
 
+Caveat on that second class [OBSERVED 2026-10-07, same reporter, same box
+and driver, `benchmark.py --long`, JSON in #33]: on the **2026.4.0 release**
+(genai 2026.4.0.0) the scheduler path, cache on, did the same 100k prompt in
+**134/138/134 s** -- below the nightly's *cache-off* 185-194 s. The 140T
+cache-off run on 2026.4.0 was not made, so the gap on that box is only shown
+on the nightly, and the nightly looks slower across the board there. The
+285K measurement stands on its own; the 140T one supports it less than the
+paragraph above says.
+
 A process lesson from the same evening: three "stalls" chased for an hour
 were measurement cutoffs of 140 s and 330 s against a path whose real TTFT
 was 216–350 s. Set the budget from the plain-pipeline TTFT × 4 before

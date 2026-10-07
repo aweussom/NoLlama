@@ -267,6 +267,18 @@ inference stacks (OpenVINO on the B60, Ollama/llama.cpp on an RTX 5090):
 - Qwen2.5-VL-3B/7B (INT4/INT8) on GPU — proven for image tasks
 - Qwen3-30B-A3B on GPU — needs >16 GB VRAM, falls back to CPU silently on
   16 GB cards
+- Qwen3-Coder-30B-A3B **int8** on an **Arc 140T** (Xe-LPG+, XMX; 64 GB
+  shared) — the #33 story, closed 2026-10-07. On OpenVINO 2026.3.1 and the
+  driver before 9033, long real-code prompts (~100k chars) died in the
+  fused grouped MoE gemm ("could not create a primitive descriptor for the
+  matmul primitive", oneDNN "insufficient registers"); short or synthetic
+  prompts and bare `LLMPipeline` passed, and none of our three GPUs
+  reproduced it (upstream openvino#38211). [OBSERVED 2026-10-06/07, reporter,
+  `benchmark.py --long`, JSON in #33]: passes 6/6 on the 2026.5.0 nightly
+  and 3/3 on the 2026.4.0 release, both on driver 32.0.101.9033; TTFT 134-138 s
+  for 100k chars with the cache on, on the release. Fix is in 2026.4.0 or
+  in the driver, not split. User-facing answer: update both. The int4 export
+  never failed and stays the default entry.
 - Muse-Glimmer-30B (Intel's `OpenVINO/Muse-Glimmer-30B-int4-ov`) on GPU —
   VLM slot on the GenAI path, needs the **nightly** runtime until 2026.4
   releases. Arc Pro B60 ~14 tok/s raw / 18.5 through the serving path; Arc
