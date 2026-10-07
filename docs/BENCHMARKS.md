@@ -441,7 +441,7 @@ What the numbers say:
   Ollama's B60 fail: an invented path outside the project. Ollama's laptop
   fail is the exception: the model wrote its tool call as Qwen3-Coder XML
   with a stray `</tool_call>`, Ollama's parser let it through as prose, and
-  OpenCode saw no call. That is the case `parse_tool_calls` exists for
+  OpenCode saw no call. `parse_tool_calls` was written for this case
   (`docs/dev/tool-calling.md`), and it is what "agent plumbing" means in the
   roadmap note.
 - Pass counts over the evening, both stacks, both boxes: NoLlama 8 of 10,
