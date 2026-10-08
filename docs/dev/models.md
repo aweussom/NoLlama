@@ -273,7 +273,8 @@ inference stacks (OpenVINO on the B60, Ollama/llama.cpp on an RTX 5090):
   fused grouped MoE gemm ("could not create a primitive descriptor for the
   matmul primitive", oneDNN "insufficient registers"); short or synthetic
   prompts and bare `LLMPipeline` passed, and none of our three GPUs
-  reproduced it (upstream openvino#38211). [OBSERVED 2026-10-06/07, reporter,
+  reproduced it (upstream openvino#38211, closed by Intel 2026-10-08 with no
+  comment on whether the runtime or the driver carried the fix). [OBSERVED 2026-10-06/07, reporter,
   `benchmark.py --long`, JSON in #33]: passes 6/6 on the 2026.5.0 nightly
   and 3/3 on the 2026.4.0 release, both on driver 32.0.101.9033; TTFT 134-138 s
   for 100k chars with the cache on, on the release. Fix is in 2026.4.0 or
