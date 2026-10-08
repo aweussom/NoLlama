@@ -313,7 +313,38 @@ function Get-NpuGenLabel {
 $HasNPU = $null -ne $DeviceInfo.NPU
 $HasGPU = $null -ne $DeviceInfo.GPU
 $IsDiscreteGPU = $HasGPU -and $DeviceInfo.GPU.type -eq "discrete"
-$SystemRamGB = [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB)
+# RAM in GB this install may size models against. 0 if unknown.
+#
+# Why: Get-CimInstance is Windows-only, and install-linux.sh hands off to
+# this same script, so the memory check killed every Linux install at this
+# line (#52, Fedora 44 / Panther Lake, 2026-10-08). Same answer the server's
+# _system_ram_bytes gives: on Linux the smaller of /proc/meminfo and the
+# cgroup ceiling, because inside a container MemTotal is the host's.
+#
+# In: nothing. Out: whole GB; 0 when no source answers, which the caller
+# treats as "no RAM budget" rather than as a failure.
+function Get-SystemRamGB {
+    try {
+        if ($IsWindows) {
+            return [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB)
+        }
+        if ($IsMacOS) {
+            return [math]::Round([long](sysctl -n hw.memsize) / 1GB)
+        }
+        $line = (Get-Content /proc/meminfo) -match '^MemTotal:' | Select-Object -First 1
+        $bytes = [long]($line -replace '\D') * 1KB
+        foreach ($f in "/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes") {
+            if (Test-Path $f) {
+                $raw = (Get-Content $f -ErrorAction SilentlyContinue | Select-Object -First 1).Trim()
+                if ($raw -match '^\d+$' -and [long]$raw -lt $bytes) { $bytes = [long]$raw }
+                break
+            }
+        }
+        return [math]::Round($bytes / 1GB)
+    } catch { return 0 }
+}
+
+$SystemRamGB = Get-SystemRamGB
 # On an integrated GPU the "GPU memory" is system RAM, so a model competes
 # with the OS, the user's applications and the loader's own staging copy.
 # 8 GB goes to the OS and the applications the person is actually using; a
