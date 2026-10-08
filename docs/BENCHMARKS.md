@@ -430,11 +430,29 @@ What the numbers say:
 - Per token the two are close, Ollama a little ahead on decode on both boxes.
   Same as the chat benchmark above for this MoE; the dense 8B's iGPU edge does
   not carry over to the 30B-A3B.
-- The cold prefill is where they differ, 3x on the B60. The fix task is the
-  first prompt of every session, and NoLlama wins it by the same ~28 s in all
-  four passes. Once the prefix is cached both sides answer in well under a
-  second on the dGPU and in about 2 s on the iGPU, and the feature task is
-  then decided by the model's path, not the stack.
+- The cold prefill is where they differ, and it is the whole stack, not the
+  MoE. Same ~11.7k-token prompt, cold, both models, both boxes, measured the
+  morning after [OBSERVED 2026-10-08; Ollama's own `prompt_eval_duration`,
+  NoLlama's TTFT on an uncached prefix]:
+
+  | cold prefill, tok/s | NoLlama (OpenVINO) | Ollama 0.40 (Vulkan) | ratio |
+  |---|---|---|---|
+  | B60, Qwen3-8B dense | 1650 (7.1 s) | 525 (22.4 s) | 3.1x |
+  | B60, Qwen3-Coder-30B-A3B | 870 (13.5 s) | 300 (39.1 s) | 2.9x |
+  | 140V, Qwen3-8B dense | 595 (19.7 s) | 148 (79.5 s) | 4.0x |
+  | 140V, Qwen3-Coder-30B-A3B | 260 (45.4 s) | 83 (141.3 s) | 3.1x |
+
+  The MoE costs both stacks the same factor (~0.55 of dense), so llama.cpp's
+  expert matmul is not the extra problem; its Vulkan prompt processing on
+  Intel runs at a third of OpenVINO's on dense weights too. Their own Intel
+  status thread says as much ("prompt processing speed is currently not
+  good", llama.cpp discussion #12570), and the B580 figure quoted there,
+  505-518 tok/s on Qwen3-8B, matches our 525 on the B60, so this is the
+  backend, not our Ollama setup. The fix task is the first prompt of every
+  session, and NoLlama wins it by the same ~28 s in all four B60 passes.
+  Once the prefix is cached both sides answer in well under a second on the
+  dGPU and in about 2 s on the iGPU, and the feature task is then decided
+  by the model's path, not the stack.
 - The failures were the model's, with one exception. NoLlama's two feature
   fails on the B60: the model implemented `apply_tax` taking a fraction and
   wrote its own test to match, so the probe's `apply_tax(100.0, 25)` failed.
