@@ -131,7 +131,7 @@ doesn't reach. Pick per device, not per project:
 | **Intel NPU** | **NoLlama** | Ollama can't target it at all. This is the reason NoLlama exists — within the 4096-token, no-tool-calling limits above. |
 | **Intel iGPU / ARC**, text | **NoLlama** on an iGPU; either on a dGPU for chat | On an Arc 140V iGPU OpenVINO decodes 1.3-1.5x faster than Ollama 0.40's Vulkan (20.3 vs 13.7 tok/s); on an Arc Pro B60 the two are at parity (2026-10, [numbers](docs/BENCHMARKS.md)). Both cache a repeated prompt prefix; on an OpenCode session NoLlama's cold prefill of the first prompt is 3x faster on the B60, and its parser recovers tool calls Ollama drops. Ollama on an iGPU still needs `OLLAMA_IGPU_ENABLE=1` or it silently runs on the CPU. |
 | **Intel iGPU / ARC**, images | **NoLlama** | Ollama has no Intel path for local vision models. |
-| **CPU only** | **Ollama** | llama.cpp's CPU backend is more mature, and `ollama pull` beats model conversion. |
+| **CPU only** | **Ollama** on AMD, **either** on Intel | llama.cpp's CPU kernels win on a Ryzen 5950X (0.85x for OpenVINO); on a Core Ultra 285K OpenVINO is 1.2x ahead on prefill and decode (2026-10, [numbers](docs/BENCHMARKS.md)). `ollama pull` still beats model conversion, so on Intel it is a wash. |
 | **NVIDIA or AMD GPU** | **Ollama** | NoLlama is Intel-only by design. |
 
 They coexist: Ollama keeps port 11434, NoLlama notices and disables its own

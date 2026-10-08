@@ -559,6 +559,24 @@ included. This is the measurement behind the README's advice to use Ollama if
 you are CPU-only. Between the two OpenVINO front-ends ours is the faster one
 (78.3/9.08 vs 60.1/4.35), which is a narrow thing to win.
 
+**On an Intel CPU it goes the other way** [OBSERVED 2026-10-08, Core Ultra 9
+285K, Qwen3-8B 4-bit (`Qwen3-8B-int4-cw-ov` vs `qwen3:8b` Q4_K_M), CPU only
+on both sides, Ollama 0.40.1 with the RTX 5090 hidden, same ~11.7k-token
+prompt as the GPU prefill matrix; NoLlama on OpenVINO 2026.3.0 and a
+2026-09-23 checkout, two runs]:
+
+| Core Ultra 9 285K, CPU only | NoLlama (OpenVINO) | Ollama 0.40.1 (llama.cpp CPU) |
+|---|---|---|
+| prefill, 11.7k tokens | 92-99 tok/s (127 / 119 s) | 79 tok/s (149 s) |
+| decode, 160 tokens | 17.6-17.8 tok/s | 14.1 tok/s |
+
+About 1.2x for OpenVINO on both, against 0.85x on the AMD 5950X above.
+Same two runtimes, same model, same quant class; the CPU vendor is the
+variable. [INFERRED] oneDNN's AVX-VNNI int8 paths on Arrow Lake against
+llama.cpp's generic AVX2 kernels on Zen 3; a Zen 4/5 box with AVX-512 VNNI
+would say whether it is the vendor or the instruction set. The README's
+CPU row now says which CPU.
+
 #### Do not benchmark this under WSL
 
 Same commit, same model, same box, WSL 2 (Ubuntu 24.04) vs native Windows:
