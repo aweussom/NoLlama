@@ -234,13 +234,15 @@ Ollama, so both readings can be true. Measure on the box you will serve on.
     the glyphs. That phrasing is a **model** quirk, not a lost image — see
     the cross-stack note below.
   - `E4B-it-int8-ov` (7.8 GB, 42 layers, 84 KB/token KV) — reads what E2B
-    cannot, but **gets no prefix caching on this runtime** (its IR has no
-    SDPA op; see `prefix-cache.md`). Use
+    cannot. The build described below, up to 2026-09-17, got **no prefix
+    caching** (its IR had no SDPA op; see `prefix-cache.md`), so we shipped
+    our own re-export
     [`aweussom/gemma-4-E4B-it-int8-ov`](https://huggingface.co/aweussom/gemma-4-E4B-it-int8-ov)
-    instead for agent work — our re-export of the same weights, fused
-    attention, prefix caching working, byte-identical answers. Intel's is
-    still the better pick for one-shot vision, being ~2.2x faster on a cold
-    turn. Reconfirmed on second hardware [OBSERVED 2026-08-24, Xe-LPG iGPU on
+    for agent work. Intel's 2026-09-17 re-export fixed it and needs
+    OpenVINO 2026.4+. On the B60 under 2026.4.1 the two match on cold turn
+    (2.73-2.76 s) and on cached turns, and Intel's loads faster (17 s vs
+    23-26 s) [OBSERVED 2026-10-11], so `models.json` is back on Intel's.
+    History of the defect: Reconfirmed on second hardware [OBSERVED 2026-08-24, Xe-LPG iGPU on
     the 285K, OpenVINO 2026.3]: Intel's build logs `prefix caching
     unavailable (has_op_with_type<ScaledDotProductAttention> failed at
     sdpa_to_paged_attention.cpp:82)` and falls back to the plain pipeline,

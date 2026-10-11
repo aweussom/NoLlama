@@ -700,6 +700,18 @@ We also argued upstream that re-uploading one artifact is the narrow fix:
 2.1.0 **and** 2.2.0.dev0+dd4ed1a, so the export environment keeps deciding
 and the next gemma4 export can land decomposed again.
 
+**Closed 2026-10-11 -- back on Intel's build.** Re-measured on the B60,
+OpenVINO 2026.4.1, through NoLlama, ~8.7k-token repeated prefix: Intel's
+2026-09-17 IR and ours both cache (5 GB pool), cold turn 2.74 vs 2.73 s,
+cached turns identical, answers identical; warm load 17.1 s for Intel's
+against 23.1-26.2 s for ours [OBSERVED 2026-10-11, B60, driver
+32.0.101.8805]. The old ~2.2x cold-turn gap is gone too: ours went from
+5.92 s on 2026.3 to 2.73 s. `models.json` points at
+`OpenVINO/gemma-4-E4B-it-int8-ov` again, per the policy below: host our
+own only while the published one is defective. The B60 and 285K had held
+the stale 2026-08-21 Intel download until the same day -- check the IR
+stamp before comparing boxes.
+
 **Last checked 2026-10-02 -- the trigger has fired.** The runtime floor is
 2026.4 (since 2026-09-23), and on 2026.4.0 Intel's re-exported IR scans
 `Prefix caching: yes, 42 fused SDPA ops` and ran with a working cache on

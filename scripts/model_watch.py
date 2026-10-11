@@ -45,16 +45,7 @@ REVISIONS_FILE = HERE / "watched_revisions.json"
 # whoever reads that issue in three months, not for today. List a model here
 # only when there is a specific thing to check when it moves; "we ship it" is
 # already covered.
-REVISION_WATCH = {
-    "OpenVINO/gemma-4-E4B-it-int8-ov":
-        "the SDPA/prefix-caching defect was fixed in Intel's 2026-09-17 "
-        "re-export (verified 2026-09-23: 42 fused SDPA ops), but that IR is "
-        "built with OpenVINO 2026.4 and segfaults on load under 2026.3.1 on "
-        "GPU and CPU alike, so models.json still ships our re-export. Watch "
-        "for another re-upload: if Intel rebuilds it against the release we "
-        "run, switch back — theirs is ~2.2x faster on a cold turn. See "
-        "TODONT.md.",
-}
+REVISION_WATCH = {}
 TITLE_FILE = HERE / ".watch_title"
 BODY_FILE = HERE / ".watch_body.md"
 MODELS_JSON = REPO / "models.json"

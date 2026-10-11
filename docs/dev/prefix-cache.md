@@ -51,7 +51,8 @@ Intel re-exported that IR on 2026-09-17 and it now reads 42 SDPA / 0 SoftMax
 -- the defect is fixed [OBSERVED 2026-09-23, `--scan` on the current Hub
 copy]. It is not usable yet: the re-export is built with OpenVINO 2026.4.0
 and segfaults on load under 2026.3.1, on GPU and CPU alike, while loading
-fine on the 2026.5 nightly. `models.json` still ships our re-export. See
+fine on the 2026.5 nightly. With the floor at 2026.4 it caches on the B60 as
+well as ours does, so `models.json` ships Intel's again since 2026-10-11. See
 `TODONT.md`.
 
 **`--scan` reports this** (`Prefix caching : yes — N fused SDPA ops`, or a
