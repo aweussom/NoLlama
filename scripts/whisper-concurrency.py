@@ -99,7 +99,11 @@ def main():
     Why: the three arms are the minimum that separates "Whisper is slow"
     from "Whisper slows the chat" from "the chat slows Whisper".
 
-    In: argv. Out: JSON on stdout. Arm 3 keeps transcribing for the whole
+    In: argv. Out: JSON on stdout. A second chat-alone run after arm 3
+    brackets it, because a laptop warms up over a run and a single
+    before-run would book the drift as Whisper's cost (observed: 15.6 ->
+    13.9 -> 12.3 chunks/s alone across three back-to-back servers,
+    2026-10-11). Arm 3 keeps transcribing for the whole
     chat stream, so the chat's decode rate is measured under full overlap,
     not diluted by idle stretches. A transcript differing from its idle
     twin is flagged: the arms would not be measuring the same work.
@@ -152,13 +156,21 @@ def main():
     th.join()
     out["concurrent"] = conc
     out["chat_with_whisper"] = both
+    print("arm 4: chat alone again (brackets thermal drift)", file=sys.stderr)
+    after, ev = {}, threading.Event()
+    stream_chat(a.base_url, after, ev)
+    out["chat_alone_after"] = after
     by_path = {r["path"]: r for r in out["idle"]}
     out["transcript_mismatch"] = sorted({r["path"] for r in conc if r["text"] != by_path[r["path"]]["text"]})
     ratios = [r["wall_s"] / by_path[r["path"]]["wall_s"] for r in conc]
     out["summary"] = {"transcriptions_during_chat": len(conc),
                       "whisper_slowdown_mean": round(sum(ratios) / len(ratios), 3) if ratios else None,
                       "chat_cps_alone": alone.get("chunks_per_s"),
-                      "chat_cps_with_whisper": both.get("chunks_per_s")}
+                      "chat_cps_with_whisper": both.get("chunks_per_s"),
+                      "chat_cps_alone_after": after.get("chunks_per_s")}
+    pair = [x for x in (alone.get("chunks_per_s"), after.get("chunks_per_s")) if x]
+    if pair and both.get("chunks_per_s"):
+        out["summary"]["chat_cost_pct"] = round(100 * (1 - both["chunks_per_s"] / (sum(pair) / len(pair))), 1)
     print(json.dumps(out, indent=2, ensure_ascii=False))
 
 

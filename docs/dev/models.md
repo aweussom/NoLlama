@@ -260,6 +260,33 @@ RTF is wall time over audio time; 0.02 is fifty times faster than real time.
   this covers Northern Norwegian.
 - Clips over 30 s chunk correctly on every device.
 
+**Beside a chat model, through the server.** Qwen3-8B int4-cw streaming a
+~670-token answer on the 140V iGPU while whisper-small transcribes 8 short
+clips (FLEURS nb + smoke) back to back, for the whole stream; chat speed
+alone measured before and after each arm and averaged
+(`scripts/whisper-concurrency.py`). Two passes, opposite order
+[OBSERVED 2026-10-11, same laptop and stack as above]:
+
+| Whisper on | clips done during the stream | Whisper slower by | chat slower by |
+|---|---|---|---|
+| NPU | 57-72 | 1.6-2.1x | 32-47% (3 runs) |
+| CPU | 14-21 | 1.9-2.2x | 8-32% |
+| iGPU (same as chat) | 27 | 3.8-5.9x | 0-11% |
+
+- **The NPU does not leave the GPU alone on Lunar Lake.** Run continuously,
+  NPU Whisper takes a third or more off the chat's decode speed. Same
+  package, same LPDDR5X, same power budget [INFERRED: bandwidth or power,
+  not separated]. Per clip transcribed, NPU and CPU cost the chat about the
+  same; the NPU just gets through five times as many.
+- On the GPU it is the other way round: the chat wins the contention and
+  Whisper waits.
+- Error bars are wide: chat speed alone ranged 12.3-20.2 chunks/s across
+  the runs, once 13.1 before and 18.0 after the same arm. A laptop on
+  battery-tuned power management; only the direction of each row is solid.
+- For push-to-talk none of this bites: a spoken sentence costs the NPU
+  ~0.5 s, so the chat slows for half a second. Sustained transcription
+  beside a busy chat is where the device choice matters.
+
 ### Chat and vision models
 
 - Qwen3-8B (INT4-CW) on NPU — recommended, needs MAX_PROMPT_LEN=4096

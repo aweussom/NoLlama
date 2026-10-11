@@ -4,8 +4,9 @@
 `docs/dev/models.md`; maybe `NPU` in `--whisper-device` · **Area:** NPU,
 `WhisperSlot`, `models.json`
 
-Speech-to-text on the NPU leaves the GPU free for the LLM. That is the whole
-point: transcription that costs the GPU nothing while it keeps generating.
+Speech-to-text on the NPU, so the GPU keeps the chat model. Measured: on
+Lunar Lake it is not free under sustained load (shared memory and power),
+but a dictated sentence costs the chat half a second.
 
 The usual NPU limits don't apply here. Whisper's decoder output is short, it
 needs no prefix cache and no tools, and the encoder input has a fixed size
@@ -38,13 +39,15 @@ only. Whisper already covers Norwegian.
       -> `docs/dev/machines.md`. Note the 285K NPU driver is older; record both.
 - [x] Base, small, medium int8 as shipped on NPU 4. Medium refuses; a
       stateless re-export of medium is the one thing left to try for it.
-- [ ] Then under the server: `--whisper-device NPU`, hit
-      `POST /v1/audio/transcriptions`.
+- [x] Under the server: `--whisper-device NPU` serves (laptop, 2026-10-11).
 - [x] Measured against CPU and iGPU on the same clips (laptop).
-- [ ] Server-side guard for silence/near-silence before Whisper sees it:
-      the NPU loops to `max_new_tokens` on it.
-- [ ] Run a transcription **while** the GPU slot generates. The concurrency
-      claim is the reason for doing this, so measure it rather than assume it.
+- [x] Silence guard: `audio_level_spread` + `collapse_repeat_loop`
+      (1d7f279).
+- [x] Concurrency measured: the claim does **not** hold under sustained
+      load (chat -32..-47% with NPU Whisper running non-stop). Fine for
+      push-to-talk. `docs/dev/models.md`.
+- [ ] Install menu offers no Whisper at all; add a step (device default
+      NPU where present, small) or decide it stays manual.
 
 ## Done when
 
