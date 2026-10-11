@@ -33,7 +33,7 @@ Folded in from T-029 on 2026-10-02. Every runtime-dependent `TODONT.md` entry
 carries a **Last checked** line. On a new OpenVINO release, re-run the cheap
 ones (the lines name the probe) and re-date the rest. First walk done against
 2026.4.0: seven re-run on the laptop, all held; one trigger fired (gemma-4 E4B
-prefix cache on Intel's IR, registry flip pending); three need the B60 or the
+prefix cache on Intel's IR; registry flipped 2026-10-11, see N-043); three need the B60 or the
 285K.
 
 ## Saying yes means
