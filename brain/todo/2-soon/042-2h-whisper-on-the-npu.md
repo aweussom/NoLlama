@@ -17,11 +17,13 @@ What we know (checked 2026-10-11):
   release notes add word timestamps "on CPUs, GPUs, and NPUs" [DOCUMENTED].
 - `--whisper-device` help says "CPU or GPU", but the flag has no `choices=`,
   so `NPU` goes straight through to `WhisperPipeline`. Never run.
-- The community NPU export `FluidInference/whisper-large-v3-turbo-int4-ov-npu`
-  was exported with stateful mode **off**. That suggests Intel's stateful
-  `OpenVINO/whisper-*-int8-ov` exports may not compile on the NPU as they are
-  [INFERRED]. Confirm by trying them first; the fallback is a re-export with
-  `--disable-stateful`.
+- **NPU 4 done, bare (2026-10-11):** base and small run as shipped, fastest
+  of the three devices, WER equal to CPU. medium compiles and then hits
+  `ZE_RESULT_ERROR_DEVICE_LOST` on the first inference. Silence without a
+  language hallucinates hardest on the NPU. Numbers and clip set:
+  `docs/dev/models.md`, "Whisper (speech-to-text)". The clip set is
+  rebuilt from FLEURS/NPSC/whisper.cpp by `scripts/whisper-build-set.py`
+  (sources in its docstring); the audio stays outside the repo.
 
 Prompted by CynipsNet (7M-param CTC ASR on the STM32N6 NPU). Rejected as a
 model: it ships only an ST LL_ATON blob and a static lib, no ONNX, no
@@ -30,19 +32,17 @@ only. Whisper already covers Norwegian.
 
 ## How to run it — the standing orders apply
 
-- [ ] `scripts/bare-probe.py` has no Whisper path (LLM/VLM only). Add one, or
-      write a ten-line bare `WhisperPipeline(model_dir, "NPU")` probe with a
-      short Norwegian and English clip.
-- [ ] Bare genai on **NPU 3 (285K) and NPU 4 (laptop)**. Different
+- [x] Bare probe: `scripts/whisper-probe.py`, set from `scripts/whisper-build-set.py`.
+- [ ] Bare genai on **NPU 3 (285K)**; NPU 4 (laptop) done. Different
       generations, and that has been the whole answer before (LFM2).
       -> `docs/dev/machines.md`. Note the 285K NPU driver is older; record both.
-- [ ] Base, small, medium int8 as shipped. If they refuse, record the error,
-      then try a stateless re-export.
+- [x] Base, small, medium int8 as shipped on NPU 4. Medium refuses; a
+      stateless re-export of medium is the one thing left to try for it.
 - [ ] Then under the server: `--whisper-device NPU`, hit
       `POST /v1/audio/transcriptions`.
-- [ ] Measure against CPU and iGPU on the same clips: wall clock per second of
-      audio, compile/cold-load time (NPU compile can be slow), and whether the
-      transcript matches.
+- [x] Measured against CPU and iGPU on the same clips (laptop).
+- [ ] Server-side guard for silence/near-silence before Whisper sees it:
+      the NPU loops to `max_new_tokens` on it.
 - [ ] Run a transcription **while** the GPU slot generates. The concurrency
       claim is the reason for doing this, so measure it rather than assume it.
 

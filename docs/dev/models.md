@@ -212,6 +212,56 @@ reverse on a loaded box (9.29s Ollama CPU vs 0.02s OpenVINO iGPU, issue
 #43) — that machine was under load ~19 and the comparison was against
 Ollama, so both readings can be true. Measure on the box you will serve on.
 
+### Whisper (speech-to-text) on CPU, iGPU and NPU 4 (2026-10-11)
+
+Intel's `OpenVINO/whisper-{base,small,medium}-int8-ov` as shipped (stateful),
+bare `WhisperPipeline`, no NoLlama, 258V laptop: OpenVINO/genai 2026.4.1,
+NPU driver 1005540 (`32.0.100.5540`), GPU driver 32.0.101.8991. 64 clips:
+`jfk.wav`, OpenVINO's `how_are_you_doing_today.wav`, 20 each from FLEURS
+`nb_no` and `en_us` test (read speech), 20 from NPSC session 20170207
+(Storting, spontaneous), one 62 s concatenation of FLEURS nb, 10 s of
+silence. `language` set per clip, except on the silence. WER on lowercased,
+punctuation-stripped words [OBSERVED 2026-10-11]:
+
+| model | device | compile | RTF nb / en / NPSC | WER nb / en / NPSC / 62 s |
+|---|---|---|---|---|
+| base | CPU | 1 s | 0.105 / 0.081 / 0.176 | 0.46 / 0.12 / 0.81 / 0.50 |
+| base | iGPU | 20 s | 0.044 / 0.041 / 0.062 | 0.46 / 0.12 / 0.88 / 0.50 |
+| base | **NPU** | 46 s | **0.019 / 0.023 / 0.043** | 0.46 / 0.12 / 0.82 / 0.50 |
+| small | CPU | 3 s | 0.238 / 0.220 / 0.355 | 0.26 / 0.08 / 0.62 / 0.30 |
+| small | iGPU | 16 s | 0.059 / 0.066 / 0.077 | 0.26 / 0.07 / 0.65 / 0.30 |
+| small | **NPU** | 102 s | **0.036 / 0.048 / 0.102** | 0.26 / 0.08 / 0.61 / 0.33 |
+| medium | CPU | 6 s | 0.715 / 1.158 / 1.710 | 0.15 / 0.06 / 0.52 / 0.13 |
+| medium | iGPU | 15 s | 0.113 / 0.123 / 0.215 | 0.15 / 0.05 / 0.51 / 0.13 |
+| medium | NPU | 156-246 s | -- | **refuses**, see below |
+
+RTF is wall time over audio time; 0.02 is fifty times faster than real time.
+
+- **base and small work on NPU 4 as shipped.** No stateless re-export
+  needed; the earlier guess that the stateful export would not compile was
+  wrong. The NPU is the fastest device for both, and its WER is the CPU's
+  within noise. Transcripts are not byte-identical across devices (base:
+  NPU matches CPU on 41 of 64 clips, iGPU matches CPU on 50); the
+  differences are scattered single words, in both directions.
+- **medium compiles on NPU 4 and dies on the first inference**:
+  `L0 zeFenceHostSynchronize result: ZE_RESULT_ERROR_DEVICE_LOST, code
+  0x70000001 - device hung, reset, was removed, or driver update occurred`.
+  Twice, compile 246 s and 156 s. The process then dies; the NPU itself
+  recovers (base transcribed correctly straight after). Not tried: a
+  stateless re-export, NPU 3 (285K).
+- **Silence without a language hallucinates everywhere, worst on the NPU.**
+  CPU and iGPU return `"you"`. NPU base returns a Norwegian phrase repeated
+  to `max_new_tokens` (440 words); NPU small returns a six-word Norwegian
+  sentence. The language detector is guessing on nothing, and the NPU's
+  arithmetic tips it differently [INFERRED].
+- **Norwegian accuracy is a model-size question, not a device one.** NPSC
+  is parliamentary speech with names and dialect; base gets four words in
+  five wrong, medium one in two. Read Bokmal (FLEURS) is far easier. None of
+  this covers Northern Norwegian.
+- Clips over 30 s chunk correctly on every device.
+
+### Chat and vision models
+
 - Qwen3-8B (INT4-CW) on NPU — recommended, needs MAX_PROMPT_LEN=4096
 - SmolLM3-3B (INT4-CW 23 tok/s, INT8-CW 12 tok/s) on 285K NPU — 2026.3,
   our export

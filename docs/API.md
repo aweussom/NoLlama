@@ -351,6 +351,39 @@ v1.5, 0.999781 on an int8 MiniLM (measured 2026-09-17, Arc 140V).
 For which models to use and how to convert one, see
 [MODELS.md](MODELS.md#embedding-models).
 
+### Speech-to-text
+
+`--whisper-dir DIR` loads a Whisper model into its own slot and enables
+`POST /v1/audio/transcriptions`, OpenAI's shape: multipart upload, field
+`file`. `--whisper-device` picks CPU (default) or GPU. The NPU runs Whisper
+too, measured bare but not yet through the server (T-042); see
+[MODELS.md](MODELS.md#speech-to-text-whisper).
+
+```bash
+curl http://localhost:8000/v1/audio/transcriptions \
+  -F file=@jfk.wav -F language=en
+# {"text": "And so my fellow Americans, ask not what your country can do for you, ask what you can do for your country."}
+```
+
+```python
+from openai import OpenAI
+client = OpenAI(base_url="http://localhost:8000/v1", api_key="unused")
+with open("jfk.wav", "rb") as f:
+    print(client.audio.transcriptions.create(model="whisper", file=f, language="en").text)
+```
+
+- `file`: anything `soundfile` reads (WAV, FLAC, OGG, and MP3 with a
+  recent libsndfile). Stereo is mixed to mono, any rate resampled to 16 kHz.
+  Longer than 30 s is fine; the pipeline chunks it.
+- `language`: an ISO code, `en`, `no`, `de`. **Set it.** Without it Whisper
+  guesses from the audio, and on silence or noise it guesses badly: a 10 s
+  silent clip came back as `"you"` on CPU and GPU and as a Norwegian phrase
+  repeated to the token limit on the NPU [OBSERVED 2026-10-11, whisper-base,
+  258V laptop, bare genai].
+- `response_format`: `json` (default, `{"text": ...}`) or `text`. No
+  `verbose_json`, no timestamps, no `translate` endpoint.
+- `model` is accepted and ignored; the loaded Whisper answers.
+
 ### Other endpoints
 
 - `GET /health` — device status, model names, readiness. Also `provenance`:

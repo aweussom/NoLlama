@@ -321,6 +321,29 @@ the same things: 8 of 8 questions returned the same top result against a
 (measured by MyrkoF, issue #43). CPU and GPU agree even more closely with each
 other — cosine 0.999999 on nomic (2026-09-17, Arc 140V).
 
+## Speech-to-text (Whisper)
+
+Start with `--whisper-dir <dir>`; the endpoint is
+`POST /v1/audio/transcriptions` ([API.md](API.md#speech-to-text)). The
+installer offers Intel's `whisper-{base,small,medium}-int8-ov`. Measured on a
+Core Ultra 7 258V laptop, OpenVINO 2026.4.1, bare runtime:
+
+| model | CPU | iGPU | NPU (Lunar Lake) | Norwegian (read / parliament) | English |
+|---|---|---|---|---|---|
+| base | 10x real time | 23x | **50x** | poor (46% / 81% word errors) | 12% |
+| small | 4x | 16x | **25x** | usable for read speech (26% / 62%) | 8% |
+| medium | ~1x | 8x | **does not run** | best (15% / 52%) | 5% |
+
+- On the NPU, **small** is the pick: fast, and it leaves the GPU to the chat
+  model. Medium crashes the NPU on its first inference (device lost); use
+  it on the iGPU.
+- NPU compile is slow, 46 s for base and 102 s for small, paid at every
+  server start.
+- The NPU has been measured bare, not through the server yet, and on Lunar
+  Lake only. `--whisper-device` still says CPU or GPU until that is done.
+- Always send `language`. Without it, silence or noise comes back as
+  invented text, and on the NPU as a phrase repeated to the token limit.
+
 ## A note about small models
 
 During initial NPU testing with DeepSeek R1 1.5B, we asked:
