@@ -261,7 +261,6 @@ an Arc Pro B60 with the 2026.3 release:
 |---|---|---|
 | `gemma-4-E2B-it-int4-ov` | ~4 GB | Works, prefix caching works. Weakest: misreads small text and, when it cannot resolve an image, replies *"the image is missing"* instead of saying so. Nothing is wrong with your setup. |
 | `gemma-4-E4B-it-int8-ov` | ~8 GB | Reads detail E2B cannot. Intel re-exported it on 2026-09-17 and **prefix caching now works** — on a repeated ~13k-character prefix, 10.3 s cold then 1.4 s and 0.9 s [OBSERVED 2026-09-23, 140V, OpenVINO 2026.4]. **That IR needs OpenVINO 2026.4 or newer**: on 2026.3.x it crashes the process on load, GPU and CPU alike, which is why the runtime floor moved. |
-| [`aweussom/gemma-4-E4B-it-int8-ov`](https://huggingface.co/aweussom/gemma-4-E4B-it-int8-ov) | ~8 GB | **Superseded.** Our 2026-08-21 re-export with fused attention, made while Intel's had none ([discussion](https://huggingface.co/OpenVINO/gemma-4-E4B-it-int8-ov/discussions/1), [optimum-intel#1948](https://github.com/huggingface/optimum-intel/issues/1948)). Intel's re-export now caches too, answers identically and loads faster, so the installer uses Intel's again (2026-10-11). Still works; nothing new will go into it. |
 | `gemma-4-26b-a4b-it-int4-ov` | ~15 GB | Best of the three; prefix caching works. Its KV is **240 KB/token**, so the auto-sized pool lands on its 2 GB floor and holds only ~8k tokens — **pin `--cache-size-gb`** before running an agent against it. NoLlama warns at load. Loads in ~40s. |
 
 Two things that apply to every VLM this size, not just Gemma:

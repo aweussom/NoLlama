@@ -235,13 +235,12 @@ Ollama, so both readings can be true. Measure on the box you will serve on.
     the cross-stack note below.
   - `E4B-it-int8-ov` (7.8 GB, 42 layers, 84 KB/token KV) — reads what E2B
     cannot. The build described below, up to 2026-09-17, got **no prefix
-    caching** (its IR had no SDPA op; see `prefix-cache.md`), so we shipped
-    our own re-export
-    [`aweussom/gemma-4-E4B-it-int8-ov`](https://huggingface.co/aweussom/gemma-4-E4B-it-int8-ov)
-    for agent work. Intel's 2026-09-17 re-export fixed it and needs
-    OpenVINO 2026.4+. On the B60 under 2026.4.1 the two match on cold turn
-    (2.73-2.76 s) and on cached turns, and Intel's loads faster (17 s vs
-    23-26 s) [OBSERVED 2026-10-11], so `models.json` is back on Intel's.
+    caching** (its IR had no SDPA op; see `prefix-cache.md`), so for a while
+    we shipped our own re-export. Intel's 2026-09-17 re-export fixed it and
+    needs OpenVINO 2026.4+. On the B60 under 2026.4.1 the two match on cold
+    turn (2.73-2.76 s) and on cached turns, and Intel's loads faster (17 s vs
+    23-26 s) [OBSERVED 2026-10-11], so NoLlama uses Intel's only; ours is
+    no longer referenced and is due for deletion (N-043).
     History of the defect: Reconfirmed on second hardware [OBSERVED 2026-08-24, Xe-LPG iGPU on
     the 285K, OpenVINO 2026.3]: Intel's build logs `prefix caching
     unavailable (has_op_with_type<ScaledDotProductAttention> failed at

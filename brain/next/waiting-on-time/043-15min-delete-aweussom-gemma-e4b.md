@@ -16,10 +16,9 @@ working.
 1. Check the repo's monthly downloads on the Hub. Still meaningful traffic →
    push the date back once, then delete anyway.
 2. Delete the repo on the Hub.
-3. Same commit: drop the `aweussom/` row and links from `docs/MODELS.md` and
-   `docs/dev/models.md`, the `aweussom/gemma-4-E4B-it-int8-ov` entry in
-   `scripts/watched_revisions.json`, and say "deleted <date>" where
-   `TODONT.md` names it. Leave the TODONT history otherwise intact.
+3. Nothing in the repo links it any more (removed 2026-10-11). Say
+   "deleted <date>" where `TODONT.md` names it; leave that history and the
+   `DOCKER-INSTALL.md` results (measured on it) intact.
 4. `git rm` this item.
 
 ## Saying yes means
