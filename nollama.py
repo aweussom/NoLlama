@@ -4124,6 +4124,76 @@ def _load_audio(file_storage):
     return audio
 
 
+WHISPER_MIN_SPREAD_DB = 10.0  # --whisper-min-spread; 0 sends everything to Whisper
+
+
+def audio_level_spread(audio, sr=16000):
+    """Loud-to-quiet spread of a clip in dB: 95th minus 10th percentile of
+    30 ms frame RMS.
+
+    Why: Whisper invents text on audio with no speech in it, and on the NPU
+    it loops a phrase to max_new_tokens [OBSERVED 2026-10-11, whisper-base,
+    258V NPU 4, 10 s of zeros]. An absolute loudness gate cannot catch that:
+    FLEURS en is recorded so quietly that 14 of 20 clips peak below -50 dBFS
+    and still transcribe almost perfectly. Speech is bursty, noise is
+    steady, so the spread separates them at any level: real clips measured
+    19.8-50 dB (NPSC is the floor), synthetic white/brown/hum/fan noise and
+    a mic floor with key clicks 0-5.8 dB [OBSERVED 2026-10-11, the T-042 set].
+    Speech under loud steady noise (low SNR) would also read low [INFERRED,
+    not measured; no such clip in the set].
+
+    In: float32 mono at sr. Out: float dB; 0.0 for digital silence and for a
+    clip shorter than two frames, which is also nothing worth transcribing.
+    """
+    n = int(0.03 * sr)
+    frames = len(audio) // n
+    if frames < 2:
+        return 0.0
+    fr = np.asarray(audio[: frames * n], dtype=np.float64).reshape(frames, n)
+    db = 20 * np.log10(np.maximum(np.sqrt((fr ** 2).mean(axis=1)), 1e-10))
+    return float(np.percentile(db, 95) - np.percentile(db, 10))
+
+
+def collapse_repeat_loop(text, min_repeats=4, max_phrase=10):
+    """Cut a phrase repeated back to back into one copy.
+
+    Why: the second half of the Whisper silence guard. Audio that passes
+    the spread check can still send the decoder into a loop ("Vi har ikke en
+    av de som er en av de som er en av de som ...", 440 words from 10 s of
+    silence on the NPU). Real speech repeats phrases too ("ask not what your
+    country can do for you, ask what you can do for your country"), but not
+    four times running, and single words need eight ("no, no, no" stays).
+
+    In: transcript. Out: the transcript with every run of >= min_repeats
+    consecutive copies of a 2..max_phrase-word phrase (>= 8 for one word)
+    reduced to one copy. Compares words case-folded with punctuation
+    stripped, keeps the first copy's original spelling. Whitespace is
+    normalised to single spaces whether or not anything was cut.
+    """
+    words = text.split()
+    key = [re.sub(r"[^\w]", "", w).casefold() for w in words]
+    out, i = [], 0
+    while i < len(words):
+        cut = 0
+        for size in range(1, max_phrase + 1):
+            need = 8 if size == 1 else min_repeats
+            phrase = key[i:i + size]
+            if len(phrase) < size or not any(phrase):
+                break
+            reps = 1
+            while key[i + reps * size:i + (reps + 1) * size] == phrase:
+                reps += 1
+            if reps >= need:
+                cut = size
+                out.extend(words[i:i + size])
+                i += reps * size
+                break
+        if not cut:
+            out.append(words[i])
+            i += 1
+    return " ".join(out)
+
+
 class EmbedSlot:
     """Holds a TextEmbeddingPipeline — serves /v1/embeddings and /api/embed.
 
@@ -4362,7 +4432,28 @@ class WhisperSlot:
         print(f"  [{self.device_name}] Whisper ready", flush=True)
 
     def transcribe(self, audio_samples, language=None):
-        """Transcribe float32 audio at 16 kHz. Returns text."""
+        """Transcribe float32 audio at 16 kHz, with the silence guard on both
+        sides of the pipeline.
+
+        Why: Whisper has no "nothing said" answer. Without a guard, silence
+        or steady noise becomes invented text, worst on the NPU, where it
+        loops to max_new_tokens; push-to-talk (T-045) sends exactly that
+        every time a button is tapped by mistake. genai exposes no
+        no-speech probability to gate on (2026.4.1), so the gate is ours:
+        audio_level_spread before, collapse_repeat_loop after.
+
+        In: float32 numpy at 16 kHz, optional ISO language. Out: stripped
+        text; '' without running the model when the spread is below
+        WHISPER_MIN_SPREAD_DB (0 disables the check). Logs when either
+        guard fires, so a dropped clip is visible in the server log.
+        """
+        if WHISPER_MIN_SPREAD_DB > 0:
+            spread = audio_level_spread(audio_samples)
+            if spread < WHISPER_MIN_SPREAD_DB:
+                print(f"{datetime.now():%H:%M:%S} -- [{self.device_name}] Whisper "
+                      f"skipped: level spread {spread:.1f} dB < {WHISPER_MIN_SPREAD_DB:g} "
+                      f"(silence or steady noise; --whisper-min-spread)", flush=True)
+                return ""
         kwargs = {}
         if language:
             kwargs["language"] = f"<|{language}|>"
@@ -4370,8 +4461,16 @@ class WhisperSlot:
         with self.lock:
             result = self.pipe.generate(audio_samples, **kwargs)
         if hasattr(result, "texts") and result.texts:
-            return result.texts[0].strip()
-        return str(result).strip()
+            text = result.texts[0].strip()
+        else:
+            text = str(result).strip()
+        collapsed = collapse_repeat_loop(text)
+        if len(collapsed.split()) < len(text.split()):
+            print(f"{datetime.now():%H:%M:%S} -- [{self.device_name}] Whisper "
+                  f"repeat loop collapsed: {len(text.split())} -> "
+                  f"{len(collapsed.split())} words", flush=True)
+            return collapsed
+        return text
 
     @property
     def info(self):
@@ -6445,7 +6544,13 @@ def parse_args():
     p.add_argument("--whisper-dir", default=None,
                    help="Whisper model directory for speech-to-text (enables /v1/audio/transcriptions)")
     p.add_argument("--whisper-device", default="CPU",
-                   help="Device for Whisper: CPU or GPU (default: CPU)")
+                   help="Device for Whisper: CPU, GPU or NPU (default: CPU). NPU "
+                        "runs base and small; medium crashes it (docs/MODELS.md)")
+    p.add_argument("--whisper-min-spread", type=float, default=WHISPER_MIN_SPREAD_DB,
+                   metavar="DB",
+                   help="Skip Whisper on clips whose loud-to-quiet level spread is "
+                        "under DB: silence and steady noise, which Whisper turns "
+                        "into invented text (default: %(default)g, 0 disables)")
     p.add_argument("--idle-timeout", type=int, default=None,
                    help="Change idle-unload timeout in seconds "
                         "(default: 1800 = 30 min). Use 0 to disable unloading "
@@ -6551,7 +6656,7 @@ def main():
     global PREWARM_SLOT
     global PROMPT_CACHE, PROMPT_CACHE_GB, PREWARM_FILE, OFFLOAD_RATIO, THINK_IN_CONTENT
     global GPU_LARGE_ALLOC, TOOL_TEMPLATE, IGNORE_IR_VERSION, PROVENANCE
-    global VSCODE_OLLAMA_VERSION
+    global VSCODE_OLLAMA_VERSION, WHISPER_MIN_SPREAD_DB
 
     args = parse_args()
     # Before anything prints: a log that starts after the device banner is
@@ -6578,6 +6683,7 @@ def main():
         print(f"  tool turns: {TOOL_TEMPLATE} chat template (--tool-template)", flush=True)
     GPU_LARGE_ALLOC = args.gpu_large_alloc
     IGNORE_IR_VERSION = args.ignore_ir_version
+    WHISPER_MIN_SPREAD_DB = args.whisper_min_spread
     OFFLOAD_RATIO = max(0, min(99, args.offload_ratio))
     if OFFLOAD_RATIO:
         # Offload is a silent no-op without XMX — say so up front instead of

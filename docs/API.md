@@ -355,9 +355,8 @@ For which models to use and how to convert one, see
 
 `--whisper-dir DIR` loads a Whisper model into its own slot and enables
 `POST /v1/audio/transcriptions`, OpenAI's shape: multipart upload, field
-`file`. `--whisper-device` picks CPU (default) or GPU. The NPU runs Whisper
-too, measured bare but not yet through the server (T-042); see
-[MODELS.md](MODELS.md#speech-to-text-whisper).
+`file`. `--whisper-device` picks CPU (default), GPU or NPU; see
+[MODELS.md](MODELS.md#speech-to-text-whisper) for which.
 
 ```bash
 curl http://localhost:8000/v1/audio/transcriptions \
@@ -375,11 +374,16 @@ with open("jfk.wav", "rb") as f:
 - `file`: anything `soundfile` reads (WAV, FLAC, OGG, and MP3 with a
   recent libsndfile). Stereo is mixed to mono, any rate resampled to 16 kHz.
   Longer than 30 s is fine; the pipeline chunks it.
-- `language`: an ISO code, `en`, `no`, `de`. **Set it.** Without it Whisper
-  guesses from the audio, and on silence or noise it guesses badly: a 10 s
-  silent clip came back as `"you"` on CPU and GPU and as a Norwegian phrase
-  repeated to the token limit on the NPU [OBSERVED 2026-10-11, whisper-base,
-  258V laptop, bare genai].
+- `language`: an ISO code, `en`, `no`, `de`. Set it when you know it;
+  without it Whisper guesses from the audio.
+- Silence and steady noise return `{"text": ""}` without running the model.
+  Whisper has no "nothing said" answer of its own: a 10 s silent clip came
+  back as `"you"` on CPU and GPU and as a Norwegian phrase repeated to the
+  token limit on the NPU [OBSERVED 2026-10-11, whisper-base, 258V laptop,
+  bare genai]. The check is the clip's loud-to-quiet level spread, not its
+  loudness, so quiet speech still goes through; `--whisper-min-spread`
+  sets it (default 10 dB, 0 disables). A phrase the model repeats four or
+  more times back to back is cut to one copy.
 - `response_format`: `json` (default, `{"text": ...}`) or `text`. No
   `verbose_json`, no timestamps, no `translate` endpoint.
 - `model` is accepted and ignored; the loaded Whisper answers.
