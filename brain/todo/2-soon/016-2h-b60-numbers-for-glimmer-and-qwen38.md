@@ -13,7 +13,12 @@ Glimmer at ~2.5.
       prefill, `--cache-size-gb 3` (the auto-sized 5 GB pool crashed the slot —
       T-031). Recorded in `docs/dev/models.md` and `docs/BENCHMARKS.md`
       (Bonsai 2 section); `docs/MODELS.md` still quotes only the 140V figure.
-- [ ] Glimmer on the B60 with the release stack
+- [x] **Glimmer on the B60, 2026-09-29** (2026.4.0 release, not 2026.3.1): a
+      ~35k-token cold prefill in 51–53 s (~680 tok/s), 400-token turns in
+      21.1–21.9 s (~19 tok/s if every turn reached `max_tokens`, which the
+      constant time suggests; `usage` is -1, T-034). **Only at
+      `--cache-size-gb 2`**: the auto 3 GB pool spills (T-031). Recorded in
+      `docs/dev/prefix-cache.md`
 - [ ] replace the 140V numbers in `docs/MODELS.md`, or keep both and label the
       device on each
 

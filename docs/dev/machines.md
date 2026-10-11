@@ -146,8 +146,11 @@ the 34th request of a benchmark run — a 323-char prompt, `max_tokens` 512 —
 with `CL_OUT_OF_RESOURCES`, after a ~4.5k-token prefill and three 500-token
 generations had already succeeded. **`--cache-size-gb 3` ran the same
 sequence plus a second full pass without incident.** Whether 5 GB is a
-genuine headroom problem (a dGPU has no shared-memory spill) or the driver
-leaks per request is not settled; the pool size is the lever that worked.
+genuine headroom problem or the driver leaks per request is not settled; the
+pool size is the lever that worked. (An earlier version of this note said "a
+dGPU has no shared-memory spill". That is wrong: Glimmer on this card spilled
+2.2 GiB to host memory at a 3 GB pool on 2026-09-29, see
+`prefix-cache.md`.)
 Decode is **~23 tok/s** on this card, prefill ~1,150 tok/s (4.5k tokens in
 3.9 s).
 

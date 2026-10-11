@@ -162,6 +162,52 @@ the KV for an eighth of the weights. `AUTO_KV_TOKENS` alone then works out to
 rule, before it was made GPU-only). A small model is not automatically a small
 pool.
 
+**The 2 GB discrete reserve is too small for Glimmer on a 24 GB card, and
+rounding makes it worse.** [OBSERVED 2026-09-29, Arc Pro B60, driver
+`32.0.101.8805`, OpenVINO 2026.4.0 release, `OpenVINO/Muse-Glimmer-30B-int4-ov`
+(16.95 GiB of weights), VLM slot, dedicated and shared memory sampled every 2s
+with `typeperf`, load from `scripts/agent-load-probe.py`] The load was 35 requests of the captured OpenCode system
+prompt plus ~90k chars of `nollama.py`, which is about 35k tokens (Ollama's
+count of the same prompt). There were 7 sessions of 5 turns each, with a cold
+prefix at the start of every session and `max_tokens` 400.
+
+| | auto: 3 GB pool | `--cache-size-gb 2` |
+|---|---|---|
+| resident at idle | 20.9 GiB | 19.7 GiB |
+| peak during a cold prefill | **23.37 GiB, the full budget, for ~10 min** | 22.1 GiB |
+| shared (host) memory after load | **2.2 GiB spilled and kept** | flat 1.1–1.3 GiB |
+| cold ~35k-token prefill | **645.6 s** | 51–53 s (66.7 s first) |
+| cache-hit turn | 60.7 s | 21.1–21.9 s, all 35 OK |
+
+**A discrete card does not fail when it runs out. It spills to host memory
+and slows down.** It gave no error, no `CL_OUT_OF_RESOURCES` and no warning,
+only a roughly 12x slower prefill and 2x slower decode. The preflight called
+the 3 GB pairing "fits", because its estimate (weights x 1.1 + pool) has no
+term for the ~2.4 GiB a cold prefill adds on top of the idle footprint.
+
+The same model on an RTX 5090 through Ollama 0.34 (`muse-glimmer:ctx64k`,
+64k context reserved up front) peaked at 18.9 GiB of 32 and completed the
+identical 35 requests. That is the cross-stack reference, not a comparison of
+the two cards.
+
+**Most of the gap to Ollama is sliding-window KV.** llama.cpp's load log for
+that run [OBSERVED 2026-09-29, Ollama 0.34.0 on the 285K] shows two caches: 13
+full-attention layers x 65,536 cells = **832 MiB**, and 39 sliding layers
+(`n_swa` 2048) x 3,072 cells = **117 MiB**, so **949 MiB for 64k of
+context**. The per-layer cost (1 KiB per token) is the same as ours; the
+difference is that genai's pool stores every layer at full length, so 64k of
+context would cost 52 x 64k x 1 KiB = **3.25 GiB** here. [DOCUMENTED,
+`src/cpp/src/continuous_batching/cache/cache_type.hpp` on genai master
+2026-09-29] The CB cache manager has only `KV_CACHE` and
+`LINEAR_ATTENTION_CACHE`, and the file's own comment lists `SLIDING_WINDOW` as
+a type that "can be added". That applies to every sliding-attention model we
+ship (Glimmer, the Gemma family), not only to Glimmer. → N-035.
+
+Why auto chose 3: headroom 23.33 − 16.95 x 1.1 = 4.68 GiB, minus the 2 GiB
+reserve is 2.68, and `round()` gives **3**. Truncation would have given 2, which
+fits. The round-not-int change fixed an under-spend in the flat-share case and
+spends reserve in the discrete case. → T-031.
+
 `--cache-size-gb N` pins it and skips auto.
 
 ## Prewarm
