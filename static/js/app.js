@@ -1271,6 +1271,291 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
+// --- Push-to-talk (T-045) ---
+//
+// Hold the mic button, or Space with an empty input box, to record; release
+// to transcribe into the input box. Shown only when /health reports a ready
+// Whisper slot. The flow and the why of each step: docs/webui-ptt.mmd.
+
+const pttBtn = document.getElementById('ptt-btn');
+const pttLang = document.getElementById('ptt-lang');
+// '' = let Whisper guess. Short list on purpose: the select is 40 px wide.
+const PTT_LANGS = ['', 'en', 'no', 'sv', 'da', 'fi', 'de', 'nl', 'fr', 'es', 'it', 'pl', 'uk'];
+const PTT_MIN_MS = 300;  // shorter than this is a tap, not speech
+const ptt = { held: false, recorder: null, stream: null, chunks: [], started: 0 };
+
+/**
+ * Show the mic button when the server has a Whisper slot, or say why it
+ * cannot work here.
+ *
+ * Why: browsers only hand out the microphone in a secure context.
+ * http://localhost counts; http://<lan-ip> does not, and there
+ * navigator.mediaDevices does not even exist. A button that silently does
+ * nothing reads as broken, so it stays visible, disabled, with the reason
+ * in its tooltip.
+ *
+ * In: nothing. Out: none. Leaves both controls hidden when /health fails
+ * or reports no ready Whisper slot.
+ */
+async function initPushToTalk() {
+    let whisper;
+    try {
+        const r = await fetch('/health');
+        whisper = (await r.json()).whisper;
+    } catch {
+        return;
+    }
+    if (!whisper || whisper.status !== 'ready') return;
+    for (const code of PTT_LANGS) {
+        const opt = document.createElement('option');
+        opt.value = code;
+        opt.textContent = code || 'auto';
+        pttLang.appendChild(opt);
+    }
+    pttLang.value = pttDefaultLanguage();
+    pttLang.addEventListener('change', () => {
+        try { localStorage.setItem('nollama-ptt-lang', pttLang.value); } catch {}
+    });
+    pttBtn.hidden = false;
+    pttLang.hidden = false;
+    if (!window.isSecureContext || !navigator.mediaDevices || !window.MediaRecorder) {
+        pttBtn.disabled = true;
+        pttBtn.title = 'Microphone needs https or localhost. This page is plain http from another host.';
+        return;
+    }
+    const where = whisper.device ? ` (Whisper on ${whisper.device})` : '';
+    pttBtn.title = `Hold to talk, or hold Space with an empty input${where}`;
+}
+
+/**
+ * The spoken language to preselect: the remembered choice, else the
+ * browser's.
+ *
+ * Why: Whisper guessing the language is where most bad transcripts start,
+ * so the picker should be right before the user touches it.
+ *
+ * In: nothing. Out: a PTT_LANGS entry. nb/nn map to 'no' (Whisper has one
+ * Norwegian); anything not in the list, or no storage, falls back to ''.
+ */
+function pttDefaultLanguage() {
+    let saved = null;
+    try { saved = localStorage.getItem('nollama-ptt-lang'); } catch {}
+    if (saved !== null && PTT_LANGS.includes(saved)) return saved;
+    let code = (navigator.language || '').slice(0, 2).toLowerCase();
+    if (code === 'nb' || code === 'nn') code = 'no';
+    return PTT_LANGS.includes(code) ? code : '';
+}
+
+/**
+ * Start recording on press.
+ *
+ * Why: getUserMedia is asked per press and released on release, so the
+ * browser's mic indicator is on only while the user is talking. The cost is
+ * ~100-300 ms before recording starts; the first syllable of a hurried
+ * press can be lost.
+ *
+ * In: nothing. Out: none. A release that lands before permission resolves
+ * is honoured (the stream is closed, nothing records); a refusal shows in
+ * the input placeholder.
+ */
+async function pttStart() {
+    if (ptt.held || pttBtn.disabled || pttBtn.classList.contains('busy')) return;
+    ptt.held = true;
+    try {
+        ptt.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+        ptt.held = false;
+        pttNotice('Microphone unavailable: ' + err.message);
+        return;
+    }
+    if (!ptt.held) {
+        pttStopTracks();
+        return;
+    }
+    ptt.chunks = [];
+    ptt.recorder = new MediaRecorder(ptt.stream);
+    ptt.recorder.ondataavailable = (e) => { if (e.data.size) ptt.chunks.push(e.data); };
+    ptt.recorder.onstop = pttFinish;
+    ptt.recorder.start();
+    ptt.started = performance.now();
+    pttBtn.classList.add('recording');
+}
+
+/** Stop recording on release; pttFinish runs from the recorder's onstop. */
+function pttStop() {
+    if (!ptt.held) return;
+    ptt.held = false;
+    if (ptt.recorder && ptt.recorder.state === 'recording') ptt.recorder.stop();
+}
+
+/** Release the microphone so the browser's recording indicator goes off. */
+function pttStopTracks() {
+    if (ptt.stream) ptt.stream.getTracks().forEach(t => t.stop());
+    ptt.stream = null;
+}
+
+/**
+ * Turn the finished recording into text in the input box.
+ *
+ * Why: the transcript is inserted, never auto-sent. Speech recognition gets
+ * names and numbers wrong often enough that the user must see it first.
+ *
+ * In: nothing (reads ptt). Out: none. Taps under PTT_MIN_MS are dropped
+ * without a request. An empty transcript (the server's silence guard) and
+ * any failure show briefly in the placeholder instead of an alert.
+ */
+async function pttFinish() {
+    const ms = performance.now() - ptt.started;
+    const type = ptt.recorder ? ptt.recorder.mimeType : '';
+    ptt.recorder = null;
+    pttStopTracks();
+    pttBtn.classList.remove('recording');
+    if (ms < PTT_MIN_MS || !ptt.chunks.length) return;
+    pttBtn.classList.add('busy');
+    try {
+        const wav = await pttToWav(new Blob(ptt.chunks, { type }));
+        const form = new FormData();
+        form.append('file', wav, 'speech.wav');
+        if (pttLang.value) form.append('language', pttLang.value);
+        const r = await fetch('/v1/audio/transcriptions', { method: 'POST', body: form });
+        const data = await r.json();
+        if (!r.ok) throw new Error((data.error && data.error.message) || `HTTP ${r.status}`);
+        if (data.text) pttInsert(data.text);
+        else pttNotice('Nothing heard');
+    } catch (err) {
+        pttNotice('Transcription failed: ' + err.message);
+    } finally {
+        pttBtn.classList.remove('busy');
+    }
+}
+
+/**
+ * Decode whatever the browser recorded into 16 kHz mono 16-bit WAV.
+ *
+ * Why: MediaRecorder gives WebM/Opus (Chromium, Firefox) or MP4/AAC
+ * (Safari). The server reads audio with soundfile, which reads neither.
+ * The browser can decode its own output, so the conversion happens here
+ * and the endpoint stays a plain OpenAI one.
+ *
+ * In: the recorded Blob. Out: a WAV Blob. The OfflineAudioContext does the
+ * resampling and the downmix to one channel. Rejects if the browser cannot
+ * decode its own recording.
+ */
+async function pttToWav(blob) {
+    const ctx = new AudioContext();
+    let decoded;
+    try {
+        decoded = await ctx.decodeAudioData(await blob.arrayBuffer());
+    } finally {
+        ctx.close();
+    }
+    const rate = 16000;
+    const off = new OfflineAudioContext(1, Math.max(1, Math.ceil(decoded.duration * rate)), rate);
+    const src = off.createBufferSource();
+    src.buffer = decoded;
+    src.connect(off.destination);
+    src.start();
+    const rendered = await off.startRendering();
+    return pttEncodeWav(rendered.getChannelData(0), rate);
+}
+
+/**
+ * Encode float samples as a 16-bit PCM mono WAV.
+ *
+ * Why: 16-bit WAV is the one format every soundfile build reads.
+ *
+ * In: Float32Array in [-1, 1] (clipped if outside), sample rate. Out: Blob
+ * of type audio/wav, 44-byte header plus 2 bytes per sample.
+ */
+function pttEncodeWav(samples, rate) {
+    const buf = new ArrayBuffer(44 + samples.length * 2);
+    const v = new DataView(buf);
+    const str = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+    str(0, 'RIFF');
+    v.setUint32(4, 36 + samples.length * 2, true);
+    str(8, 'WAVE');
+    str(12, 'fmt ');
+    v.setUint32(16, 16, true);
+    v.setUint16(20, 1, true);          // PCM
+    v.setUint16(22, 1, true);          // mono
+    v.setUint32(24, rate, true);
+    v.setUint32(28, rate * 2, true);   // byte rate
+    v.setUint16(32, 2, true);          // block align
+    v.setUint16(34, 16, true);         // bits per sample
+    str(36, 'data');
+    v.setUint32(40, samples.length * 2, true);
+    for (let i = 0; i < samples.length; i++) {
+        const x = Math.max(-1, Math.min(1, samples[i]));
+        v.setInt16(44 + i * 2, x < 0 ? x * 0x8000 : x * 0x7fff, true);
+    }
+    return new Blob([buf], { type: 'audio/wav' });
+}
+
+/**
+ * Insert a transcript at the cursor in the input box.
+ *
+ * Why: dictating in pieces should build one message, not replace it, so
+ * the text goes where the cursor is, with a space against existing words.
+ *
+ * In: transcript string. Out: none. Fires 'input' so the box auto-resizes,
+ * and leaves focus and the cursor after the inserted text.
+ */
+function pttInsert(text) {
+    const start = input.selectionStart ?? input.value.length;
+    const end = input.selectionEnd ?? input.value.length;
+    const before = input.value.slice(0, start);
+    const after = input.value.slice(end);
+    const pad = before && !/\s$/.test(before) ? ' ' : '';
+    input.value = before + pad + text + after;
+    const pos = (before + pad + text).length;
+    input.focus();
+    input.setSelectionRange(pos, pos);
+    input.dispatchEvent(new Event('input'));
+}
+
+/**
+ * Show a short message in the input placeholder for three seconds.
+ *
+ * Why: push-to-talk feedback ("Nothing heard", a refused microphone) must
+ * be visible where the user is looking, and must not block like alert().
+ *
+ * In: message string. Out: none. Only visible while the input is empty;
+ * overlapping notices restore the original placeholder, not each other.
+ */
+function pttNotice(msg) {
+    if (!pttNotice.original) pttNotice.original = input.placeholder;
+    input.placeholder = msg;
+    clearTimeout(pttNotice.timer);
+    pttNotice.timer = setTimeout(() => { input.placeholder = pttNotice.original; }, 3000);
+}
+
+pttBtn.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    pttBtn.setPointerCapture(e.pointerId);
+    pttStart();
+});
+pttBtn.addEventListener('pointerup', pttStop);
+pttBtn.addEventListener('pointercancel', pttStop);
+pttBtn.addEventListener('contextmenu', (e) => e.preventDefault());
+
+// Space is push-to-talk only while the input box is empty, so it never
+// steals a space from typing.
+document.addEventListener('keydown', (e) => {
+    if (e.code !== 'Space' || pttBtn.hidden || pttBtn.disabled) return;
+    if (ptt.held) { e.preventDefault(); return; }
+    const focus = document.activeElement;
+    if (e.repeat || input.value !== '' || (focus !== input && focus !== document.body)) return;
+    e.preventDefault();
+    pttStart();
+});
+document.addEventListener('keyup', (e) => {
+    if (e.code === 'Space' && ptt.held) {
+        e.preventDefault();
+        pttStop();
+    }
+});
+
 // --- Start ---
 initHistoryWarning();
 init();
+initPushToTalk();

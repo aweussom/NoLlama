@@ -360,6 +360,20 @@ body {
     font-size: 18px;
 }
 
+/* --- Push-to-talk (T-045) --- */
+.btn.icon.ptt { touch-action: none; user-select: none; }
+.btn.icon.ptt.recording { background: #c0392b; color: #fff; }
+.btn.icon.ptt.busy { opacity: 0.6; cursor: progress; }
+.ptt-lang {
+    background: var(--input-bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    height: 40px;
+    padding: 0 4px;
+    font-size: 13px;
+}
+
 /* --- Drop overlay --- */
 .drop-overlay {
     display: none;
