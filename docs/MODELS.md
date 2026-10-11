@@ -323,10 +323,15 @@ other — cosine 0.999999 on nomic (2026-09-17, Arc 140V).
 
 ## Speech-to-text (Whisper)
 
-Start with `--whisper-dir <dir>`; the endpoint is
+Start with `--whisper-dir <dir> --whisper-device NPU`; the endpoint is
 `POST /v1/audio/transcriptions` ([API.md](API.md#speech-to-text)). The
-installer offers Intel's `whisper-{base,small,medium}-int8-ov`. Measured on a
-Core Ultra 7 258V laptop, OpenVINO 2026.4.1, bare runtime:
+install menu does not offer Whisper yet; fetch one by hand:
+
+```powershell
+.\download-model.ps1 OpenVINO/whisper-small-int8-ov
+```
+
+Measured on a Core Ultra 7 258V laptop, OpenVINO 2026.4.1, bare runtime:
 
 | model | CPU | iGPU | NPU (Lunar Lake) | Norwegian (read / parliament) | English |
 |---|---|---|---|---|---|
@@ -339,10 +344,11 @@ Core Ultra 7 258V laptop, OpenVINO 2026.4.1, bare runtime:
   it on the iGPU.
 - NPU compile is slow, 46 s for base and 102 s for small, paid at every
   server start.
-- The NPU has been measured bare, not through the server yet, and on Lunar
-  Lake only. `--whisper-device` still says CPU or GPU until that is done.
-- Always send `language`. Without it, silence or noise comes back as
-  invented text, and on the NPU as a phrase repeated to the token limit.
+- Measured on Lunar Lake's NPU only. Arrow Lake / Meteor Lake (NPU 3) is
+  not tested yet.
+- Send `language` whenever you know it. The server skips clips with no
+  speech in them and cuts a phrase Whisper repeats in a loop, but a wrong
+  language guess on real speech still gives a wrong transcript.
 
 ## A note about small models
 
