@@ -45,9 +45,10 @@ def split_all(chunks):
 class FakeSlot:
     """Just enough of DeviceSlot for the SSE consumers: a scripted token seam."""
 
-    def __init__(self, tokens, error=None, preseeded=False):
+    def __init__(self, tokens, error=None, preseeded=False, counts=None):
         self._tokens = tokens
         self._error = error
+        self._counts = counts  # (prompt, completion) the seam reports, or None
         self._cancel = threading.Event()
         self._stream_error = None
         self.model_name = "fake"
@@ -55,20 +56,23 @@ class FakeSlot:
         self.last_ttft_ms = None
         self.think_preseeded = preseeded
 
-    def stream_tokens(self, raw_messages, gen, heartbeat, tag="", cancel=None, prompt=None):
+    def stream_tokens(self, raw_messages, gen, heartbeat, tag="", cancel=None, prompt=None,
+                      usage=None):
         self.last_cancel = cancel  # the consumer's own token; its finally sets THIS one
         self.last_prompt = prompt  # signature tracks DeviceSlot.stream_tokens
         for t in self._tokens:
             yield t
         self._stream_error = self._error
+        if usage is not None and self._counts:
+            usage["prompt_tokens"], usage["completion_tokens"] = self._counts
 
     def stream_vlm_tokens(self, text_prompt, images, gen, heartbeat, tag="", cancel=None,
-                          raw_prompt=False):
+                          raw_prompt=False, usage=None):
         # Signature tracks DeviceSlot.stream_vlm_tokens; a kwarg added there
         # and not here fails every VLM case with a TypeError that reads like
         # a test bug rather than drift, which is how raw_prompt sat broken.
         self.last_raw_prompt = raw_prompt
-        yield from self.stream_tokens(None, gen, heartbeat, tag, cancel)
+        yield from self.stream_tokens(None, gen, heartbeat, tag, cancel, usage=usage)
 
     def preseeded_for(self, raw_prompt):
         # Twin of DeviceSlot.preseeded_for: a pre-rendered prompt closes its
@@ -488,6 +492,120 @@ def test_assistant_message_splits_reasoning():
     msg, finish = _assistant_message("", [{"id": "x", "type": "function",
                                            "function": {"name": "f", "arguments": "{}"}}])
     assert msg["content"] is None and finish == "tool_calls" and "reasoning_content" not in msg
+
+
+# --- usage (T-034) -------------------------------------------------------------
+
+class _PM:
+    def __init__(self, n_in, n_out):
+        self._in, self._out = n_in, n_out
+
+    def get_num_input_tokens(self):
+        return self._in
+
+    def get_num_generated_tokens(self):
+        return self._out
+
+
+class _Result:
+    def __init__(self, pm):
+        self.perf_metrics = pm
+
+
+def _bodies(frames):
+    return [json.loads(f[6:]) for f in frames if f[6:].strip() != "[DONE]"]
+
+
+def test_extract_usage_reads_perf_metrics():
+    u = {}
+    nollama.extract_usage(_Result(_PM(90, 9)), u)
+    assert u == {"prompt_tokens": 90, "completion_tokens": 9}
+
+
+def test_extract_usage_leaves_dict_alone_without_counts():
+    for result in (None, _Result(None), _Result(_PM(0, 0)), object()):
+        u = {}
+        nollama.extract_usage(result, u)
+        assert u == {}, result
+    nollama.extract_usage(_Result(_PM(5, 1)), None)  # no dict asked for: no crash
+
+
+def test_usage_block_sentinel_and_total():
+    assert nollama.usage_block({}) == {"prompt_tokens": -1, "completion_tokens": -1,
+                                       "total_tokens": -1}
+    assert nollama.usage_block(None)["total_tokens"] == -1
+    assert nollama.usage_block({"prompt_tokens": 90, "completion_tokens": 9}) == {
+        "prompt_tokens": 90, "completion_tokens": 9, "total_tokens": 99}
+
+
+def test_tool_stream_usage_chunk_only_when_asked():
+    for tokens, finish in ((["Hello"], "stop"), ([CALL], "tool_calls")):
+        slot = FakeSlot(tokens, counts=(120, 7))
+        plain = _bodies(_sse_tool_stream(slot, [], None, TOOLS, "id", 0, 0.0))
+        assert all(b["choices"] for b in plain), "usage chunk sent unasked"
+        slot = FakeSlot(tokens, counts=(120, 7))
+        bodies = _bodies(_sse_tool_stream(slot, [], None, TOOLS, "id", 0, 0.0,
+                                          include_usage=True))
+        last = bodies[-1]
+        assert last["choices"] == [] and last["id"] == "id"
+        assert last["usage"] == {"prompt_tokens": 120, "completion_tokens": 7,
+                                 "total_tokens": 127}
+        assert bodies[-2]["choices"][0]["finish_reason"] == finish
+
+
+def test_plain_stream_usage_chunk_after_finish():
+    slot = FakeSlot(["Hi", " there"], counts=(12, 2))
+    frames = list(nollama.DeviceSlot._sse_stream(
+        slot, slot.stream_tokens(None, None, None, usage=(u := {})), "id", 0, 0.0,
+        threading.Event(), usage=u, include_usage=True))
+    bodies = _bodies(frames)
+    assert frames[-1] == "data: [DONE]\n\n"
+    assert bodies[-1]["usage"]["total_tokens"] == 14 and bodies[-1]["choices"] == []
+    assert bodies[-2]["choices"][0]["finish_reason"] == "stop"
+
+
+def test_stream_usage_falls_back_to_sentinel():
+    # A runtime that reports nothing still gets a well-formed usage chunk.
+    slot = FakeSlot(["Hi"])
+    bodies = _bodies(_sse_tool_stream(slot, [], None, TOOLS, "id", 0, 0.0,
+                                      include_usage=True))
+    assert bodies[-1]["usage"]["prompt_tokens"] == -1
+
+
+def test_error_stream_sends_no_usage_chunk():
+    slot = FakeSlot(["partial"], error=RuntimeError("boom"), counts=(5, 1))
+    bodies = _bodies(_sse_tool_stream(slot, [], None, TOOLS, "id", 0, 0.0,
+                                      include_usage=True))
+    assert bodies[-1]["choices"][0]["finish_reason"] == "error"
+
+
+def test_ollama_counts_omits_what_it_does_not_know():
+    assert nollama.ollama_counts({"prompt_tokens": 90, "completion_tokens": 9}, 7) == {
+        "prompt_eval_count": 90, "eval_count": 9}
+    assert nollama.ollama_counts({}, 7) == {"eval_count": 7}
+    assert nollama.ollama_counts(None) == {}
+
+
+def _ndjson(lines):
+    return [json.loads(line) for line in lines]
+
+
+def test_ollama_streams_report_runtime_counts():
+    # 3 chunks, 4 real tokens: the final frame must carry the runtime's number.
+    for consumer in (nollama._ollama_stream_chat, nollama._ollama_stream_generate):
+        slot = FakeSlot(["a", "b", "c"], counts=(50, 4))
+        last = _ndjson(consumer(slot, [], None, 0.0))[-1]
+        assert last["done"] and last["prompt_eval_count"] == 50 and last["eval_count"] == 4
+        slot = FakeSlot(["a", "b", "c"])  # runtime reports nothing: old chunk count
+        last = _ndjson(consumer(slot, [], None, 0.0))[-1]
+        assert last["eval_count"] == 3 and "prompt_eval_count" not in last
+
+
+def test_ollama_stream_abort_falls_back_to_chunks():
+    # A heartbeat None aborts before the seam is exhausted, so usage stays empty.
+    slot = FakeSlot(["a", None, "never"], counts=(50, 4))
+    last = _ndjson(nollama._ollama_stream_chat(slot, [], None, 0.0))[-1]
+    assert last["eval_count"] == 1 and "prompt_eval_count" not in last
 
 
 if __name__ == "__main__":

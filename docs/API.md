@@ -242,6 +242,17 @@ curl -N http://localhost:8000/v1/chat/completions \
   -d '{"messages":[{"role":"user","content":"Tell me a story"}],"stream":true}'
 ```
 
+#### Token usage
+
+Every non-streaming reply carries real `usage` counts:
+`prompt_tokens`, `completion_tokens` and `total_tokens`. The counts come
+from the runtime itself, so they include the chat template and, on a vision
+model, the image tokens. For a stream, send
+`"stream_options": {"include_usage": true}` and the last chunk before
+`[DONE]` has `usage` and an empty `choices` list, as OpenAI does it. A
+runtime that reports no counts returns `-1` in every field rather than a
+made-up number. Before 2026-09-29, every reply returned `-1`.
+
 #### Reasoning comes back as `reasoning_content`
 
 Thinking models' `<think>…</think>` spans are **not** in `content`. Streaming
@@ -399,6 +410,15 @@ configured with one base URL for chat and embeddings, and with
 curl http://localhost:11434/api/chat \
   -d '{"model":"qwen3-8b-int4-cw","messages":[{"role":"user","content":"Hello!"}]}'
 ```
+
+The final message of `/api/chat` and `/api/generate` (the `"done": true`
+line of a stream, or the whole reply) has `prompt_eval_count` and
+`eval_count` from the runtime, counted the same way as the OpenAI `usage`
+above. Ollama leaves a count out when it has none, and so does NoLlama: no
+`-1` here. A stream cut off by the 120-second no-token timeout falls back to
+counting chunks for `eval_count`, which comes out slightly low. Before
+2026-10-02 that chunk count was all a stream returned, and non-streamed
+replies returned no counts at all.
 
 Disable with `--ollama-port 0` if you don't need it or port 11434 is taken.
 

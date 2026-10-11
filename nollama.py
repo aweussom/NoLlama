@@ -1506,6 +1506,96 @@ def extract_perf(result):
         return None, None
 
 
+def extract_usage(result, usage):
+    """Copy the runtime's own token counts off a genai result into `usage`.
+
+    Why the runtime and not a tokenizer pass of our own: it counts what the
+    model actually consumed — the chat-template render, and on a VLM the
+    image tokens — which no re-tokenization of the request text reproduces.
+    [OBSERVED 2026-09-29, genai 2026.4.0.0-3407, CPU and B60] perf_metrics
+    reports both counts on the plain and scheduler_config pipelines, LLM and
+    VLM, streamed or not; a streamed call's return value carries them too.
+    The streamer's chunk count is NOT a token count (22 chunks for 24 tokens
+    in the same probe), which is why the SSE paths prefer this.
+
+    In: a genai result (or None) and the request's usage dict, or None when
+    the caller did not ask. Out: nothing; fills `prompt_tokens` and
+    `completion_tokens` only when perf_metrics exists and reports a
+    positive input count, so a runtime without them leaves the dict
+    untouched rather than writing zeros. Never raises.
+    """
+    if usage is None or result is None:
+        return
+    pm = getattr(result, "perf_metrics", None)
+    if pm is None:
+        return
+    try:
+        n_in, n_out = pm.get_num_input_tokens(), pm.get_num_generated_tokens()
+    except Exception:
+        return
+    if n_in > 0:
+        usage["prompt_tokens"], usage["completion_tokens"] = int(n_in), int(n_out)
+
+
+def usage_block(usage):
+    """The OpenAI `usage` object for a request's collected counts.
+
+    Why -1 survives as the fallback: the field is required by the schema,
+    and a runtime that reports nothing (the NPU is unprobed) must not claim
+    a zero-token prompt. Clients that do arithmetic on usage should see an
+    obvious sentinel rather than a plausible lie.
+
+    In: the dict extract_usage (or OptimumSlot) filled, possibly empty or
+    None. Out: {prompt_tokens, completion_tokens, total_tokens}; -1 in every
+    field unless both counts are present.
+    """
+    usage = usage or {}
+    p, c = usage.get("prompt_tokens"), usage.get("completion_tokens")
+    if p is None or c is None:
+        return {"prompt_tokens": -1, "completion_tokens": -1, "total_tokens": -1}
+    return {"prompt_tokens": p, "completion_tokens": c, "total_tokens": p + c}
+
+
+def ollama_counts(usage, chunks=None):
+    """The Ollama `prompt_eval_count` / `eval_count` fields for a request.
+
+    Why a twin of usage_block rather than one builder: the two surfaces
+    disagree on what "unknown" looks like. OpenAI's schema requires the
+    field, hence -1; Ollama's response simply omits a count it does not
+    have, so a missing number stays missing here rather than becoming -1
+    that an Ollama client would add up. `chunks` keeps the old streaming
+    behaviour as the fallback: an eval_count from the streamer's chunk
+    count undercounts (see extract_usage) but has always been sent there.
+
+    In: the request's usage dict (possibly empty or None) and, on a
+    streamed path, the number of chunks it yielded. Out: a dict to merge
+    into the final frame — both counts from the runtime when it reported
+    them, else {"eval_count": chunks}, else {} on a non-streamed path.
+    """
+    usage = usage or {}
+    p, c = usage.get("prompt_tokens"), usage.get("completion_tokens")
+    if p is not None and c is not None:
+        return {"prompt_eval_count": p, "eval_count": c}
+    return {} if chunks is None else {"eval_count": chunks}
+
+
+def _usage_frame(completion_id, created, model, usage):
+    """The final SSE chunk for a stream whose client set include_usage.
+
+    Why a shared builder: _sse_stream and _sse_tool_stream both end with it,
+    and the shape (empty `choices`, same id/created/model as the other
+    chunks) is what clients key on — two hand-written copies would drift.
+
+    In: the stream's ids, the model name and its usage dict. Out: one
+    `data: ...` SSE line; usage falls back to -1 per usage_block.
+    """
+    return "data: " + json.dumps({
+        "id": completion_id, "object": "chat.completion.chunk",
+        "created": created, "model": model,
+        "choices": [], "usage": usage_block(usage),
+    }) + "\n\n"
+
+
 def _is_poisoned_context_error(e):
     """Is this the GPU error after which the driver context cannot be trusted?
 
@@ -2777,7 +2867,7 @@ class DeviceSlot:
         except Exception:
             pass
 
-    def generate_vlm(self, text_prompt, images, gen, raw_prompt=False):
+    def generate_vlm(self, text_prompt, images, gen, raw_prompt=False, usage=None):
         """VLM generate — images optional.
 
         Retries once without the repetition penalty when the model turns out
@@ -2786,7 +2876,10 @@ class DeviceSlot:
         does it before any other recovery runs — see the handler below.
         `raw_prompt` says text_prompt is already a rendered chat prompt
         (render_nothink_prompt), so the pipeline must not template it again;
-        the caller pairs it with preseeded_for().
+        the caller pairs it with preseeded_for(). `usage`, when given, is the
+        request's own dict and receives the token counts (extract_usage) —
+        per request, never on the slot, because the next request may already
+        hold the lock by the time the caller reads it.
         """
         if raw_prompt:
             gen.apply_chat_template = False
@@ -2818,13 +2911,14 @@ class DeviceSlot:
                 gen.repetition_penalty = 1.0
                 result = self._vlm_generate_once(text_prompt, images, gen)
             self.last_used = time.time()
+        extract_usage(result, usage)
         text = extract_text(result)
         if self._atem:
             atem = _AtemPlainFilter()
             text = atem.feed(text) + atem.close()
         return text
 
-    def generate_llm(self, raw_messages, gen, prompt=None):
+    def generate_llm(self, raw_messages, gen, prompt=None, usage=None):
         """LLM generate — non-streaming.
 
         Why the try/except around one call: this is the only LLM path that
@@ -2836,9 +2930,10 @@ class DeviceSlot:
 
         In: OpenAI-shaped messages and a GenerationConfig; `prompt`, when
         given, is an already-rendered chat prompt (render_native_tool_prompt)
-        and is generated as-is with the pipeline's template off. Out: the
-        answer text; raises whatever genai raised, slot marked out of service
-        first if the context is gone.
+        and is generated as-is with the pipeline's template off; `usage`, when
+        given, receives the token counts (see generate_vlm for why it is per
+        request). Out: the answer text; raises whatever genai raised, slot
+        marked out of service first if the context is gone.
         """
         if prompt is not None:
             gen.apply_chat_template = False
@@ -2859,6 +2954,7 @@ class DeviceSlot:
         ttft_ms, _ = extract_perf(result)
         if ttft_ms is not None:
             self.last_ttft_ms = ttft_ms
+        extract_usage(result, usage)
         return extract_text(result)
 
     def _note_poisoned(self, e):
@@ -2902,7 +2998,8 @@ class DeviceSlot:
         """
         self._cancel.set()
 
-    def stream_tokens(self, raw_messages, gen, heartbeat, tag="", cancel=None, prompt=None):
+    def stream_tokens(self, raw_messages, gen, heartbeat, tag="", cancel=None, prompt=None,
+                      usage=None):
         """Low-level token stream — the seam between backend and protocol.
 
         Yields str (a decoded text chunk) as soon as one exists, or None when
@@ -2941,6 +3038,10 @@ class DeviceSlot:
         (render_native_tool_prompt): generated as-is, template off, and
         raw_messages is then ignored. OptimumSlot's twin has no such
         parameter; the caller only passes it to a genai slot.
+
+        `usage`, when given, is filled by the worker from generate's return
+        value (extract_usage) BEFORE the end sentinel is queued, so it is
+        complete once this generator is exhausted and not a moment sooner.
         """
         if prompt is not None:
             gen.apply_chat_template = False
@@ -2969,8 +3070,9 @@ class DeviceSlot:
                     if cancel.is_set():
                         return  # client gone while we were queued; don't prefill for nobody
                     self._cancel = cancel
-                    self.pipe.generate(history, gen, streamer_callback)
+                    result = self.pipe.generate(history, gen, streamer_callback)
                     self.last_used = time.time()
+                extract_usage(result, usage)
             except Exception as e:
                 self._stream_error = e
                 print(f"{datetime.now():%H:%M:%S} !! [{self.device_name}] "
@@ -2995,7 +3097,7 @@ class DeviceSlot:
             yield token
 
     def stream_vlm_tokens(self, text_prompt, images, gen, heartbeat, tag="", cancel=None,
-                          raw_prompt=False):
+                          raw_prompt=False, usage=None):
         """VLM twin of stream_tokens — same contract, over VLMPipeline.
 
         Why a separate seam: VLMPipeline.generate takes prompt+images, not a
@@ -3007,7 +3109,8 @@ class DeviceSlot:
         None heartbeats, no finally-side cancel — matches stream_tokens (see
         its docstring for why the token is per request); the two must NOT be
         unified, the generate call and the filter step are the genuine
-        differences.
+        differences. `usage` is filled the same way as in stream_tokens, from
+        whichever generate call (first or penalty-free retry) completed.
 
         Yields translated str chunks, or None per `heartbeat` quiet seconds.
         """
@@ -3037,7 +3140,7 @@ class DeviceSlot:
                     if images:
                         kwargs["images"] = images[0] if len(images) == 1 else images
                     try:
-                        self.pipe.generate(**kwargs)
+                        result = self.pipe.generate(**kwargs)
                     except Exception as e:
                         # Same one-shot retry as generate_vlm. Safe to replay
                         # here because the assertion fires in the sampler
@@ -3050,8 +3153,9 @@ class DeviceSlot:
                         self._rep_penalty_breaks_images = True
                         self._warn_penalty_disabled()
                         gen.repetition_penalty = 1.0
-                        self.pipe.generate(**kwargs)
+                        result = self.pipe.generate(**kwargs)
                     self.last_used = time.time()
+                extract_usage(result, usage)
             except Exception as e:
                 self._stream_error = e
                 print(f"{datetime.now():%H:%M:%S} !! [{self.device_name}] "
@@ -3083,7 +3187,7 @@ class DeviceSlot:
                 yield tail
 
     def stream_vlm(self, text_prompt, images, gen, completion_id, created, t0,
-                   raw_prompt=False):
+                   raw_prompt=False, include_usage=False):
         """VLM generate — SSE streaming. Protocol layer over stream_vlm_tokens().
 
         Same frames as stream_llm (keep-alive on None, reasoning_content for
@@ -3092,22 +3196,27 @@ class DeviceSlot:
         ended the stream mid-prefill; now it pings like the LLM path.
         `raw_prompt` reaches both the seam (no re-templating) and the splitter
         (preseeded_for), which must agree or the answer is filed as reasoning.
+        `include_usage` is the request's stream_options.include_usage.
         """
-        cancel = threading.Event()
+        cancel, usage = threading.Event(), {}
         yield from self._sse_stream(
             self.stream_vlm_tokens(text_prompt, images, gen, heartbeat=HEARTBEAT_SECS,
-                                   cancel=cancel, raw_prompt=raw_prompt),
+                                   cancel=cancel, raw_prompt=raw_prompt, usage=usage),
             completion_id, created, t0, cancel, tag="VLM ",
-            preseeded=self.preseeded_for(raw_prompt))
+            preseeded=self.preseeded_for(raw_prompt), usage=usage,
+            include_usage=include_usage)
 
-    def stream_llm(self, raw_messages, gen, completion_id, created, t0):
-        """LLM generate — SSE streaming. Protocol layer over stream_tokens()."""
-        cancel = threading.Event()
+    def stream_llm(self, raw_messages, gen, completion_id, created, t0, include_usage=False):
+        """LLM generate — SSE streaming. Protocol layer over stream_tokens().
+        `include_usage` is the request's stream_options.include_usage."""
+        cancel, usage = threading.Event(), {}
         yield from self._sse_stream(
-            self.stream_tokens(raw_messages, gen, heartbeat=HEARTBEAT_SECS, cancel=cancel),
-            completion_id, created, t0, cancel)
+            self.stream_tokens(raw_messages, gen, heartbeat=HEARTBEAT_SECS, cancel=cancel,
+                               usage=usage),
+            completion_id, created, t0, cancel, usage=usage, include_usage=include_usage)
 
-    def _sse_stream(self, tokens, completion_id, created, t0, cancel, tag="", preseeded=None):
+    def _sse_stream(self, tokens, completion_id, created, t0, cancel, tag="", preseeded=None,
+                    usage=None, include_usage=False):
         """Turn a token seam into OpenAI SSE frames — shared by stream_llm/stream_vlm.
 
         Why one body: the two paths differed only in which seam fed them, and
@@ -3119,9 +3228,17 @@ class DeviceSlot:
         _cancel.set()) lives HERE, not in the seam — see stream_tokens.
 
         In: a stream_tokens-shaped generator; `preseeded` overrides the
-        slot default for this turn (stream_vlm passes preseeded_for()). Ends
-        with finish_reason stop / cancelled / error, then [DONE]; the log line
-        prints after.
+        slot default for this turn (stream_vlm passes preseeded_for());
+        `usage` is the dict the seam fills, complete once `tokens` is
+        exhausted. Ends with finish_reason stop / cancelled / error, then —
+        only when `include_usage` — a `choices: []` chunk carrying usage, then
+        [DONE]; the log line prints after, using the runtime's token count
+        when it has one (the chunk count undercounts, see extract_usage).
+
+        [DOCUMENTED, OpenAI Chat Completions API reference, stream_options]
+        The usage chunk is opt-in, goes last before [DONE], and has an empty
+        choices list. Sending it unasked breaks clients that index choices[0]
+        on every chunk, hence the flag.
         """
         token_count = 0
         was_cancelled = False
@@ -3157,6 +3274,8 @@ class DeviceSlot:
                             "error")
             else:
                 yield frame({}, "cancelled" if was_cancelled else "stop")
+                if include_usage:
+                    yield _usage_frame(completion_id, created, self.model_name, usage)
             yield "data: [DONE]\n\n"
             done = True
         finally:
@@ -3172,6 +3291,7 @@ class DeviceSlot:
                       f"(generation stops at its next token)", flush=True)
 
         elapsed = time.perf_counter() - t0
+        token_count = (usage or {}).get("completion_tokens", token_count)
         tps = token_count / elapsed if elapsed > 0 else 0
         err_tag = " (cancelled)" if was_cancelled else (" (error)" if self._stream_error else "")
         ttft = (f", TTFT {self.last_ttft_ms:.0f}ms" if token_count and
@@ -3840,7 +3960,12 @@ class OptimumSlot(DeviceSlot):
     def _generate_unlocked(self, raw_messages, hf_kwargs, streamer=None):
         """The bare generate call, no locking — exists because ensure_loaded()
         calls warmup() while HOLDING self.lock (non-reentrant), mirroring how
-        DeviceSlot.warmup talks to the pipeline directly."""
+        DeviceSlot.warmup talks to the pipeline directly.
+
+        Out: (prompt_tokens, completion_tokens). HF generate returns prompt
+        and continuation as one id row, so the split is the rendered
+        prompt's length; this backend has no perf_metrics to read instead.
+        """
         inputs = self.tokenizer.apply_chat_template(
             raw_messages, add_generation_prompt=True,
             return_tensors="pt", return_dict=True)
@@ -3851,10 +3976,12 @@ class OptimumSlot(DeviceSlot):
                   f"rendered prompt:\n"
                   f"{self.tokenizer.decode(inputs['input_ids'][0])}",
                   flush=True)
-        self.model.generate(
+        out = self.model.generate(
             **inputs, streamer=streamer,
             stopping_criteria=self._stopping_criteria(),
             pad_token_id=self.tokenizer.eos_token_id, **hf_kwargs)
+        n_in = int(inputs["input_ids"].shape[-1])
+        return n_in, int(out.shape[-1]) - n_in
 
     def warmup(self):
         """Same contract as DeviceSlot.warmup, via _generate_unlocked because
@@ -3869,12 +3996,18 @@ class OptimumSlot(DeviceSlot):
         self.status = "ready"
         self.last_used = time.time()
 
-    def stream_tokens(self, raw_messages, gen, heartbeat, tag="", cancel=None):
+    def stream_tokens(self, raw_messages, gen, heartbeat, tag="", cancel=None, usage=None):
         """Same contract as DeviceSlot.stream_tokens, over TextIteratorStreamer.
 
         The per-request `cancel` token is bound to self._cancel inside the
         lock exactly as in the genai seam; _stopping_criteria polls
         self._cancel, so it sees this request's token and no other.
+        `usage` is filled from _generate_unlocked's counts, and the promise
+        is the same "complete once exhausted" — but kept differently: HF's
+        generate calls streamer.end() itself, BEFORE it returns, so the
+        consumer can see StopIteration while the worker has yet to write the
+        counts. The generator therefore joins the worker at end of stream;
+        generate has already finished by then, so the join is immediate.
         """
         from transformers import TextIteratorStreamer
 
@@ -3896,9 +4029,11 @@ class OptimumSlot(DeviceSlot):
                         streamer.end()  # client gone while queued; release the consumer
                         return
                     self._cancel = cancel
-                    self._generate_unlocked(raw_messages, _hf_gen_kwargs(gen),
-                                            streamer=streamer)
+                    n_in, n_out = self._generate_unlocked(raw_messages, _hf_gen_kwargs(gen),
+                                                          streamer=streamer)
                     self.last_used = time.time()
+                if usage is not None:
+                    usage["prompt_tokens"], usage["completion_tokens"] = n_in, n_out
             except Exception as e:
                 self._stream_error = e
                 print(f"{datetime.now():%H:%M:%S} !! [{self.device_name}] "
@@ -3922,6 +4057,7 @@ class OptimumSlot(DeviceSlot):
                 yield None  # heartbeat marker
                 continue
             except StopIteration:
+                t.join(timeout=5)  # usage is written after generate's own streamer.end()
                 tail = atem.close() if atem else ""
                 if tail:
                     yield tail
@@ -3931,12 +4067,13 @@ class OptimumSlot(DeviceSlot):
             if chunk:
                 yield chunk
 
-    def generate_llm(self, raw_messages, gen):
+    def generate_llm(self, raw_messages, gen, usage=None):
         """Non-streaming = joined stream: one code path, wall-clock TTFT
-        (extract_perf has nothing to read on this backend)."""
+        (extract_perf has nothing to read on this backend). `usage` passes
+        straight through to stream_tokens."""
         t0 = time.perf_counter()
         chunks = []
-        for chunk in self.stream_tokens(raw_messages, gen, heartbeat=None):
+        for chunk in self.stream_tokens(raw_messages, gen, heartbeat=None, usage=usage):
             if not chunks:
                 self.last_ttft_ms = (time.perf_counter() - t0) * 1000
             chunks.append(chunk)
@@ -3944,13 +4081,13 @@ class OptimumSlot(DeviceSlot):
             raise self._stream_error
         return "".join(chunks).strip()
 
-    def generate_vlm(self, text_prompt, images, gen, raw_prompt=False):
+    def generate_vlm(self, text_prompt, images, gen, raw_prompt=False, usage=None):
         """Refuse loudly: the routes reject images first (model_type is 'llm'),
         so reaching this means a routing bug — fail, don't improvise."""
         raise RuntimeError("vision path not enabled on the optimum backend yet")
 
     def stream_vlm(self, text_prompt, images, gen, completion_id, created, t0,
-                   raw_prompt=False):
+                   raw_prompt=False, include_usage=False):
         """Refuse loudly — same contract as generate_vlm above."""
         raise RuntimeError("vision path not enabled on the optimum backend yet")
 
@@ -4412,7 +4549,7 @@ def _assistant_message(text, tool_calls, preseeded=False):
 
 
 def _sse_tool_stream(slot, raw_messages, gen, tools, completion_id, created, t0,
-                     vlm=None, native_prompt=None):
+                     vlm=None, native_prompt=None, include_usage=False):
     """Token-streamed tool turn: text flows live, the call block is parsed at the end.
 
     Why: agent clients send tools on every request, so buffering tool turns
@@ -4435,6 +4572,9 @@ def _sse_tool_stream(slot, raw_messages, gen, tools, completion_id, created, t0,
     (--tool-template native). It is generated as-is, and whether it opens
     <think> is read off the prompt itself — the slot's think_preseeded
     describes the pipeline's template, not this render.
+
+    include_usage: the request's stream_options.include_usage — a final
+    usage chunk after the finish chunk, as in _sse_stream.
     """
     def frame(delta, finish=None):
         return "data: " + json.dumps({
@@ -4444,21 +4584,22 @@ def _sse_tool_stream(slot, raw_messages, gen, tools, completion_id, created, t0,
         }) + "\n\n"
 
     cancel = threading.Event()  # this request's token — see stream_tokens
+    usage = {}  # filled by the seam's worker; complete once `tokens` is exhausted
     if vlm is not None:
         # vlm = (text_prompt, images, raw_prompt): a pre-rendered no-think
         # prompt must not be templated again; the LLM seam has no such case
         # because it reads the switch off raw_messages itself.
         raw_prompt = vlm[2] if len(vlm) > 2 else False
         tokens = slot.stream_vlm_tokens(vlm[0], vlm[1], gen, heartbeat=HEARTBEAT_SECS,
-                                        cancel=cancel, raw_prompt=raw_prompt)
+                                        cancel=cancel, raw_prompt=raw_prompt, usage=usage)
         preseeded = slot.preseeded_for(raw_prompt)
     elif native_prompt is not None:
         tokens = slot.stream_tokens(raw_messages, gen, heartbeat=HEARTBEAT_SECS,
-                                    cancel=cancel, prompt=native_prompt)
+                                    cancel=cancel, prompt=native_prompt, usage=usage)
         preseeded = native_prompt.rstrip().endswith("<think>")
     else:
         tokens = slot.stream_tokens(raw_messages, gen, heartbeat=HEARTBEAT_SECS,
-                                    cancel=cancel)
+                                    cancel=cancel, usage=usage)
         preseeded = getattr(slot, "think_preseeded", False)
     splitter, gate = _ThinkSplitter(preseeded), _ToolCallGate()
     token_count = 0
@@ -4551,6 +4692,8 @@ def _sse_tool_stream(slot, raw_messages, gen, tools, completion_id, created, t0,
                 # the answer too, or an agent sees an empty turn and stops.
                 yield frame({"content": _strip_tool_markup(splitter.unclosed_text).strip()})
             yield frame({}, "cancelled" if was_cancelled else "stop")
+        if include_usage:
+            yield _usage_frame(completion_id, created, slot.model_name, usage)
         yield "data: [DONE]\n\n"
         done = True
     finally:
@@ -4564,6 +4707,7 @@ def _sse_tool_stream(slot, raw_messages, gen, tools, completion_id, created, t0,
                   f"(generation stops at its next token)", flush=True)
 
     elapsed = time.perf_counter() - t0
+    token_count = usage.get("completion_tokens", token_count)
     tps = token_count / elapsed if elapsed > 0 else 0
     err_tag = " (cancelled)" if was_cancelled else (" (error)" if slot._stream_error else "")
     ttft = (f", TTFT {slot.last_ttft_ms:.0f}ms" if token_count and
@@ -5071,8 +5215,12 @@ def chat_completions():
     temperature = body.get("temperature", 0.0)
     top_p = body.get("top_p", 1.0)
     stream = body.get("stream", False)
+    # Opt-in final usage chunk on a stream (OpenAI's stream_options); the
+    # non-streaming reply always carries usage.
+    include_usage = bool((body.get("stream_options") or {}).get("include_usage"))
     requested_model = body.get("model", "")
     tools = body.get("tools") or []
+    usage = {}  # this request's token counts, filled by the generate call
 
     # Parse messages
     try:
@@ -5171,20 +5319,22 @@ def chat_completions():
         if stream and tools_active:
             return Response(
                 _sse_tool_stream(slot, raw_messages, gen, tools, completion_id,
-                                 created, t0, vlm=(text_prompt, images, raw_prompt)),
+                                 created, t0, vlm=(text_prompt, images, raw_prompt),
+                                 include_usage=include_usage),
                 mimetype="text/event-stream",
                 headers={"X-Device": slot.device_name, "X-Model": slot.model_name},
             )
         if stream:
             return Response(
                 slot.stream_vlm(text_prompt, images, gen, completion_id, created, t0,
-                                raw_prompt=raw_prompt),
+                                raw_prompt=raw_prompt, include_usage=include_usage),
                 mimetype="text/event-stream",
                 headers={"X-Device": slot.device_name, "X-Model": slot.model_name},
             )
 
         try:
-            text = slot.generate_vlm(text_prompt, images, gen, raw_prompt=raw_prompt)
+            text = slot.generate_vlm(text_prompt, images, gen, raw_prompt=raw_prompt,
+                                     usage=usage)
         except Exception as e:
             print(f"{datetime.now():%H:%M:%S} !! [{slot.device_name}] VLM error: {e}", flush=True)
             return openai_error(f"Inference failed: {e}", "server_error", 500)
@@ -5210,7 +5360,7 @@ def chat_completions():
             "id": completion_id, "object": "chat.completion",
             "created": created, "model": slot.model_name,
             "choices": [{"index": 0, "message": message, "finish_reason": finish_reason}],
-            "usage": {"prompt_tokens": -1, "completion_tokens": -1, "total_tokens": -1},
+            "usage": usage_block(usage),
         })
         resp.headers["X-Device"] = slot.device_name
         resp.headers["X-Model"] = slot.model_name
@@ -5219,7 +5369,8 @@ def chat_completions():
     # --- LLM path ---
     if stream and not tools_active:
         return Response(
-            slot.stream_llm(raw_messages, gen, completion_id, created, t0),
+            slot.stream_llm(raw_messages, gen, completion_id, created, t0,
+                            include_usage=include_usage),
             mimetype="text/event-stream",
             headers={"X-Device": slot.device_name, "X-Model": slot.model_name},
         )
@@ -5231,26 +5382,30 @@ def chat_completions():
     if stream and tools_active:
         return Response(
             _sse_tool_stream(slot, raw_messages, gen, tools, completion_id, created, t0,
-                             native_prompt=native_prompt),
+                             native_prompt=native_prompt, include_usage=include_usage),
             mimetype="text/event-stream",
             headers={"X-Device": slot.device_name, "X-Model": slot.model_name},
         )
 
     # Non-streaming (with or without tools): one blocking generate + JSON reply.
     try:
-        text = (slot.generate_llm(raw_messages, gen, prompt=native_prompt)
-                if native_prompt is not None else slot.generate_llm(raw_messages, gen))
+        text = (slot.generate_llm(raw_messages, gen, prompt=native_prompt, usage=usage)
+                if native_prompt is not None else slot.generate_llm(raw_messages, gen,
+                                                                    usage=usage))
     except Exception as e:
         err = explain_genai_error(e, slot)
         print(f"{datetime.now():%H:%M:%S} !! [{slot.device_name}] LLM error: {err}", flush=True)
         return openai_error(f"Inference failed: {err}", "server_error", 500)
 
     elapsed = time.perf_counter() - t0
-    n_words = len(text.split())
+    # The runtime's count when it has one; the word count is the old estimate.
+    n_tok = usage.get("completion_tokens")
+    shown = f"{n_tok}" if n_tok is not None else f"~{len(text.split())}"
+    n_tok = n_tok if n_tok is not None else len(text.split())
     ttft = (f", TTFT {slot.last_ttft_ms:.0f}ms"
             if slot.last_ttft_ms is not None else "")
     print(f"{datetime.now():%H:%M:%S} -> [{slot.device_name}] "
-          f"~{n_words} tokens in {elapsed:.1f}s ({n_words / max(elapsed, 1e-6):.1f} tok/s{ttft})",
+          f"{shown} tokens in {elapsed:.1f}s ({n_tok / max(elapsed, 1e-6):.1f} tok/s{ttft})",
           flush=True)
 
     tool_calls = []
@@ -5272,7 +5427,7 @@ def chat_completions():
         "id": completion_id, "object": "chat.completion",
         "created": created, "model": slot.model_name,
         "choices": [{"index": 0, "message": message, "finish_reason": finish_reason}],
-        "usage": {"prompt_tokens": -1, "completion_tokens": -1, "total_tokens": -1},
+        "usage": usage_block(usage),
     })
     resp.headers["X-Device"] = slot.device_name
     resp.headers["X-Model"] = slot.model_name
@@ -5502,11 +5657,12 @@ def ollama_chat():
           f"{' (stream)' if stream else ''}", flush=True)
 
     t0 = time.perf_counter()
+    usage = {}  # filled by the generate call; see ollama_counts
 
     # VLM path (no streaming)
     if slot.model_type == "vlm":
         try:
-            text = slot.generate_vlm(text_prompt, images, gen)
+            text = slot.generate_vlm(text_prompt, images, gen, usage=usage)
         except Exception as e:
             return jsonify({"error": str(e)}), 500
 
@@ -5538,6 +5694,7 @@ def ollama_chat():
             "message": message,
             "done": True,
             "total_duration": int(elapsed * 1e9),
+            **ollama_counts(usage),
         })
 
     # LLM path. Tool turns are buffered (see chat_completions for why).
@@ -5548,7 +5705,7 @@ def ollama_chat():
         )
 
     try:
-        text = slot.generate_llm(raw_messages, gen)
+        text = slot.generate_llm(raw_messages, gen, usage=usage)
     except Exception as e:
         return jsonify({"error": explain_genai_error(e, slot)}), 500
 
@@ -5582,6 +5739,7 @@ def ollama_chat():
         "message": message,
         "done": True,
         "total_duration": int(elapsed * 1e9),
+        **ollama_counts(usage),
     }
     if stream:
         # tools + stream: emit the buffered result as a single ndjson line.
@@ -5592,13 +5750,16 @@ def ollama_chat():
 def _ollama_stream_chat(slot, raw_messages, gen, t0):
     """Ollama streaming: newline-delimited JSON (not SSE). Protocol layer over
     slot.stream_tokens() — a None marker after 120 s of silence aborts the
-    stream, preserving this path's historical no-token timeout."""
+    stream, preserving this path's historical no-token timeout. The final
+    frame's counts come from the runtime (ollama_counts); an aborted stream
+    never exhausts the seam, so it falls back to the chunk count."""
     token_count = 0
+    usage = {}
     cancel = threading.Event()  # this request's token — see stream_tokens
 
     try:
         for token in slot.stream_tokens(raw_messages, gen, heartbeat=120,
-                                        tag="[Ollama] ", cancel=cancel):
+                                        tag="[Ollama] ", cancel=cancel, usage=usage):
             if token is None:
                 break
             if token_count == 0:
@@ -5612,14 +5773,15 @@ def _ollama_stream_chat(slot, raw_messages, gen, t0):
             }) + "\n"
 
         elapsed = time.perf_counter() - t0
-        tps = token_count / elapsed if elapsed > 0 else 0
+        counts = ollama_counts(usage, token_count)
+        tps = counts["eval_count"] / elapsed if elapsed > 0 else 0
 
         yield json.dumps({
             "model": slot.model_name,
             "message": {"role": "assistant", "content": ""},
             "done": True,
             "total_duration": int(elapsed * 1e9),
-            "eval_count": token_count,
+            **counts,
         }) + "\n"
     finally:
         cancel.set()  # own token — see stream_tokens
@@ -5627,7 +5789,8 @@ def _ollama_stream_chat(slot, raw_messages, gen, t0):
     ttft = (f", TTFT {slot.last_ttft_ms:.0f}ms" if token_count and
             slot.last_ttft_ms is not None else "")
     print(f"{datetime.now():%H:%M:%S} -> [{slot.device_name}] [Ollama] "
-          f"{token_count} tokens in {elapsed:.1f}s ({tps:.1f} tok/s{ttft})", flush=True)
+          f"{counts['eval_count']} tokens in {elapsed:.1f}s ({tps:.1f} tok/s{ttft})",
+          flush=True)
 
 
 @ollama_app.route("/api/generate", methods=["POST"])
@@ -5671,6 +5834,7 @@ def ollama_generate():
                     presence=_opts.get("presence_penalty"))
 
     t0 = time.perf_counter()
+    usage = {}  # filled by the generate call; see ollama_counts
 
     # VLM with images
     if has_images and slot.model_type == "vlm":
@@ -5679,7 +5843,7 @@ def ollama_generate():
             img = load_image(f"data:image/jpeg;base64,{b64}", max_dim)
             img_tensors.append(pil_to_tensor(img, max_dim))
         try:
-            text = slot.generate_vlm(prompt, img_tensors, gen)
+            text = slot.generate_vlm(prompt, img_tensors, gen, usage=usage)
         except Exception as e:
             return jsonify({"error": str(e)}), 500
         elapsed = time.perf_counter() - t0
@@ -5688,6 +5852,7 @@ def ollama_generate():
             "response": text,
             "done": True,
             "total_duration": int(elapsed * 1e9),
+            **ollama_counts(usage),
         })
 
     if has_images and slot.model_type == "llm":
@@ -5705,12 +5870,12 @@ def ollama_generate():
     # Non-streaming
     if slot.model_type == "vlm":
         try:
-            text = slot.generate_vlm(prompt, [], gen)
+            text = slot.generate_vlm(prompt, [], gen, usage=usage)
         except Exception as e:
             return jsonify({"error": str(e)}), 500
     else:
         try:
-            text = slot.generate_llm(raw_messages, gen)
+            text = slot.generate_llm(raw_messages, gen, usage=usage)
         except Exception as e:
             return jsonify({"error": str(e)}), 500
 
@@ -5720,18 +5885,21 @@ def ollama_generate():
         "response": text,
         "done": True,
         "total_duration": int(elapsed * 1e9),
+        **ollama_counts(usage),
     })
 
 
 def _ollama_stream_generate(slot, raw_messages, gen, t0):
     """Ollama /api/generate streaming. Protocol layer over slot.stream_tokens();
-    None after 120 s of silence aborts (historical behavior, no TTFT here)."""
+    None after 120 s of silence aborts (historical behavior, no TTFT here).
+    Counts as in _ollama_stream_chat: runtime's own, chunk count on abort."""
     token_count = 0
+    usage = {}
     cancel = threading.Event()  # this request's token — see stream_tokens
 
     try:
         for token in slot.stream_tokens(raw_messages, gen, heartbeat=120,
-                                        tag="[Ollama] ", cancel=cancel):
+                                        tag="[Ollama] ", cancel=cancel, usage=usage):
             if token is None:
                 break
             token_count += 1
@@ -5747,7 +5915,7 @@ def _ollama_stream_generate(slot, raw_messages, gen, t0):
             "response": "",
             "done": True,
             "total_duration": int(elapsed * 1e9),
-            "eval_count": token_count,
+            **ollama_counts(usage, token_count),
         }) + "\n"
     finally:
         cancel.set()  # own token — see stream_tokens

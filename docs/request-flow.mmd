@@ -3,6 +3,8 @@
 %% Updated 2026-08-30: tool turns stream (issue #36); _sse_replay removed, _assistant_message added.
 %% Updated 2026-09-18: VLM no-think turns pre-render the prompt (render_nothink_prompt) before the seams.
 %% Updated 2026-09-23: --tool-template native renders LLM tool turns in the model's own template (T-036).
+%% Updated 2026-09-29: real usage on every path; stream_options.include_usage honoured (T-034).
+%% Updated 2026-10-02: the Ollama handlers pass a usage dict too; counts via ollama_counts (T-034).
 %% Legend: solid = normal path, dashed = refused/degraded path,
 %%         ALL-CAPS nodes = prose annotations.
 %% Palette: route (blue) = request handling, gen (green) = generation paths,
@@ -12,10 +14,10 @@ flowchart TB
   openai_client["OpenAI client<br/>POST /v1/chat/completions<br/>(port 8000 or 11434)"]
   ollama_client["Ollama client<br/>POST /api/chat | /api/generate"]
 
-  chat_completions["chat_completions"]
+  chat_completions["chat_completions<br/>one usage dict per request, handed to<br/>whichever path runs (stream-plumbing.mmd)"]
   ollama_v1_chat_completions["ollama_v1_chat_completions<br/>(delegates verbatim)"]
-  ollama_chat["ollama_chat<br/>translates images[] to image_url blocks,<br/>options.num_predict/temperature"]
-  ollama_generate["ollama_generate<br/>single turn, no history"]
+  ollama_chat["ollama_chat<br/>translates images[] to image_url blocks,<br/>options.num_predict/temperature;<br/>one usage dict per request, rendered<br/>by ollama_counts (stream-plumbing.mmd)"]
+  ollama_generate["ollama_generate<br/>single turn, no history;<br/>same usage dict as ollama_chat"]
 
   parse_messages["parse_messages<br/>flatten roles, strip leading think from<br/>assistant history, load+anchor images"]
   _route_request{"_route_request"}
@@ -25,7 +27,7 @@ flowchart TB
 
   stream_llm["stream_llm<br/>SSE tokens + keepalive"]
   stream_vlm["stream_vlm<br/>SSE tokens (VLM)"]
-  _sse_tool_stream["_sse_tool_stream<br/>token-streamed: reasoning_content live,<br/>content live until _ToolCallGate sees an<br/>opener; the held text goes to parse_tool_calls.<br/>Nothing held and the turn ended inside an<br/>unclosed think: that block is parsed instead,<br/>or sent as the answer if it holds no call"]
+  _sse_tool_stream["_sse_tool_stream<br/>token-streamed: reasoning_content live,<br/>content live until _ToolCallGate sees an<br/>opener; the held text goes to parse_tool_calls.<br/>Nothing held and the turn ended inside an<br/>unclosed think: that block is parsed instead,<br/>or sent as the answer if it holds no call.<br/>Usage chunk after the finish when asked"]
   generate_blocking["generate_llm / generate_vlm<br/>blocking JSON reply via _assistant_message<br/>(think span -> reasoning_content)"]
   parse_tool_calls["parse_tool_calls<br/>Qwen3 XML, Hermes, ATEM, bare function=,<br/>Mistral, Llama, DeepSeek, bare-JSON fallback"]
 
