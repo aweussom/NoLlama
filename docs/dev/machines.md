@@ -23,6 +23,7 @@ Where this repo lives and where most measurements are taken.
 | OS | Windows 11 Pro 26200 |
 | WSL | 2.7.12.0, Ubuntu 24.04.4, kernel 6.18.33.2-2 |
 | Docker | Docker Desktop 4.87.0 / engine 29.7.2 |
+| venvs | `venv` — **OpenVINO 2026.4.1 + genai 2026.4.1.0, upgraded from 2026.4.0 on 2026-10-11**; `venv-nightly` (2026.5.0-23394, refreshed the same day) |
 
 **The clean Intel GPU test.** No other GPU vendor in play, so an enumeration
 result here is unambiguous. Also where the Docker work happens (#31) — the
@@ -210,7 +211,7 @@ not load.
 | OS | Windows 11 Pro |
 | WSL | **2.9.8.0** (pre-release channel), Ubuntu, kernel 6.18.40.1 — includes the WSL Containers preview (`wslc.exe`) |
 | Docker | 29.4.1 — already installed |
-| venvs | `venv` (2026.3.0, serving), `venv-2026.3` (transformers 5.4 — the one that knows `lfm2_moe`, use it for `-Convert`), `venv-2026.3.1` (scratch, runtime-version tests only, created 2026-09-11) |
+| venvs | `venv` — **OpenVINO 2026.4.1 + genai 2026.4.1.0, upgraded from 2026.3.0 on 2026-10-11; anything measured here before that date is a 2026.3.0 number**; `venv-nightly` (2026.5.0-23394, built 2026-10-11); `venv-2026.3` (transformers 5.4 — the one that knows `lfm2_moe`, use it for `-Convert`), `venv-2026.3.1` (scratch, runtime-version tests only, created 2026-09-11) |
 | Ollama | 0.34.0 (checked 2026-09-18), well stocked (gemma4, muse-glimmer, qwen3-coder-next, **qwen3.8:27b** q4_K_M pulled 2026-09-18 for the Bonsai comparison, …) |
 | Bonsai-demo | `C:\devel\Bonsai-demo` — PrismML's llama.cpp fork demo, release `prism-b10685`. **Three backends installed side by side**: `bin\vulkan` (what `setup.ps1` picked on its own), `bin\cuda` (13.3 build + cudart, added 2026-09-18) and `bin\cpu`. `start_llama_server.ps1` prefers `bin\cuda` when present. Its `setup.ps1` is patched on a local branch `fix/nvidia-smi-cuda-umd-version`; `main` there is untouched upstream. **The curated copy is the private fork `aweussom/Bonsai-demo`** (clone on the B60 box at `C:\devel\aweussom\Bonsai-demo`): upstream `main` + the fix + `bench/` with the harness, every result JSON and a README on reproducing the arms, including on a laptop iGPU. Point the 285K checkout's remote at the fork if the two should stop diverging |
 
@@ -260,7 +261,7 @@ Ollama, ComfyUI and the drivers are still ask-first.
 | GPU | Intel Arc 140V iGPU — **~25.5 GB budget**, not the stock 16 GB (Intel Shared GPU Memory Override is on) |
 | NPU | yes — **NPU 4, `DEVICE_ARCHITECTURE=4000`.** The newer generation, and not the better one for every model |
 | Drivers | GPU `32.0.101.8991` (released 2026-08-24), NPU `32.0.100.5540` (released 2026-08-20) — **both installed 2026-09-14**, so anything measured here from 2026-09-15 is on a one-day-old stack |
-| venvs | `venv` — **OpenVINO 2026.4.0 + genai 2026.4.0.0, upgraded from 2026.3.1 on 2026-09-23**; `venv-nightly` (2026.5.0 nightly). Anything measured here before that date is a 2026.3.1 number |
+| venvs | `venv` — **OpenVINO 2026.4.1 + genai 2026.4.1.0, upgraded from 2026.4.0 on 2026-10-11** (2026.4.0 since 2026-09-23; anything measured here before that is a 2026.3.1 number); `venv-nightly` (2026.5.0-23394, refreshed 2026-10-11) |
 
 **WSL and Docker: hands off.** The owner needs this machine to work and is
 unwilling to have WSL messed with on it. That is a hard constraint, not a

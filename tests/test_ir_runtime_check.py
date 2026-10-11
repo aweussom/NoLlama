@@ -82,7 +82,12 @@ def test_real_gemma4_export_is_a_2026_4_ir():
         print("  SKIP gemma-4: not present")
         return
     rt = read_ir_rt_info(GEMMA)
-    assert _runtime_pair(rt.get("Runtime_version")) == (2026, 4), rt.get("Runtime_version")
+    pair = _runtime_pair(rt.get("Runtime_version"))
+    # At least, not equal: Intel re-exports this repo in place. A B60
+    # workstation copy stamped 2026.2.0-21622 [OBSERVED 2026-10-11] is a stale
+    # download, and failing here is how a stale box gets noticed.
+    assert pair is not None and pair >= (2026, 4), (
+        f"{rt.get('Runtime_version')}: stale download, re-fetch {GEMMA}")
     # The shipped failure: this IR under the 2026.3.1 runtime.
     assert ir_runtime_mismatch(GEMMA, installed="2026.3.1-22476-759c5a6ab8c-releases/2026/3", rt=rt)
     # And the installed runtime on this box, which is at or past the floor.
