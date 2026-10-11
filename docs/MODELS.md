@@ -339,9 +339,13 @@ Measured on a Core Ultra 7 258V laptop, OpenVINO 2026.4.1, bare runtime:
 | small | 4x | 16x | **25x** | usable for read speech (26% / 62%) | 8% |
 | medium | ~1x | 8x | **does not run** | best (15% / 52%) | 5% |
 
-- On the NPU, **small** is the pick: fast, and it leaves the GPU to the chat
-  model. Medium crashes the NPU on its first inference (device lost); use
-  it on the iGPU.
+- On the NPU, **small** is the pick: fastest to answer. Medium crashes the
+  NPU on its first inference (device lost); use it on the iGPU.
+- The NPU is not free on a laptop. Transcribing non-stop, it slows a chat
+  model on the iGPU by a third or more, since both share the same memory
+  and power. Dictating a sentence now and then costs nothing you would
+  notice. For hours of audio while you chat, put Whisper on the iGPU
+  instead: the chat keeps its speed and Whisper waits its turn.
 - NPU compile is slow, 46 s for base and 102 s for small, paid at every
   server start.
 - Measured on Lunar Lake's NPU only. Arrow Lake / Meteor Lake (NPU 3) is
