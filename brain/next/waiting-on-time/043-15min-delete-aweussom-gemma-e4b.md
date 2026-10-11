@@ -1,7 +1,7 @@
 # N-043 — Delete `aweussom/gemma-4-E4B-it-int8-ov` from the Hub
 
 **Cost:** 15 min · **Asks:** Tommy (deleting a public repo is his call) ·
-**Waiting on:** time. Not before 2026-01-11, not after 2026-04-11.
+**Waiting on:** time. Not before 2027-01-11, not after 2027-04-11.
 
 Our E4B re-export existed because Intel's IR had no fused SDPA op and got no
 prefix caching. Intel's 2026-09-17 re-export fixed that, and on the B60 /
