@@ -1,0 +1,53 @@
+%% Web UI push-to-talk: press -> record -> browser-side WAV -> Whisper -> input box.
+%% Drawn 2026-10-11 from static/js/app.js (T-045) and nollama.py's Whisper guard.
+%% Legend: solid = normal path, dashed = refused/empty/failure paths,
+%%         ALL-CAPS nodes = prose annotations.
+%% covers: static/js/app.js:initPushToTalk,pttDefaultLanguage,pttStart,pttStop,pttStopTracks,pttFinish,pttToWav,pttEncodeWav,pttInsert,pttNotice
+%% covers: nollama.py:audio_transcriptions,_load_audio,audio_level_spread,collapse_repeat_loop
+flowchart TB
+  initPushToTalk["initPushToTalk<br/>GET /health: whisper.status ready?<br/>fill language picker"]
+  pttDefaultLanguage["pttDefaultLanguage<br/>localStorage, else navigator.language<br/>nb/nn -> no"]
+  hidden["button stays hidden"]
+  disabled["button disabled,<br/>reason in tooltip"]
+  SECURE["NO MIC OUTSIDE A SECURE CONTEXT:<br/>http://localhost works, http://lan-ip does not,<br/>and there navigator.mediaDevices is undefined"]
+
+  initPushToTalk --> pttDefaultLanguage
+  initPushToTalk -.->|"no whisper slot / /health fails"| hidden
+  initPushToTalk -.->|"!isSecureContext"| disabled
+  disabled --- SECURE
+
+  press(["pointerdown on mic, or Space<br/>with an empty input box"]) --> pttStart
+  pttStart["pttStart<br/>getUserMedia per press, MediaRecorder.start"]
+  pttStart -.->|"permission refused"| pttNotice
+  pttStart -.->|"released before permission resolved"| pttStopTracks
+  release(["pointerup / Space up"]) --> pttStop
+  pttStop["pttStop<br/>recorder.stop()"] --> pttFinish
+  pttFinish["pttFinish<br/>release mic, drop taps under 300 ms"]
+  pttFinish --> pttStopTracks["pttStopTracks<br/>mic indicator off"]
+  pttFinish --> pttToWav
+  pttToWav["pttToWav<br/>decodeAudioData on WebM/Opus or MP4,<br/>OfflineAudioContext: 1 ch, 16 kHz"]
+  pttToWav --> pttEncodeWav["pttEncodeWav<br/>16-bit PCM WAV"]
+  WAVWHY["WHY IN THE BROWSER:<br/>soundfile reads neither WebM nor MP4,<br/>the browser decodes its own output,<br/>so the endpoint stays plain OpenAI"]
+  pttToWav --- WAVWHY
+
+  pttEncodeWav --> audio_transcriptions["audio_transcriptions<br/>POST /v1/audio/transcriptions, multipart"]
+  audio_transcriptions --> _load_audio["_load_audio<br/>mono, resample to 16 kHz"]
+  _load_audio --> audio_level_spread{"audio_level_spread<br/>p95 - p10 of 30 ms frame dB<br/>>= --whisper-min-spread?"}
+  audio_level_spread -.->|"no: silence / steady noise"| empty["text: empty string,<br/>model not run"]
+  audio_level_spread -->|yes| generate["WhisperSlot.transcribe<br/>pipe.generate on CPU / GPU / NPU"]
+  generate --> collapse_repeat_loop["collapse_repeat_loop<br/>phrase x4 back to back -> one copy"]
+  SPREADWHY["RELATIVE, NOT ABSOLUTE:<br/>quiet speech peaks below -50 dBFS and<br/>still transcribes; noise has no bursts"]
+  audio_level_spread --- SPREADWHY
+
+  collapse_repeat_loop --> pttInsert["pttInsert<br/>at the cursor, never auto-sent"]
+  empty -.-> pttNotice["pttNotice<br/>placeholder for 3 s:<br/>Nothing heard / failure"]
+  pttFinish -.->|"HTTP error / decode failure"| pttNotice
+
+  classDef route fill:#dbeafe,stroke:#1e40af,color:#000
+  classDef gen fill:#dcfce7,stroke:#166534,color:#000
+  classDef client fill:#fef9c3,stroke:#854d0e,color:#000
+  classDef warn fill:#ffedd5,stroke:#9a3412,color:#000
+  class initPushToTalk,pttDefaultLanguage,pttStart,pttStop,pttFinish,pttStopTracks route
+  class pttToWav,pttEncodeWav,audio_transcriptions,_load_audio,audio_level_spread,generate,collapse_repeat_loop gen
+  class press,release,pttInsert,pttNotice,hidden,disabled,empty client
+  class SECURE,WAVWHY,SPREADWHY warn

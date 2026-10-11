@@ -1470,11 +1470,10 @@ async function pttToWav(blob) {
 function pttEncodeWav(samples, rate) {
     const buf = new ArrayBuffer(44 + samples.length * 2);
     const v = new DataView(buf);
-    const str = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
-    str(0, 'RIFF');
+    for (const [off, tag] of [[0, 'RIFF'], [8, 'WAVE'], [12, 'fmt '], [36, 'data']]) {
+        for (let i = 0; i < 4; i++) v.setUint8(off + i, tag.charCodeAt(i));
+    }
     v.setUint32(4, 36 + samples.length * 2, true);
-    str(8, 'WAVE');
-    str(12, 'fmt ');
     v.setUint32(16, 16, true);
     v.setUint16(20, 1, true);          // PCM
     v.setUint16(22, 1, true);          // mono
@@ -1482,7 +1481,6 @@ function pttEncodeWav(samples, rate) {
     v.setUint32(28, rate * 2, true);   // byte rate
     v.setUint16(32, 2, true);          // block align
     v.setUint16(34, 16, true);         // bits per sample
-    str(36, 'data');
     v.setUint32(40, samples.length * 2, true);
     for (let i = 0; i < samples.length; i++) {
         const x = Math.max(-1, Math.min(1, samples[i]));

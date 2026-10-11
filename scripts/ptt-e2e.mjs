@@ -1,6 +1,6 @@
 // End-to-end check of the web UI's push-to-talk with a fake microphone.
 //
-//     node scripts/ptt-e2e.mjs --url http://localhost:8000 --wav jfk.wav [--hold-ms 12000]
+//     node scripts/ptt-e2e.mjs --url http://localhost:8000 --wav jfk.wav [--hold-ms 12000] [--lang en]
 //
 // Why: the real path is MediaRecorder -> WebM/Opus -> browser decode ->
 // 16 kHz WAV -> /v1/audio/transcriptions -> input box, and none of it runs
@@ -23,6 +23,7 @@ const args = Object.fromEntries(process.argv.slice(2).reduce((acc, a, i, all) =>
 const url = args.url || 'http://localhost:8000';
 const wav = resolve(args.wav || 'jfk.wav');
 const holdMs = Number(args['hold-ms'] || 12000);
+const lang = args.lang ?? 'en';  // the picker value to set; must be one of PTT_LANGS
 const port = 9300 + Math.floor(Math.random() * 500);
 const chrome = args.chrome || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 
@@ -82,7 +83,7 @@ const proc = spawn(chrome, [
 ], { stdio: 'ignore' });
 
 let code = 1;
-const out = { url, wav, hold_ms: holdMs };
+const out = { url, wav, hold_ms: holdMs, lang };
 try {
     let target;
     for (let i = 0; i < 50 && !target; i++) {
@@ -105,7 +106,7 @@ try {
     out.title = await evaluate(c, "document.getElementById('ptt-btn').title");
     out.language = await evaluate(c, "document.getElementById('ptt-lang').value");
     if (out.button_shown && !out.button_disabled) {
-        await evaluate(c, "document.getElementById('ptt-lang').value = 'en'");
+        await evaluate(c, `document.getElementById('ptt-lang').value = ${JSON.stringify(lang)}`);
         await evaluate(c, 'pttStart()');
         await sleep(holdMs);
         out.recording_class = await evaluate(c, "document.getElementById('ptt-btn').classList.contains('recording')");

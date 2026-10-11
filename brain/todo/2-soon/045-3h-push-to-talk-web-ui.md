@@ -30,8 +30,11 @@ boxes where the chat model lives on the GPU.
 ## Done when
 
 - [ ] Works in Edge and Firefox on the laptop with a real microphone —
-      **needs Tommy**, Claude cannot speak into it.
-- [ ] Button absent with no Whisper slot; disabled with a reason over
-      plain-HTTP LAN.
-- [ ] `docs/` mention it next to the web UI description; CLAUDE.md's web UI
-      line gets one clause.
+      **needs Tommy**, Claude cannot speak into it. Built on branch
+      `t-045-push-to-talk`; merge when this box is ticked.
+- [x] Headless Chrome with `jfk.wav` as a fake mic (`scripts/ptt-e2e.mjs`):
+      word-perfect through the NPU, 630 ms release-to-text; silence comes
+      back empty and shows "Nothing heard" (2026-10-11).
+- [x] Disabled with its reason over plain-HTTP LAN (same script, LAN URL).
+      Hidden with no Whisper slot: by code reading only.
+- [x] `docs/API.md` web UI list, CLAUDE.md web UI line, `docs/webui-ptt.mmd`.

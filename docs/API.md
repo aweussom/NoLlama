@@ -494,3 +494,10 @@ Features:
 - Dark theme
 - Keyboard shortcuts: Enter to send, Shift+Enter for newline,
   Ctrl+V to paste images, Ctrl+N for new chat, Escape to cancel
+- Push-to-talk, when the server runs a Whisper model (`--whisper-dir`):
+  hold the microphone button, or hold Space while the input box is empty,
+  and release. The transcript goes into the input box for you to check; it
+  is not sent. Pick the spoken language next to the button. Browsers only
+  allow the microphone on `https` or `localhost`, so opened as
+  `http://<lan-address>:8000` from another machine the button is greyed
+  out and says why.
