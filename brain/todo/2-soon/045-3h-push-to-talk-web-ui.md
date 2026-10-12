@@ -29,9 +29,13 @@ boxes where the chat model lives on the GPU.
 
 ## Done when
 
-- [ ] Works in Edge and Firefox on the laptop with a real microphone —
-      **needs Tommy**, Claude cannot speak into it. Built on branch
-      `t-045-push-to-talk`; merge when this box is ticked.
+- [x] Edge, real microphone, laptop: "Testing push to talk." word-perfect,
+      2.0 s clip transcribed in 0.4 s on the NPU with Qwen3-8B on the iGPU
+      beside it. GPU driver 32.0.101.8991, NPU driver 1005540, OpenVINO
+      2026.4.1 (2026-10-12).
+- [ ] Firefox, real microphone — **needs Tommy**. First run after the
+      2026-10-12 driver update, so it doubles as the new-driver check.
+      Built on branch `t-045-push-to-talk`; merge when this box is ticked.
 - [x] Headless Chrome with `jfk.wav` as a fake mic (`scripts/ptt-e2e.mjs`):
       word-perfect through the NPU, 630 ms release-to-text; silence comes
       back empty and shows "Nothing heard" (2026-10-11).
