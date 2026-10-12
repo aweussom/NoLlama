@@ -41,7 +41,10 @@ OpenAI-compatible LLM/VLM server for Intel hardware. NPU-first.
   values must go through `escapeAttr` + `safeUrl` (scheme whitelist), never
   `escapeHtml` alone** (XSS fixed in review). Streaming scroll is
   pinned-but-releasable (`streamState`/`updateStreamBubble`): follows the
-  stream until the user scrolls up.
+  stream until the user scrolls up. Push-to-talk (T-045) converts the
+  recording to 16 kHz WAV in the browser, because `soundfile` reads no
+  WebM/MP4; `scripts/ptt-e2e.mjs` drives it headless with a fake mic.
+  → `docs/webui-ptt.mmd`
 - OpenVINO GenAI may unify VLM/LLMPipeline — when that happens, simplify the
   dual-pipeline routing.
 
