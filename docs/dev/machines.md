@@ -163,6 +163,12 @@ all mangle, and PowerShell quoting inside a bash-side `ssh '...'` is a
 reliable source of `SyntaxError`. Copy a script over and run that instead of
 fighting the quoting.
 
+**The B60 box can SSH here directly** (`ssh wossn@100.98.33.88` from
+`r9-5950x`) [OBSERVED 2026-10-14]. So a model directory moves box to box
+without a laptop in the middle — worth knowing before copying 10+ GB twice
+over Tailscale. Mind what the destination is doing first: a big write onto a
+box that is paging hard competes with the thing already running on it.
+
 **The banner problem is fixed (2026-08-24).** The login profile used to print
 a shortcut banner and PSReadLine errors into every non-interactive session,
 which contaminated piped output and made `scp` fail outright with `Received

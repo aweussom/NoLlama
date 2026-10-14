@@ -16,9 +16,14 @@ no network and no key; this is the deep pass for our own sweeps, and the
 INTERESTING signal is where the two disagree — a heuristic gap in one
 direction, a false positive in the other.
 
-Transport is Ollama Cloud (OpenAI-compatible, https://ollama.com/v1), reusing
-the account secondreader already uses. The key comes from OLLAMA_API_KEY, the
-same environment fallback llm.py documents.
+Transport is the **local Ollama daemon** first, which proxies `:cloud` models
+using the account the daemon is already signed in to — so a run needs no
+OLLAMA_API_KEY on any box where `ollama list` shows the cloud tags [OBSERVED
+2026-10-14, 285K: glm-5.3-flash 0.9 s, glm-5.2 2.2 s, keyless]. Ollama Cloud
+over https://ollama.com/v1 is the fallback, and that one does need the key.
+
+Use `ask()` for a different rubric against the same transport; `judge()` is
+the health rubric built on it.
 
     from judge import judge
     verdict = judge(prompt, completion)
@@ -28,12 +33,33 @@ import os
 import urllib.error
 import urllib.request
 
-ENDPOINT = "https://ollama.com/v1/chat/completions"
-# glm-5.2 first: 976k context and secondreader's table rates it the best
-# non-MiMo model it has measured. deepseek-v4-flash is the fallback — both are
-# flat-rate on this account. nemotron-3-ultra is deliberately not used: the
-# same table records it at 13 minutes a call.
-MODELS = ("glm-5.2", "deepseek-v4-flash:0731-cloud")
+# OLLAMA_HOST is Ollama's own variable, so setting it points both this and the
+# `ollama` CLI at the same daemon. It earns its keep across boxes: the B60 runs
+# no Ollama at all, so a sweep there borrows the 285K's daemon over Tailscale
+# (`OLLAMA_HOST=http://100.98.33.88:11434`), which answers because that box
+# binds more than loopback [OBSERVED 2026-10-14, Ollama 0.40.1].
+#
+# `127.0.0.1`, never `localhost`, for the default: on the B60 box localhost
+# resolves to ::1 first and the refused IPv6 connect costs a flat 2 s per call
+# [OBSERVED 2026-10-07, docs/dev/machines.md].
+LOCAL_HOST = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/")
+if not LOCAL_HOST.startswith("http"):
+    LOCAL_HOST = "http://" + LOCAL_HOST  # Ollama accepts a bare host:port
+LOCAL_ENDPOINT = LOCAL_HOST + "/v1/chat/completions"
+CLOUD_ENDPOINT = "https://ollama.com/v1/chat/completions"
+#
+# deepseek-v4.1-flash first: fastest measured and, per Tommy, not heavily
+# loaded — which matters because a decay sweep makes dozens of calls, not one.
+# glm-5.3-flash second, rated the better judge of the two. Round trips on the
+# 285K, keyless through the local daemon [OBSERVED 2026-10-14]:
+#   deepseek-v4.1-flash 0.4 s · glm-5.3-flash 0.9-1.7 s · glm-5.2 2.2 s
+#
+# The fallback this replaced, deepseek-v4-flash:0731, had been **retired since
+# 2026-09-25** (HTTP 410) and nothing noticed, because a fallback is only
+# exercised on the day the primary fails. Re-check these against `ollama list`
+# before trusting a sweep.
+# nemotron-3-ultra stays out: secondreader's table records it at 13 min a call.
+MODELS = ("deepseek-v4.1-flash:cloud", "glm-5.3-flash:cloud")
 # Generous on purpose. BOTH candidates are thinking models and return EMPTY
 # content when the budget runs out mid-reasoning — measured 2026-09-13, glm-5.2
 # spent all 16 tokens of a small cap and answered nothing. That is the very
@@ -64,26 +90,78 @@ Reply with ONLY a JSON object, no prose, no code fence:
 "truncated", "confidence": 0.0-1.0, "why": "one short sentence"}"""
 
 
-def _call(model, messages, timeout=240):
-    """One OpenAI-compatible chat call against Ollama Cloud.
+def _call(model, messages, timeout=240, max_tokens=None):
+    """One OpenAI-compatible chat call: local Ollama daemon, else Ollama Cloud.
 
-    Why hand-rolled urllib rather than the openai package: this script is run
+    Why local first: the daemon is signed in to the account already, so a
+    `:cloud` tag resolves with no OLLAMA_API_KEY anywhere in the environment.
+    That removes the one setup step a sweep on a fresh box would otherwise
+    need, and it is the configuration every one of these machines is in.
+
+    Why hand-rolled urllib rather than the openai package: this script runs
     from NoLlama's venv, which has no reason to carry an SDK for one endpoint.
 
-    In: a model id and the message list. Out: the assistant's content string.
-    Raises on transport failure so the caller can try the next model.
+    In: a model id, the message list, optional per-call token cap. Out: the
+    assistant's content string. Raises after BOTH transports fail, so the
+    caller can move to the next model — a local daemon that is simply not
+    running must not look like a dead model.
     """
-    body = json.dumps({"model": model, "messages": messages,
-                       "max_tokens": MAX_TOKENS, "temperature": 0}).encode()
-    key = os.environ.get("OLLAMA_API_KEY", "")
-    if not key:
-        raise RuntimeError("OLLAMA_API_KEY is not set")
+    payload = {"model": model, "messages": messages,
+               "max_tokens": max_tokens or MAX_TOKENS, "temperature": 0}
+    body = json.dumps(payload).encode()
+
+    try:
+        req = urllib.request.Request(
+            LOCAL_ENDPOINT, data=body,
+            headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            d = json.load(r)
+        return d["choices"][0]["message"].get("content") or ""
+    except Exception as local_err:
+        key = os.environ.get("OLLAMA_API_KEY", "")
+        if not key:
+            raise RuntimeError(
+                f"local Ollama failed ({type(local_err).__name__}: "
+                f"{str(local_err)[:120]}) and OLLAMA_API_KEY is not set")
+
+    # Cloud ids carry no `:cloud` suffix; the local daemon requires it.
+    cloud_model = model[:-6] if model.endswith(":cloud") else model
+    payload["model"] = cloud_model
     req = urllib.request.Request(
-        ENDPOINT, data=body,
+        CLOUD_ENDPOINT, data=json.dumps(payload).encode(),
         headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         d = json.load(r)
     return d["choices"][0]["message"].get("content") or ""
+
+
+def ask(system, user, max_tokens=None):
+    """Run any rubric through the judge transport and parse its JSON verdict.
+
+    Why this is public and `judge()` is built on it: a second rubric (is this
+    answer still CORRECT, as against is it degenerate) needs the same model
+    list, the same local-first transport and the same tolerant parse, and a
+    copy of that plumbing is a copy that drifts. `decay_probe.py` is the
+    first other caller.
+
+    In: the rubric as a system prompt, the material as a user prompt. Out:
+    the parsed dict with `judged_by` added, or None when every model failed
+    or replied unparseably — None means NO JUDGEMENT, never "fine".
+    """
+    messages = [{"role": "system", "content": system},
+                {"role": "user", "content": user}]
+    last = ""
+    for model in MODELS:
+        try:
+            reply = _call(model, messages, max_tokens=max_tokens)
+            got = _parse(reply)
+            if got:
+                got["judged_by"] = model
+                return got
+            last = f"{model}: unparseable reply {reply[:80]!r}"
+        except Exception as e:
+            last = f"{model}: {type(e).__name__} {str(e)[:80]}"
+    return {"_error": last} if last else None
 
 
 def _parse(text):
@@ -135,22 +213,10 @@ def judge(prompt, completion, max_chars=6000):
         body = (body[:head] + f"\n\n...[{len(completion) - max_chars} chars elided]...\n\n"
                 + body[-tail:])
 
-    messages = [
-        {"role": "system", "content": RUBRIC},
-        {"role": "user", "content":
-            f"PROMPT GIVEN TO THE MODEL:\n{prompt}\n\n"
-            f"OUTPUT TO GRADE ({len(completion)} chars total):\n{body}"},
-    ]
-    last = ""
-    for model in MODELS:
-        try:
-            reply = _call(model, messages)
-            got = _parse(reply)
-            if got and "verdict" in got:
-                got["judged_by"] = model
-                return got
-            last = f"{model}: unparseable reply {reply[:80]!r}"
-        except Exception as e:
-            last = f"{model}: {type(e).__name__} {str(e)[:80]}"
-    return {"verdict": "unavailable", "confidence": 0.0, "why": last,
-            "judged_by": None}
+    got = ask(RUBRIC,
+              f"PROMPT GIVEN TO THE MODEL:\n{prompt}\n\n"
+              f"OUTPUT TO GRADE ({len(completion)} chars total):\n{body}")
+    if got and "verdict" in got:
+        return got
+    return {"verdict": "unavailable", "confidence": 0.0,
+            "why": (got or {}).get("_error", "no reply"), "judged_by": None}
