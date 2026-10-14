@@ -30,6 +30,7 @@ the health rubric built on it.
 """
 import json
 import os
+import sys
 import urllib.error
 import urllib.request
 
@@ -47,6 +48,9 @@ if not LOCAL_HOST.startswith("http"):
     LOCAL_HOST = "http://" + LOCAL_HOST  # Ollama accepts a bare host:port
 LOCAL_ENDPOINT = LOCAL_HOST + "/v1/chat/completions"
 CLOUD_ENDPOINT = "https://ollama.com/v1/chat/completions"
+
+# None until probed once: whether LOCAL_HOST is a real Ollama daemon.
+_LOCAL_OK = None
 #
 # deepseek-v4.1-flash first: fastest measured and, per Tommy, not heavily
 # loaded — which matters because a decay sweep makes dozens of calls, not one.
@@ -90,6 +94,28 @@ Reply with ONLY a JSON object, no prose, no code fence:
 "truncated", "confidence": 0.0-1.0, "why": "one short sentence"}"""
 
 
+def _is_nollama(host, timeout=5):
+    """True when `host` is a NoLlama server wearing Ollama's clothes.
+
+    Why this check exists at all: NoLlama serves its Ollama-compatible surface
+    on 11434, so on any box running it the judge's default endpoint is the
+    server under test. The judge would hand the model its own output to grade
+    and report a verdict with nothing in the output saying so -- a silently
+    wrong answer, which is worse than a failed call. The B60 answered
+    `{"version": "nollama-2026-09-18-72d0fc9"}` on that port [OBSERVED
+    2026-10-14].
+
+    In: a base URL. Out: True only on a positive identification; False on any
+    error, because an unreachable host is the caller's problem to report, not
+    this function's to guess at.
+    """
+    try:
+        with urllib.request.urlopen(host + "/api/version", timeout=timeout) as r:
+            return "nollama" in (json.load(r).get("version") or "").lower()
+    except Exception:
+        return False
+
+
 def _call(model, messages, timeout=240, max_tokens=None):
     """One OpenAI-compatible chat call: local Ollama daemon, else Ollama Cloud.
 
@@ -110,6 +136,21 @@ def _call(model, messages, timeout=240, max_tokens=None):
                "max_tokens": max_tokens or MAX_TOKENS, "temperature": 0}
     body = json.dumps(payload).encode()
 
+    global _LOCAL_OK
+    if _LOCAL_OK is None:
+        _LOCAL_OK = not _is_nollama(LOCAL_HOST)
+        if not _LOCAL_OK:
+            print(f"judge: {LOCAL_HOST} is a NoLlama server, not Ollama — "
+                  f"refusing to let the model grade itself. Set OLLAMA_HOST to "
+                  f"a real Ollama daemon, or export OLLAMA_API_KEY for cloud.",
+                  file=sys.stderr)
+    if not _LOCAL_OK:
+        key = os.environ.get("OLLAMA_API_KEY", "")
+        if not key:
+            raise RuntimeError(
+                f"{LOCAL_HOST} is NoLlama, not Ollama, and OLLAMA_API_KEY is unset")
+        return _cloud_call(model, payload, key, timeout)
+
     try:
         req = urllib.request.Request(
             LOCAL_ENDPOINT, data=body,
@@ -124,9 +165,22 @@ def _call(model, messages, timeout=240, max_tokens=None):
                 f"local Ollama failed ({type(local_err).__name__}: "
                 f"{str(local_err)[:120]}) and OLLAMA_API_KEY is not set")
 
+    return _cloud_call(model, payload, key, timeout)
+
+
+def _cloud_call(model, payload, key, timeout):
+    """The Ollama Cloud leg of `_call`, split out so both paths reach it.
+
+    Why separate: the NoLlama guard above has to skip the local leg entirely
+    rather than fail into it, and duplicating the request building is how the
+    two legs drift apart.
+
+    In: model id, the already-built payload, the API key, timeout. Out: the
+    assistant's content string; raises on transport failure.
+    """
     # Cloud ids carry no `:cloud` suffix; the local daemon requires it.
-    cloud_model = model[:-6] if model.endswith(":cloud") else model
-    payload["model"] = cloud_model
+    payload = dict(payload)
+    payload["model"] = model[:-6] if model.endswith(":cloud") else model
     req = urllib.request.Request(
         CLOUD_ENDPOINT, data=json.dumps(payload).encode(),
         headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
