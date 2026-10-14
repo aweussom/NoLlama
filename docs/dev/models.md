@@ -289,6 +289,51 @@ alone measured before and after each arm and averaged
 
 ### Chat and vision models
 
+- **LFM2.5-24B-A2B (INT4) on GPU — converts and runs, but read the caveat**
+  [OBSERVED 2026-10-14]. Released 2026-10-13; `lfm2_moe`, 24B total / 2B
+  active, 40 layers, 64 experts, 131k context. Converted here the day it
+  landed, on the current *release* stack — no nightly, no branch.
+
+  | | |
+  |---|---|
+  | IR | 11.75 GiB, `INT4_ASYM` group_size 128 ratio 1.0 |
+  | B60 Arc Pro 24 GB | **99 tok/s**, TTFT 151 ms, KV pool 5 GB auto, driver 32.0.101.8805 |
+  | 285K CPU | 27 tok/s |
+  | bare probe | 6/6 on GPU and on CPU, full penalty sweep |
+  | tool dialect | `<|tool_call_start|>`, already handled by `_ToolCallGate` |
+  | reasoning | `<think>`, splits cleanly to `reasoning_content` |
+
+  **Export recipe — transformers 5.4.0 EXACTLY.** 4.57.6 does not know
+  `lfm2_moe`; 5.5.4 is refused by optimum-intel's own cap
+  (`Maximum required is 5.4.0`). Two stages, because the one-shot
+  `--weight-format int4` writes an uncompressed intermediate and died in
+  `openvino.save_model` with `ios_base::badbit` *after* compression had
+  succeeded: `--weight-format fp16`, then
+  `nncf.compress_weights(INT4_ASYM, group_size=128, ratio=1.0)`.
+
+  **Converting it needs ~171 GB of commit**, not RAM. A 32 GB box with the
+  stock 66 GB pagefile dies at 62% of the weight load with `0xC0000005` in
+  `c10.dll` — torch's allocator taking an access violation instead of raising
+  `MemoryError`. With a 260 GB pagefile the same box finishes in 1h51m, peak
+  139 GB of pagefile, and is disk-bound at 13% CPU throughout. The 63 GB box
+  does the same work in ~25 minutes.
+
+  **The caveat: a short instruction preamble costs it the answer**
+  [OBSERVED 2026-10-14, B60, n=1 per arm — see T-049, sampling here is
+  deterministic]. Same arithmetic question, same 16k cap:
+
+  | | tokens | correct |
+  |---|---|---|
+  | question alone | 549 | **5/5** |
+  | 125-token standing-instruction preamble first | 5073 | **0/5** |
+
+  9.2x the tokens and a wrong answer (`3 x 1 = 3` against 14,400), stopping
+  cleanly both times, so it is not truncation. It is sold as an agent model,
+  and an agent always has a system prompt — so this wants repeating with a
+  real tool-calling prompt before the model is recommended for that.
+  `scripts/decay-probe.py` could only measure `recall` on it: `reason` and
+  `format` both fail calibration cold.
+
 - Qwen3-8B (INT4-CW) on NPU — recommended, needs MAX_PROMPT_LEN=4096
 - SmolLM3-3B (INT4-CW 23 tok/s, INT8-CW 12 tok/s) on 285K NPU — 2026.3,
   our export
