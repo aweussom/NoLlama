@@ -66,6 +66,29 @@ conversation:
 
 Acknowledge with one short sentence, then {END_TOKEN}."""
 
+def _digits_only(text):
+    """Strip every separator a model might put inside a number.
+
+    Why not `.replace(",", "").replace(" ", "")`: LFM2.5-24B-A2B writes
+    `14 400` using U+202F NARROW NO-BREAK SPACE, which an ordinary-space strip
+    leaves alone, so a CORRECT answer scored wrong -- 0/5 on an arm where
+    every run was right [OBSERVED 2026-10-14, B60]. The same model wrote
+    `14,400` at temperature 0 and passed, so the bug only appeared when the
+    formatting changed, which is the worst way for a checker to be wrong.
+
+    Unicode separators seen or plausible: U+202F, U+00A0 (nbsp), U+2009 (thin
+    space), U+2007 (figure space), U+066C (Arabic thousands), plus ASCII
+    comma, apostrophe, underscore and space -- all legal thousands separators
+    somewhere.
+
+    In: any text. Out: the text with those removed, so a digit run can be
+    matched whatever the model chose to put between the thousands.
+    """
+    for ch in (",", " ", " ", " ", " ", " ", "٬", "'", "_", "."):
+        text = text.replace(ch, "")
+    return text
+
+
 def _last_line(text):
     """The reply's last non-empty line, stripped; '' when there is none.
 
@@ -105,7 +128,7 @@ PROBES = (
                 "retained? Show the arithmetic in one line."),
         "reference": "The answer must arrive at 14400 (3 x 1200 x 4) and must "
                      "not contradict that figure later in the same reply.",
-        "check": lambda text: "14400" in text.replace(",", "").replace(" ", ""),
+        "check": lambda text: "14400" in _digits_only(text),
     },
     {
         "key": "format",
