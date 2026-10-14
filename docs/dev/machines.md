@@ -46,6 +46,16 @@ Reachable over SSH at **`wossn@100.81.4.88`** (Tailscale range; hostname
   path to the executable** — the task environment has no `pwsh` on its PATH
   because PowerShell 7 is a Store app here (result `0x80070002`). The NoLlama
   CPU server runs that way as task `nollama-cpu-8002`.
+- **The SSH session here is elevated, so what it starts is elevated too**
+  [OBSERVED 2026-10-14]. A process left behind by a remote session cannot be
+  killed from an ordinary interactive PowerShell — `Stop-Process` needs an
+  elevated one. Worth knowing before hunting a phantom: the symptom was
+  "Ollama fails in a weird way", and the cause was a NoLlama test server
+  holding port 11434 that the console user could see but not stop.
+- **A NoLlama started for testing on a box that has Ollama needs
+  `--ollama-port 0`.** It binds Ollama's 11434 for the compatibility surface
+  by default and wins the race, so Ollama then refuses to start. Both the
+  B60 and the 285K have Ollama installed. → `docs/API.md`
 - **Docker is unusable over SSH**: every pull, even anonymous, dies on
   "error getting credentials" because Docker Desktop's credential helper
   needs the interactive logon, and a config without a store does not stop
