@@ -66,6 +66,24 @@ conversation:
 
 Acknowledge with one short sentence, then {END_TOKEN}."""
 
+def _last_line(text):
+    """The reply's last non-empty line, stripped; '' when there is none.
+
+    Why the format check is not `endswith(END_TOKEN)`: the briefing asks for
+    the token ON ITS OWN LINE, and `endswith` also passes when the model tacks
+    it onto the end of the answer's last sentence -- "...or caching. ###END".
+    The judge, told the actual criterion, called those FAIL while the
+    mechanical check called them ok, so the two were measuring different
+    things and their disagreement meant nothing [OBSERVED 2026-10-14,
+    Qwen3-8B on the B60]. A loose checker is worse than none: it reports a
+    pass rate for a rule nobody is enforcing.
+
+    In: the reply, possibly empty. Out: the last non-empty line, stripped.
+    """
+    lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
+    return lines[-1] if lines else ""
+
+
 # `reference` is handed to the judge verbatim, so it states the criterion
 # rather than just the answer. The format probe measures obedience to a
 # standing instruction, NOT whether the sentence about reverse proxies is any
@@ -95,7 +113,7 @@ PROBES = (
         "reference": f"IGNORE whether the content is correct. Judge ONLY "
                      f"whether the reply's last non-empty line is exactly "
                      f"{END_TOKEN}, the standing instruction from the briefing.",
-        "check": lambda text: text.strip().endswith(END_TOKEN),
+        "check": lambda text: _last_line(text) == END_TOKEN,
     },
 )
 
@@ -225,7 +243,8 @@ def flush(out, model, base, results):
         json.dump({"model": model, "server": base, "rows": results}, f, indent=2)
 
 
-def run_probes(base, model, messages, arm, turn, tokens, results, max_tokens=700, out=None):
+def run_probes(base, model, messages, arm, turn, tokens, results, max_tokens=700,
+               out=None, probes=None, target=None):
     """Ask every probe against the given history and record a row each.
 
     Why the probes do not accumulate into the history: each one would then be
@@ -238,7 +257,7 @@ def run_probes(base, model, messages, arm, turn, tokens, results, max_tokens=700
     number, prompt size, and the list to append to. Out: None; rows land in
     `results` and a line is printed per probe.
     """
-    for probe in PROBES:
+    for probe in (probes if probes is not None else PROBES):
         text, ptokens, secs, finish = post_chat(
             base, model, messages + [{"role": "user", "content": probe["ask"]}],
             max_tokens=max_tokens)
@@ -251,7 +270,7 @@ def run_probes(base, model, messages, arm, turn, tokens, results, max_tokens=700
         row = {"arm": arm, "turn": turn, "probe": probe["key"],
                "prompt_tokens": ptokens or tokens, "seconds": round(secs, 1),
                "chars": len(text), "finish": finish,
-               "truncated": finish == "length",
+               "truncated": finish == "length", "target_tokens": target,
                "text": text[:1200], **score}
         results.append(row)
         if out:
@@ -262,6 +281,88 @@ def run_probes(base, model, messages, arm, turn, tokens, results, max_tokens=700
               f"{row['prompt_tokens']:>7} tok  "
               f"mech={'ok' if score['mechanical'] else 'FAIL':4} judge={jm:4}"
               f"{cut:4} {secs:6.1f}s  {score['why'][:44]}")
+
+
+def calibrate(base, model, max_tokens, runs):
+    """Ask every probe cold, `runs` times, and keep only the ones it always passes.
+
+    Why this gates the sweep: a probe the model fails COLD has no headroom to
+    decay, and its failures at turn 20 are indistinguishable from its failures
+    at turn 1. The arithmetic probe did exactly that on LFM2.5-24B-A2B -- it
+    answered 1200, then 3600, then 3600, at every context size including a
+    152-token prompt -- and three runs were scored before anyone noticed it
+    had never worked [OBSERVED 2026-10-14]. A probe set is per-model, not
+    universal.
+
+    Cold means briefing plus the one question: the shortest prompt the probe
+    can be asked in, so a failure here is the model, never the context.
+
+    In: transport details, the probe token cap, how many cold runs each probe
+    must win. Out: (kept, report) -- the usable PROBES entries, and a row per
+    probe with its pass count for the output file. An empty `kept` is a real
+    answer: this model cannot be measured with these probes.
+    """
+    kept, report = [], []
+    print(f"calibration ({runs} cold runs per probe):")
+    for probe in PROBES:
+        passes, whys = 0, []
+        for _ in range(runs):
+            cold = [{"role": "user", "content": BRIEFING},
+                    {"role": "assistant", "content": "Understood. " + END_TOKEN}]
+            text, _, _, finish = post_chat(
+                base, model, cold + [{"role": "user", "content": probe["ask"]}],
+                max_tokens=max_tokens)
+            if finish == "length":
+                whys.append("truncated")
+                continue
+            if probe["check"](text):
+                passes += 1
+            else:
+                whys.append(text[:60].replace("\n", " "))
+        ok = passes == runs
+        if ok:
+            kept.append(probe)
+        report.append({"probe": probe["key"], "cold_passes": passes,
+                       "of": runs, "usable": ok, "examples": whys[:2]})
+        print(f"  {probe['key']:7} {passes}/{runs} cold  "
+              f"{'USABLE' if ok else 'DROPPED'}"
+              f"{'' if ok else '  e.g. ' + (whys[0][:50] if whys else '')}")
+    if not kept:
+        print("  no probe survived calibration — nothing here can measure decay")
+    print()
+    return kept, report
+
+
+def measure_chars_per_token(base, model, pad_chars):
+    """Chars of filler per prompt token, measured on this model's tokenizer.
+
+    Why measured rather than assumed: the control arm has to match the
+    conversational arm on PROMPT TOKENS, and a hardcoded 4-chars-per-token
+    guess is wrong by enough to defeat the comparison. The first sweep padded
+    the control by turn index instead, which put the two arms at 19,512 and
+    31,869 tokens at the same nominal "turn 20" -- so it compared two prompt
+    lengths and called the difference turn count [OBSERVED 2026-10-14].
+
+    Two one-token calls: the bare briefing, then the briefing plus one filler
+    chunk. The difference is what the filler costs.
+
+    In: transport details and the filler chunk size. Out: (chars_per_token,
+    base_tokens) -- base_tokens is what the briefing alone costs, so the
+    caller can solve for the filler it needs. Falls back to (4.0, 0) if the
+    server reports no usage, which keeps the sweep running on a device that
+    does not count tokens (the NPU).
+    """
+    bare = [{"role": "user", "content": BRIEFING},
+            {"role": "assistant", "content": "Understood. " + END_TOKEN},
+            {"role": "user", "content": PROBES[0]["ask"]}]
+    _, t_bare, _, _ = post_chat(base, model, bare, max_tokens=1)
+    chunk = long_corpus(pad_chars, offset=11)
+    padded = [{"role": "user", "content": BRIEFING + "\n\nReference material:\n\n" + chunk},
+              bare[1], bare[2]]
+    _, t_padded, _, _ = post_chat(base, model, padded, max_tokens=1)
+    if t_bare <= 0 or t_padded <= t_bare:
+        return 4.0, max(t_bare, 0)
+    return pad_chars / (t_padded - t_bare), t_bare
 
 
 def main():
@@ -286,6 +387,11 @@ def main():
     ap.add_argument("--no-control", action="store_true",
                     help="Skip the cold-at-length arm (halves the runtime, "
                          "and makes a positive result uninterpretable)")
+    ap.add_argument("--calibrate", type=int, default=3,
+                    help="Cold runs each probe must win before it is used "
+                         "(default 3). A probe the model fails cold has no "
+                         "headroom to decay; 0 skips the check and makes any "
+                         "result arguable.")
     ap.add_argument("--out", default="bench/decay-probe.json")
     args = ap.parse_args()
 
@@ -295,6 +401,15 @@ def main():
     print(f"model: {model}\nserver: {base}\ncheckpoints: {checkpoints}\n")
 
     results = []
+    calibration = []
+    probes = PROBES
+    if args.calibrate > 0:
+        probes, calibration = calibrate(base, model, args.max_tokens, args.calibrate)
+        if not probes:
+            flush(args.out, model, base, results)
+            return 0
+
+    targets = {}  # checkpoint -> the prompt size the control arm must match
 
     # --- conversational arm: one history, growing -------------------------
     print("conversational arm (history grows, turn count grows):")
@@ -305,7 +420,11 @@ def main():
     for turn in range(1, max(checkpoints) + 1):
         if turn in checkpoints:
             run_probes(base, model, messages, "conversation", turn, tokens,
-                       results, args.max_tokens, args.out)
+                       results, args.max_tokens, args.out, probes=probes)
+            seen = [r["prompt_tokens"] for r in results
+                    if r["arm"] == "conversation" and r["turn"] == turn]
+            if seen:
+                targets[turn] = max(seen)
         pad = long_corpus(args.pad_chars, offset=turn * 37_501)
         messages.append({"role": "user", "content":
                          f"Summarise the following in ONE line.\n\n{pad}"})
@@ -316,16 +435,22 @@ def main():
     # --- control arm: same size, one turn ---------------------------------
     if not args.no_control:
         print("\ncontrol arm (same prompt size, no conversational history):")
+        cpt, base_tokens = measure_chars_per_token(base, model, args.pad_chars)
+        print(f"  (matched on tokens: {cpt:.2f} chars/token measured, "
+              f"briefing costs {base_tokens})")
         for turn in checkpoints:
-            # Same text the conversational arm had absorbed by this turn,
-            # delivered as a single block, so length matches and turns do not.
-            bulk = "\n\n".join(long_corpus(args.pad_chars, offset=i * 37_501)
-                               for i in range(1, turn))
+            # Match the conversational arm's MEASURED prompt size, not its turn
+            # index. Padding by index put the arms at 19,512 and 31,869 tokens
+            # at the same nominal turn 20, which compares two prompt lengths
+            # and calls the difference turn count. See T-047.
+            target = targets.get(turn)
+            need = int(max(0, target - base_tokens) * cpt) if target else 0
+            bulk = long_corpus(need, offset=37_501) if need > 0 else ""
             cold = [{"role": "user", "content":
                      BRIEFING + ("\n\nReference material:\n\n" + bulk if bulk else "")},
                     {"role": "assistant", "content": "Understood. " + END_TOKEN}]
             run_probes(base, model, cold, "control", turn, 0, results,
-                       args.max_tokens, args.out)
+                       args.max_tokens, args.out, probes=probes, target=target)
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     with open(args.out, "w", encoding="utf-8") as f:
