@@ -43,7 +43,8 @@ different bugs with different fixes.
 - [x] first real runs: `LFM2.5-24B-A2B` on the B60 GPU and the 285K CPU
 - [ ] **calibrate the probes** (see below) — blocking, the current set is unsound
 - [ ] **match the control arm on tokens, not turn index** — blocking
-- [ ] depends on T-048: `finish_reason` must distinguish truncation from decay
+- [x] T-048 done: `finish_reason` now reports "length" at the cap, so a
+      truncated answer is no longer scored as a wrong one
 - [ ] run it on `Qwen3-Coder-30B-A3B` (the one agent-capable model) on the B60
 - [ ] `docs/BENCHMARKS.md` section, device and driver recorded per the standing order
 
@@ -66,7 +67,8 @@ compares two different prompt lengths and calls the difference turn count.
 Match on measured `prompt_tokens`, adding filler to the control until it
 reaches the conversational arm's figure.
 
-**3. `finish_reason` lies, so truncation reads as decay.** See T-048. Rows of
+**3. `finish_reason` lied, so truncation read as decay.** Fixed (T-048,
+closed 2026-10-14). Rows of
 ~7,530 characters — exactly the 3,000-token cap — came back as `stop`. Two
 runs were scored before that was spotted, and the char counts, not the
 protocol, are what gave it away.

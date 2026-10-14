@@ -9,7 +9,7 @@
 %%         ALL-CAPS nodes = prose annotations.
 %% Palette: route (blue) = request handling, gen (green) = generation paths,
 %%          client (yellow) = client-visible surfaces, warn (orange) = annotations.
-%% covers: nollama.py:chat_completions,ollama_chat,ollama_generate,ollama_v1_chat_completions,parse_messages,_route_request,_tools_supported,prepare_messages_for_tools,_maybe_capture_prewarm,_sse_tool_stream,_assistant_message,parse_tool_calls,render_native_tool_prompt,_load_native_template
+%% covers: nollama.py:_hit_token_cap,chat_completions,ollama_chat,ollama_generate,ollama_v1_chat_completions,parse_messages,_route_request,_tools_supported,prepare_messages_for_tools,_maybe_capture_prewarm,_sse_tool_stream,_assistant_message,parse_tool_calls,render_native_tool_prompt,_load_native_template
 flowchart TB
   openai_client["OpenAI client<br/>POST /v1/chat/completions<br/>(port 8000 or 11434)"]
   ollama_client["Ollama client<br/>POST /api/chat | /api/generate"]
@@ -28,7 +28,7 @@ flowchart TB
   stream_llm["stream_llm<br/>SSE tokens + keepalive"]
   stream_vlm["stream_vlm<br/>SSE tokens (VLM)"]
   _sse_tool_stream["_sse_tool_stream<br/>token-streamed: reasoning_content live,<br/>content live until _ToolCallGate sees an<br/>opener; the held text goes to parse_tool_calls.<br/>Nothing held and the turn ended inside an<br/>unclosed think: that block is parsed instead,<br/>or sent as the answer if it holds no call.<br/>Usage chunk after the finish when asked"]
-  generate_blocking["generate_llm / generate_vlm<br/>blocking JSON reply via _assistant_message<br/>(think span -> reasoning_content)"]
+  generate_blocking["generate_llm / generate_vlm<br/>blocking JSON reply via _assistant_message<br/>(think span -> reasoning_content;<br/>finish length when _hit_token_cap, except<br/>that parsed tool_calls still win — T-048)"]
   parse_tool_calls["parse_tool_calls<br/>Qwen3 XML, Hermes, ATEM, bare function=,<br/>Mistral, Llama, DeepSeek, bare-JSON fallback"]
 
   openai_client --> chat_completions

@@ -3204,7 +3204,8 @@ class DeviceSlot:
                                    cancel=cancel, raw_prompt=raw_prompt, usage=usage),
             completion_id, created, t0, cancel, tag="VLM ",
             preseeded=self.preseeded_for(raw_prompt), usage=usage,
-            include_usage=include_usage)
+            include_usage=include_usage,
+            max_tokens=getattr(gen, "max_new_tokens", None))
 
     def stream_llm(self, raw_messages, gen, completion_id, created, t0, include_usage=False):
         """LLM generate — SSE streaming. Protocol layer over stream_tokens().
@@ -3213,10 +3214,11 @@ class DeviceSlot:
         yield from self._sse_stream(
             self.stream_tokens(raw_messages, gen, heartbeat=HEARTBEAT_SECS, cancel=cancel,
                                usage=usage),
-            completion_id, created, t0, cancel, usage=usage, include_usage=include_usage)
+            completion_id, created, t0, cancel, usage=usage, include_usage=include_usage,
+            max_tokens=getattr(gen, "max_new_tokens", None))
 
     def _sse_stream(self, tokens, completion_id, created, t0, cancel, tag="", preseeded=None,
-                    usage=None, include_usage=False):
+                    usage=None, include_usage=False, max_tokens=None):
         """Turn a token seam into OpenAI SSE frames — shared by stream_llm/stream_vlm.
 
         Why one body: the two paths differed only in which seam fed them, and
@@ -3273,7 +3275,9 @@ class DeviceSlot:
                 yield frame({"content": f"\n[error: {explain_genai_error(self._stream_error, self)}]"},
                             "error")
             else:
-                yield frame({}, "cancelled" if was_cancelled else "stop")
+                yield frame({}, "cancelled" if was_cancelled else
+                            ("length" if _hit_token_cap(usage, token_count, max_tokens)
+                             else "stop"))
                 if include_usage:
                     yield _usage_frame(completion_id, created, self.model_name, usage)
             yield "data: [DONE]\n\n"
@@ -4617,13 +4621,50 @@ def openai_error(message, error_type="invalid_request_error", status=400):
     return jsonify({"error": {"message": message, "type": error_type}}), status
 
 
-def _assistant_message(text, tool_calls, preseeded=False):
+def _hit_token_cap(usage, streamed_count, max_tokens):
+    """True when generation stopped because it exhausted `max_tokens`.
+
+    Why: the server knew this and threw it away. Every finish_reason was
+    "stop", so a turn cut off mid-write was indistinguishable from one the
+    model chose to end, and an agent client was told a half-finished tool call
+    was complete (T-048). It also makes truncation unmeasurable: two runs of
+    `scripts/decay-probe.py` scored truncated answers as wrong ones
+    [OBSERVED 2026-10-14].
+
+    Prefers the runtime's own completion_tokens and falls back to the frames
+    the stream actually sent, because the chunk count UNDERCOUNTS (see
+    extract_usage) and the NPU reports no usage at all, as -1.
+
+    The comparison is `>=`, never `==`, and an unknown cap is False: an
+    undercount then fails SAFE, reporting "stop" as before. The opposite
+    error is worse — a false "length" invites a client to retry or continue a
+    reply that was already complete.
+
+    In: the usage dict (possibly empty or carrying -1), the streamed token
+    count, the request's cap. Out: bool.
+    """
+    if not max_tokens or max_tokens <= 0:
+        return False
+    counted = (usage or {}).get("completion_tokens")
+    if counted is None or counted < 0:
+        counted = streamed_count
+    return bool(counted) and counted >= max_tokens
+
+
+def _assistant_message(text, tool_calls, preseeded=False, hit_cap=False):
     """Build the non-streaming assistant message: content, reasoning_content, tool_calls.
 
     Why: the JSON reply must describe the turn the same way the streamed one
     does — <think> spans go to reasoning_content (unless --think-in-content),
     and content is None on a call-only turn per the OpenAI spec. Returns
     (message, finish_reason).
+
+    `hit_cap` makes the answer "length" instead of "stop"; see _hit_token_cap.
+    **Parsed tool calls still win over it**, deliberately: parse_tool_calls
+    produced structured calls, so the turn is actionable, and the clients in
+    docs/dev/tool-calling.md branch on "tool_calls". A truncated call that
+    still parses is therefore reported as a call — if that ever bites, the fix
+    is to report "length" and let the client decide, not to drop the calls.
 
     A reply that sits wholly inside a <think> it never closed, with no call,
     is also sent as content -- the same rescue as _sse_tool_stream, so an
@@ -4641,7 +4682,7 @@ def _assistant_message(text, tool_calls, preseeded=False):
         finish = "tool_calls"
     else:
         message = {"role": "assistant", "content": content}
-        finish = "stop"
+        finish = "length" if hit_cap else "stop"
     if reasoning.strip():
         message["reasoning_content"] = reasoning
     return message, finish
@@ -4790,7 +4831,10 @@ def _sse_tool_stream(slot, raw_messages, gen, tools, completion_id, created, t0,
                 # The whole reply sat inside an unclosed <think>: send it as
                 # the answer too, or an agent sees an empty turn and stops.
                 yield frame({"content": _strip_tool_markup(splitter.unclosed_text).strip()})
-            yield frame({}, "cancelled" if was_cancelled else "stop")
+            yield frame({}, "cancelled" if was_cancelled else
+                        ("length" if _hit_token_cap(usage, token_count,
+                                                    getattr(gen, "max_new_tokens", None))
+                         else "stop"))
         if include_usage:
             yield _usage_frame(completion_id, created, slot.model_name, usage)
         yield "data: [DONE]\n\n"
@@ -5452,8 +5496,9 @@ def chat_completions():
                       f"{len(tool_calls)} tool call(s): "
                       f"{', '.join(tc['function']['name'] for tc in tool_calls)}",
                       flush=True)
-        message, finish_reason = _assistant_message(text, tool_calls,
-                                                    slot.preseeded_for(raw_prompt))
+        message, finish_reason = _assistant_message(
+            text, tool_calls, slot.preseeded_for(raw_prompt),
+            _hit_token_cap(usage, 0, max_tokens))
 
         resp = jsonify({
             "id": completion_id, "object": "chat.completion",
@@ -5520,7 +5565,8 @@ def chat_completions():
 
     preseeded = (native_prompt.rstrip().endswith("<think>") if native_prompt is not None
                  else slot.think_preseeded)
-    message, finish_reason = _assistant_message(text, tool_calls, preseeded)
+    message, finish_reason = _assistant_message(text, tool_calls, preseeded,
+                                                _hit_token_cap(usage, 0, max_tokens))
 
     resp = jsonify({
         "id": completion_id, "object": "chat.completion",

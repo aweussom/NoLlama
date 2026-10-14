@@ -13,7 +13,7 @@
 %% Updated 2026-09-18: VLM slots get the no-think switch too, via a pre-rendered prompt.
 %% Updated 2026-09-29: token usage from the runtime (extract_usage), per-request dict (T-034).
 %% Updated 2026-10-02: the Ollama ndjson streams carry the same counts (ollama_counts, T-034).
-%% covers: nollama.py:extract_usage,usage_block,ollama_counts,_usage_frame,_apply_tuning,_tuning_for,_model_family,_apply_thinking_switch,_no_think_requested,_nothink_render_ok,render_nothink_prompt,preseeded_for,stream_tokens,stream_vlm_tokens,_reset_vlm_state,_vlm_penalty_guard,_is_placeholder_bounds_error,_note_poisoned,_is_poisoned_context_error,stream_llm,stream_vlm,_sse_stream,_ollama_stream_chat,_ollama_stream_generate,generate_llm,generate_vlm,cancel,explain_genai_error,_AtemStreamFilter,_AtemPlainFilter,_ThinkSplitter,_split_think,_ToolCallGate,_prompt_preseeds_think,_pythonic_calls,_strip_tool_markup
+%% covers: nollama.py:extract_usage,usage_block,_hit_token_cap,ollama_counts,_usage_frame,_apply_tuning,_tuning_for,_model_family,_apply_thinking_switch,_no_think_requested,_nothink_render_ok,render_nothink_prompt,preseeded_for,stream_tokens,stream_vlm_tokens,_reset_vlm_state,_vlm_penalty_guard,_is_placeholder_bounds_error,_note_poisoned,_is_poisoned_context_error,stream_llm,stream_vlm,_sse_stream,_ollama_stream_chat,_ollama_stream_generate,generate_llm,generate_vlm,cancel,explain_genai_error,_AtemStreamFilter,_AtemPlainFilter,_ThinkSplitter,_split_think,_ToolCallGate,_prompt_preseeds_think,_pythonic_calls,_strip_tool_markup
 flowchart TB
   stream_tokens["DeviceSlot.stream_tokens<br/>SEAM between backend and protocol.<br/>Owns: worker thread, lock, binding the<br/>caller's per-request cancel token to<br/>slot._cancel INSIDE the lock, _stream_error.<br/>A token already set at lock time skips<br/>generate (client left while queued).<br/>Yields str chunk, or None after
   'heartbeat' quiet seconds"]
@@ -84,11 +84,14 @@ flowchart TB
   nonstream -.-> EVERYPATH
   worker -.->|"backend exception"| _stream_error["_stream_error set;<br/>explain_genai_error names the fix<br/>(KV pool too small, NPU compiler,<br/>AUTO_DETECT -> --npu-platform, and the<br/>per-allocation cap: a perfect-square<br/>'requested N bytes' is named as an S-squared<br/>attention mask, i.e. a prompt-length limit).<br/>Order matters: the specific matchers run<br/>before the broad 'Compilation failed' one,<br/>and the NPU hints are gated on the slot's<br/>device — see tests/test_npu_pin.py"]
 
-  _sse_stream["_sse_stream (OpenAI SSE, shared body)<br/>None -> empty-content delta keepalive;<br/>first token stamps wall-clock TTFT;<br/>finish stop / cancelled / error, then the<br/>_usage_frame chunk if include_usage, [DONE]"]
+  _sse_stream["_sse_stream (OpenAI SSE, shared body)<br/>None -> empty-content delta keepalive;<br/>first token stamps wall-clock TTFT;<br/>finish stop / length / cancelled / error, then<br/>the _usage_frame chunk if include_usage, [DONE]"]
   extract_usage["extract_usage<br/>perf_metrics input/generated counts off the<br/>generate result into the REQUEST's usage dict,<br/>before the sentinel; usage_block renders it<br/>(-1 when the runtime reported nothing)"]
   worker --> extract_usage
   nonstream --> extract_usage
   extract_usage --> _sse_stream
+  hit_cap["_hit_token_cap (T-048)<br/>completion_tokens &gt;= max_tokens -> finish length,<br/>not stop. Prefers the runtime count, falls back<br/>to the frames actually sent: the chunk count<br/>UNDERCOUNTS and the NPU reports -1, so the test<br/>is &gt;= and an unknown cap stays stop — a false<br/>length would make a client resume a finished reply"]
+  extract_usage --> hit_cap
+  hit_cap --> _sse_stream
   ollama_counts["ollama_counts<br/>prompt_eval_count + eval_count from the<br/>usage dict; an unknown count is OMITTED,<br/>never -1 (Ollama's own convention)"]
   extract_usage --> ollama_counts
   ollama_counts --> _ollama_stream_chat
@@ -199,7 +202,7 @@ flowchart TB
   classDef client fill:#ffffcc,stroke:#b3b300,color:#000
   classDef warn fill:#fec,stroke:#a60,color:#000
   class _sse_stream,stream_llm,tool_stream,_ollama_stream_chat,_ollama_stream_generate,generate_llm route
-  class stream_tokens,stream_vlm_tokens,opt_stream_tokens,worker,atem,splitter,gate,penalty_guard,reset_state,think_switch,vlm_think_switch,apply_tuning,nonstream,extract_usage,ollama_counts gen
+  class stream_tokens,stream_vlm_tokens,opt_stream_tokens,worker,atem,splitter,gate,penalty_guard,reset_state,think_switch,vlm_think_switch,apply_tuning,nonstream,extract_usage,ollama_counts,hit_cap gen
   class ollama_abort warn
   class poison_gate route
   class cancel,_stream_error,poisoned client
