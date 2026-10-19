@@ -982,6 +982,79 @@ python scripts\bonsai-bench.py --url http://127.0.0.1:8000 --model auto --nothin
 python scripts\bonsai-bench.py --compare bench-results\bonsai-*.json
 ```
 
+## Do answers get worse as a conversation grows? (2026-10-14..19)
+
+Everything above measures speed. This measures whether a model still
+answers **correctly** at turn 40 of a conversation, with
+`scripts/decay-probe.py`. Short version: **on the models we recommend, no —
+out to 88k tokens.** The one model that did fall over hit a wall in the
+runtime, not a slope in the model.
+
+**Method.** A briefing plants a secret and some standing instructions;
+padding turns ("summarise this in one line", ~4k chars of real repo text
+each) grow the history; probes are asked at checkpoints. Every checkpoint
+runs twice: once at the end of the real conversation, once **cold** in a
+single prompt padded to the same measured token count. Failure in both arms
+is a context-length problem; failure only in the conversational arm is a
+turn-count problem — different bugs with different fixes.
+
+| probe | asks | catches |
+|---|---|---|
+| `recall` | the secret from the first message | lost briefing |
+| `reason` | a self-contained arithmetic question | capability loss unrelated to retrieval |
+| `format` | obey "end every reply with `###END` on its own line" | standing instructions rotting |
+| `ticket` | the build number of ticket T*k*, planted in turn *k* = *c*/2 among one look-alike note per turn | wrong-turn retrieval, interference |
+
+Each probe must pass **3 of 3 cold** before it is used, or it is dropped
+for that model — a probe the model fails at 150 tokens cannot decay. Every
+answer is checked mechanically *and* by an LLM judge
+(`deepseek-v4.1-flash:cloud` via Ollama); they agreed on every row below
+but one LFM2.5 row that had run into the token cap.
+Greedy decoding, so each cell is n=1 (T-049).
+
+| model | device | furthest checkpoint | probes kept | conversation | matched control |
+|---|---|---|---|---|---|
+| Qwen3-Coder-30B-A3B int4 | B60 | turn 80, 85-88k tok | recall, reason, ticket | **17/17** | **17/17** |
+| Qwen3-Coder-30B-A3B int4 | 285K CPU | turn 40, 42k tok | recall, reason, ticket | **14/14** | **10/10** to 21k; turn 40 not measured — a cold 42k-token CPU prefill outran the 30-min client timeout (`--timeout`) |
+| Qwen3-8B int4 | B60 | turn 30, 32k tok | recall, reason, ticket | **14/14** | **14/14** |
+| Phi-3.5-mini int4-cw | B60 | turn 40, 53-55k tok | recall, ticket | 0/9 | 1/9 — correct at 351 tok, degenerate from 6k |
+| LFM2.5-24B-A2B int4 | B60 | turn 20, 32k tok | recall only | 4/4 mechanical, 2 at the cap | 4/4 mechanical, 1 at the cap |
+| Qwen3.5-4B int4 | B60 | — | none | could not be measured: thinks to the cap on every cold probe, then the GPU context died (T-051) | |
+
+B60 rows: OpenVINO/genai 2026.4.1, driver 32.0.101.8805. 285K: same
+runtime, driver 32.0.101.8991. Results: `bench/decay-*.json`, each with
+its calibration record and the server's provenance block.
+
+**What the table does not say.** These probes are retrieval of exact
+strings and arithmetic. A flat line means a model can still *find and use*
+what it was told; it says nothing about synthesis or judgment over a long
+history, which nothing here measures yet. And `format` was dropped for
+every model that got that far — they put `###END` at the end of the
+sentence rather than on its own line, cold — so instruction-following decay
+is untested, not disproven.
+
+**Phi-3.5-mini is a runtime bug, not decay.** Its curve looks like decay
+until you notice the control arm is correct at 351 tokens and garbage at
+6,230 — a wall, not a slope. Bare genai with the server absent reproduces
+it on GPU and CPU, release and nightly, in Intel's two exports and our own
+fp16 one; Microsoft's weights in transformers and the GGUF in llama.cpp
+read the same prompts correctly to 30k. → `docs/dev/models.md`, N-052.
+
+**`recall` alone was not enough, which is why `ticket` exists.** A secret
+in the first message is the easiest thing in a context to retrieve, and
+three models passed it flat; a probe nobody fails cannot tell "no decay"
+from "cannot see decay". `ticket` asks for something from the *middle* of
+the history among near-identical distractors — the failure that motivated
+T-047. Qwen3-Coder and Qwen3-8B passed it too, so its sensitivity is still
+only demonstrated by Phi-3.5's collapse; a model that degrades *gradually*
+on it has not been found.
+
+```powershell
+python scripts\decay-probe.py http://127.0.0.1:8000 --checkpoints 1,5,10,20,40,80 --out bench\decay-<model>.json
+# thinking models: raise both caps, or they read as EMPTY
+python scripts\decay-probe.py http://127.0.0.1:8000 --max-tokens 2000 --pad-tokens 800
+```
+
 ## Why not OpenVINO Model Server (OVMS)?
 
 Intel already ships OVMS — a production-grade OpenVINO inference server.

@@ -379,7 +379,41 @@ alone measured before and after each arm and averaged
 - LFM2-1.2B / LFM2.5-1.2B-Instruct (INT4-CW, ~37-39 tok/s) on 285K NPU —
   NPU-only builds, old-stack exports fail CPU/GPU (see `TODONT.md`)
 - MiniCPM5-1B (INT4) on GPU/CPU — 2026.3, no NPU support upstream
-- Phi 3.5 Mini (INT4-CW) on NPU — smaller, faster
+- **Phi 3.5 Mini on OpenVINO collapses past ~4-5k prompt tokens, on every
+  device and every export** [OBSERVED 2026-10-19, B60 driver 32.0.101.8805
+  + 5950X; found by `scripts/decay-probe.py`, T-047]. Fine on the NPU,
+  where NoLlama caps prompts at 4096 anyway, and for short side requests.
+  Not fine for anything that hands it a long document.
+
+  Same prompt (a planted code, real repo text as filler, "what is the
+  code?"), greedy, bare genai with NoLlama absent:
+
+  | prompt tokens | transformers bf16, CPU | Ollama q8_0, RTX 5090 | OV `int4-cw` | OV `int4` | OV `fp16` (our export) |
+  |---|---|---|---|---|---|
+  | ~2.1k | ok | ok | ok | ok | ok |
+  | ~4.1k | — | — | wrong code | ok | — |
+  | ~4.6k | — | — | garbage | ok | — |
+  | ~4.85k | ok | ok | garbage | **empty** | **garbage** |
+  | ~6.8k | ok | ok | garbage | garbage | garbage |
+  | ~12.7k | — | ok | garbage | garbage | garbage |
+  | ~30.8k | — | ok | — | — | — |
+
+  Held across GPU and CPU, release 2026.4.1 and the 2026.5 nightly
+  (`int4`), Intel's two exports and our own fp16 one (optimum-intel 2.3.0,
+  transformers 5.4.0). Microsoft's weights through transformers and the
+  GGUF through llama.cpp read the same prompts correctly, so it is not
+  the model and not quantisation. `original_max_position_embeddings` is
+  4096 and the RoPE type is `longrope`; the export's Phi-3 patch
+  (`optimum/exporters/openvino/model_patcher.py`, the short/long factor
+  switch) is where to look first [INFERRED — the cliff sits near the
+  switch, but `int4` passing at 4.6k says it is not simply "> 4096"].
+  Through the server it shows as a decay curve that is really a wall: the
+  probe's control arm is correct at 351 tokens and degenerate at 6,230.
+  Upstream report drafted in `brain/next/`, for Tommy to file.
+
+  Possibly the anomaly that started T-047 — the Phi-3.5-mini run that
+  "answered the previous turn's question" — was this cliff, not turn
+  confusion [GUESS: that run's prompt size was not recorded].
 - DeepSeek-R1-1.5B (INT4-CW) on NPU — works but terrible quality (testing
   only)
 - Gemma 3 4B Vision (INT4) on GPU — **untested here.** The "fast VLM" claim

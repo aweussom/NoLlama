@@ -40,7 +40,7 @@
             "source": "pre-exported",
             "est_size_gb": 2,
             "small_model": true,
-            "notes": "Proven. Smaller and faster than Qwen3 8B, lower quality. BEST CHOICE for OpenCode's small_model slot on the NPU: no thinking channel at all, so it cannot spend a side-request's budget reasoning. Verified 2026-09-13 on NPU 4 (140V laptop), bare genai: a correct session title 3/3, deterministic, 3.2-3.6s; loads in 41s against SmolLM3-3B's 84-101s."
+            "notes": "Proven. Smaller and faster than Qwen3 8B, lower quality. BEST CHOICE for OpenCode's small_model slot on the NPU: no thinking channel at all, so it cannot spend a side-request's budget reasoning. Verified 2026-09-13 on NPU 4 (140V laptop), bare genai: a correct session title 3/3, deterministic, 3.2-3.6s; loads in 41s against SmolLM3-3B's 84-101s. Keep prompts under ~4k tokens on GPU/CPU: past that it answers in gibberish under OpenVINO, every export and device (2026-10-19, docs/dev/models.md)."
         }
     ],
     "gpu_vlm": [

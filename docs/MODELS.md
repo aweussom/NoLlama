@@ -141,6 +141,11 @@ channel, and it loads on NPU, GPU and CPU alike:
 python nollama.py --model-dir "~/models/Phi-3.5-mini-instruct-int4-cw-ov" --device NPU   # or GPU / CPU
 ```
 
+Keep the canary's prompts **short** on GPU and CPU: past roughly 4,000
+tokens Phi-3.5-mini answers in gibberish under OpenVINO (any export, any
+device; other runtimes are fine), so a long-prompt failure from it says
+nothing about your stack. Details in `docs/dev/models.md`.
+
 - **Canary loads, your model doesn't** → the stack is healthy; the model
   is the problem. NPU limits are real: INT4-**CW** quantization, ≤ 8B
   params (~6 GB on disk). Bigger or group-quantized INT4 models die in
