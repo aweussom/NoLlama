@@ -1,7 +1,8 @@
 # N-007 — Upstream tickets: the watch list
 
 **Cost:** 10 min · **Asks:** Tommy · **Waiting on:** Intel. Check when a new
-OpenVINO release lands, and otherwise monthly — next sweep due 2026-10-18.
+OpenVINO release lands, and otherwise monthly — last swept 2026-10-19, next
+due 2026-11-19.
 
 One item deliberately, not six: the action is identical for all of them (look,
 and do nothing unless something moved). A `Ref. <number>` in a thread is how
@@ -9,12 +10,17 @@ Intel marks acceptance into engineering triage.
 
 | ticket | what | status |
 |---|---|---|
-| [openvino#38100](https://github.com/openvinotoolkit/openvino/issues/38100) | LFM2 350M/1.2B word salad on NPU 4, correct on NPU 3 | filed 2026-09-13, scoped to 350M + 1.2B with DavidDohmen's working 2.6B as the boundary. **No `Ref.` yet** |
+| [openvino#38100](https://github.com/openvinotoolkit/openvino/issues/38100) | LFM2 350M/1.2B word salad on NPU 4, correct on NPU 3 | filed 2026-09-13, scoped to 350M + 1.2B with DavidDohmen's working 2.6B as the boundary. `Ref. 195511` (2026-09-23), accepted; silent since. **Do not nag bare** — the next comment carries T-050's result (a second model correct on NPU 3, broken on NPU 4, same driver) |
 | [openvino#37501](https://github.com/openvinotoolkit/openvino/issues/37501) | USM OOM: a full-sequence logits allocation, `vocab_size x seq_len x width` | **closed 2026-09-24, fixed by genai#4511** (not in 2026.4). Verified on the B60 2026-09-29: 2026.4 release still requests 32,095,728,896 B on attempt 1, nightly `dev20260928` passes 3/3. Drop the row once a release carries it |
 | [genai#4405](https://github.com/openvinotoolkit/openvino.genai/issues/4405) | Phi-3.5-vision asserts under `repetition_penalty` | `Ref. 194483`, accepted |
 | [genai#4343](https://github.com/openvinotoolkit/openvino.genai/issues/4343) | VLMPipeline's `scheduler_config` / prefix caching is undocumented | **the documentation ask is still unanswered.** Restated so it does not close as "E4B fixed" with the docs untouched |
-| [openvino#38211](https://github.com/openvinotoolkit/openvino/issues/38211) | MoE `matmul primitive` on Xe-LPG+ with XMX | `Ref. 196134` (2026-09-30), accepted. Same day Intel asked for a nightly run; only the #33 reporter can run it, see N-006. Acknowledged upstream 2026-10-05, result still pending |
 | optimum-intel PR #1789 | `nemotron_h` exporter — merged descoped | see N-003 |
+| [openvino#37419](https://github.com/openvinotoolkit/openvino/issues/37419) | GPU plugin computes wrong for muse_glimmer int4 on the 140V; same IR correct on CPU | **no response at all since 2026-08-15**, no `Ref.`. Added to this list 2026-10-19; it had none |
+| [optimum-intel#1948](https://github.com/huggingface/optimum-intel/issues/1948) | export can silently produce an IR with no fused SDPA op, so no PagedAttention | **no response since 2026-09-02**. Added 2026-10-19 |
+
+openvino#38211 (MoE matmul on Xe-LPG+) dropped 2026-10-19: closed by Intel
+2026-10-08 without saying whether the runtime or the driver carried the fix
+(`STATUS.md`).
 
 ## Two things that are ours, not theirs
 

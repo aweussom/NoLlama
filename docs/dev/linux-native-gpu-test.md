@@ -25,9 +25,18 @@ That cap breaks any model with a tensor over 1 GiB — Gemma 4 E2B has a 2.2 GB
 per-layer embedding table — until NoLlama passes
 `GPU_ENABLE_LARGE_ALLOCATIONS`, which costs ~3x on load time.
 
-**If native Linux `/dev/dri` reports the full budget, that whole workaround is
-a WSL artefact and the Linux deployment story is cleaner than the Windows
-one.** That is the single most valuable number to bring back.
+**The question is whether the cap clears the model, not whether it equals
+total.** A cap below total is normal — OpenCL guarantees only a quarter of
+global memory, a Xe-LPG iGPU reports 0.12 natively, and the B60's 1.00 is the
+outlier. What matters is whether it clears E2B's biggest tensor,
+2,348,810,240 bytes. If it does on native Linux `/dev/dri`, the workaround is
+WSL-only for that card. That is the single most valuable number to bring
+back.
+
+(Until 2026-10-19 this section and Step 2's verdict line asked "does it equal
+total", the framing #31 retracted on 2026-08-24. The first outside run
+printed `CAPPED — not a WSL artefact` on an iGPU where that was never the
+question.)
 
 Second question, nearly as valuable: `gemma-4-26b-a4b-it-int4-ov` computes
 **deterministic garbage** on the container GPU path while being correct
@@ -41,6 +50,9 @@ upstream report writes itself.
 |---|---|
 | Container GPU works at native speed (74-79 vs 76-78 tok/s) | measured 2026-08-24, WSL |
 | The 1 GiB cap is not a driver-version thing — NEO 25.44 and 26.31 both | measured |
+| The 1 GiB cap is the `/dev/dxg` path itself, not the B60: an Arrow Lake-HX iGPU caps at 4,294,959,104 natively and exactly 1,073,741,824 through WSL | measured 2026-10-19 by JRCuster, #31 |
+| `/dev/dri` passthrough enumerates on native Linux — a Gen 9.5 UHD 600 on a Synology NAS, cap 0.50 of total (1.6 GiB), in `openvino/ubuntu22_runtime:2024.x` | measured 2026-10-19 by JRCuster, #31. Old hardware, old images: says nothing about Battlemage |
+| compute-runtime 24.35+ dropped Gen 9, so **our image cannot see a Gen 9 iGPU** — the reverse of the too-old-driver trap | reported in #31, not checked here |
 | The NPU is absent from WSL entirely, both channels; `wslc` has no device flag | measured, closed in TODONT |
 | `openvino/ubuntu24_runtime:latest` cannot see a B60 — NEO 24.48 predates it | measured, in TODONT |
 | Ubuntu 24.04's packaged Intel driver is also too old for Battlemage | same root cause |
@@ -121,8 +133,10 @@ t = c.get_property('GPU','GPU_DEVICE_TOTAL_MEM_SIZE')
 m = c.get_property('GPU','GPU_DEVICE_MAX_ALLOC_MEM_SIZE')
 print('total    :', t)
 print('max_alloc:', m)
-print('VERDICT  :', 'FULL BUDGET — the 1 GiB cap is WSL-only' if m == t
-      else f'CAPPED at {m/2**30:.2f} GiB — not a WSL artefact')
+print('ratio    : %.3f' % (m / t))
+print('VERDICT  :', f'cap {m/2**30:.2f} GiB',
+      'CLEARS E2B (2,348,810,240 B) — no large-allocation hint needed' if m > 2348810240
+      else 'does NOT clear E2B — the hint is needed on this device')
 "
 ```
 
@@ -160,7 +174,7 @@ This is the configuration `docker-compose.yml` ships and nobody has run.
 
 ```bash
 sudo apt install -y docker.io && sudo systemctl start docker
-git clone -b docker-support https://github.com/aweussom/NoLlama && cd NoLlama
+git clone https://github.com/aweussom/NoLlama && cd NoLlama
 sudo docker build -t nollama:local .
 
 sudo docker run --rm --device /dev/dri --entrypoint python3 nollama:local -c \
@@ -280,5 +294,6 @@ E2B load time:
 - A comment on [#31](https://github.com/aweussom/NoLlama/issues/31), where
   the requester has been asked for this same datapoint. If we produced it
   first, tell them so they do not duplicate the work.
-- Branch: `docker-support`. The full protocol and every measurement behind
-  this document are in `DOCKER-INSTALL.md` on that branch.
+- The full protocol and every measurement behind this document are in
+  `DOCKER-INSTALL.md` (the `docker-support` branch merged to `main` on
+  2026-08-30 and is gone).

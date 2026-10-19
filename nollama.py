@@ -659,7 +659,9 @@ def _gpu_large_alloc_props(device_id, model_dir):
 
     Comparing against the model is also what makes it right off WSL entirely:
     a big enough model meets the iGPU's ~4 GB cap natively and wants the same
-    hint for the same reason.
+    hint for the same reason. The exact 1 GiB is the /dev/dxg path, not the
+    B60 [OBSERVED 2026-10-19, reporter in #31: an Arrow Lake-HX iGPU caps at
+    4,294,959,104 natively and 1,073,741,824 through WSL /dev/dxg].
 
     In: an OpenVINO device id ("GPU", "GPU.1") and a model directory. Out: {}
     when the model fits, or when either number is unreadable — the hint is

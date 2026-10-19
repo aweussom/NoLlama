@@ -599,17 +599,30 @@ every check short of reading the output says this model is fine.
 
 ## What is still not answered
 
-- **Native Linux with `/dev/dri`** — untested, and it is what #31 asks for.
-  Both limitations found here (the 1 GiB cap, the stock image's driver age)
-  are artefacts of the WSL path or of one vendor image; neither predicts the
-  native answer. No claim either way.
+- **Native Linux with `/dev/dri` on current Intel hardware** — still
+  untested by us, and it is what #31 asks for.
   → **Run book: `docs/dev/linux-native-gpu-test.md`.** Self-contained, for a
-  live USB on the B60 box; no install, no repartitioning. Step 2 alone (two
-  integers) settles the 1 GiB question.
+  live USB on the B60 box; no install, no repartitioning.
+  **Partly answered from outside (JRCuster, #31, 2026-10-19):**
+  - `/dev/dri` passthrough **enumerates** on native Linux: Intel UHD 600
+    (Gen 9.5, Celeron J4125) on Synology DSM 7.4.1, kernel 4.4, in
+    `openvino/ubuntu22_runtime:2024.2.0` and `2024.6.0`. Total 3,435,970,560,
+    cap 1,717,985,280 (0.50). Old part, old images: nothing about Battlemage.
+  - **The 1 GiB cap is the `/dev/dxg` path, on a second GPU class**: Arrow
+    Lake-HX iGPU (Core Ultra 9 275HX), 4,294,959,104 natively on Windows
+    (OpenVINO 2026.3.0, driver 32.0.101.8826), exactly 1,073,741,824 through
+    WSL 2.7.14 in `openvino/ubuntu24_runtime:2026.4.1`. Same matmul error on
+    both paths.
+  - compute-runtime 24.35+ dropped Gen 9, so the image our `Dockerfile`
+    builds cannot see a Gen 9 iGPU; the 2024.x images can.
 - ~~Track B / B2~~ — **answered 2026-08-24, and the answer is no.** The
   285K is now on WSL 2.9.8.0 with the WSL Containers preview; there is no
   NPU device node in either channel and `wslc run` has no device-passthrough
   flag. Full chain in the B2 section above and in TODONT.md.
+  **Corrected 2026-10-19:** the flag is not the gap. The NPU's Windows
+  driver ships no Linux user-mode driver, which the GPU's does; Hyper-V DDA
+  is Server-only (`0xC035001E` on Windows 11 Pro). TODONT.md has the new
+  re-check.
 - The 26B defect's cause.
 - Whether the large-allocation hint is what costs E2B its 3x load time.
 

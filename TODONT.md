@@ -428,6 +428,32 @@ that is what sent us round the loop the first time.
 **Last checked:** WSL 2.9.3.0, kernel 6.18.35.2, 2026-10-02, 258V laptop:
 `/dev/dxg` only, no `/dev/accel*`. Holds.
 
+**Update 2026-10-19: the verdict holds, the "no way to ask" bullet was
+wrong, and so was the trigger.** JRCuster (author of microsoft/WSL#40842)
+showed in NoLlama#31 that the gap is a missing **Linux user-mode driver**,
+not a missing flag. The GPU does not reach a distro through a device node
+either: it goes through `/dev/dxg` plus Linux `.so` files that Intel ships
+*inside the Windows driver package* and WSL mounts at `/usr/lib/wsl/drivers`.
+The NPU would come the same way, with no `/dev/accel*` and no `wslc` flag.
+- On their Core Ultra 9 275HX, `Get-VMHostPartitionableGpu` lists the NPU as
+  GPU-P partitionable (dxgkrnl can paravirtualize it), and its
+  `npu.inf_*` holds only Windows binaries [OBSERVED 2026-10-19, reporter].
+- Confirmed here on the 285K, NPU driver 32.0.100.5540: the GPU package
+  (`iigd_dch.inf_*`) carries 14 Linux `.so` files (`libigd12umd64.so`,
+  `libigc.so`, `libwsl_compute_helper.so`, ...); both `npu.inf_*`
+  directories carry none [OBSERVED 2026-10-19, DriverStore listing over SSH].
+- Hyper-V DDA of the NPU into a Linux VM fails on Windows 11 Pro at
+  `Start-VM`: *A hypervisor feature is not available to the user*
+  (`0xC035001E`) [OBSERVED 2026-10-19, reporter]. DDA is a Server feature, so
+  that route is closed on client Windows.
+
+**The trigger is now the DriverStore, not `/dev`**: a Linux `.so` appearing
+under `C:\Windows\System32\DriverStore\FileRepository\npu.inf_*` after an NPU
+driver update. Ten seconds:
+`Get-ChildItem C:\Windows\System32\DriverStore\FileRepository\npu.inf_* -Recurse -Filter *.so*`.
+The old checks would have missed it, since that driver would surface through
+`/dev/dxg`, which already exists.
+
 ## The stock `openvino/ubuntu24_runtime` image as the container base (2026-08-24)
 
 Idea: Intel publishes an OpenVINO runtime image; use it as the base for a

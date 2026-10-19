@@ -41,7 +41,9 @@ in `nollama.py`. Medium then runs on both NPU generations. Delete this item.
 output pasted in, and stop — **Tommy files it**. Target
 `openvinotoolkit/openvino.genai` (it is `WhisperPipeline`); Intel may move it
 to `openvino`, as with #38100. Then add it to the watch list in
-`brain/next/waiting-on-time/007-*` and move this item there.
+`brain/next/waiting-on-time/007-*` and move this item there. Once filed, a
+short comment on openvino#38100 linking it is the nudge that thread has been
+waiting for (N-007 says: no bare nag).
 
 ## Draft issue
 

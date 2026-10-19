@@ -31,9 +31,13 @@ export RENDER_GID=$(stat -c %g /dev/dri/renderD128)
 docker compose up
 ```
 
-**Untested by this project** — we have no native-Linux Intel GPU box. If you
-run this, the result is worth reporting on #31, whichever way it goes. The
-first thing to check is that `GPU` appears at all:
+**Untested by this project on current hardware.** One outside run (#31)
+confirmed that `/dev/dri` passthrough enumerates an Intel iGPU on native
+Linux, but on an old Gen 9.5 part in an older OpenVINO image. **This image
+cannot see Gen 9 iGPUs at all**: the compute-runtime it installs dropped
+them from version 24.35 onwards. Anything from Xe on is the target. If you run this, the result is
+worth reporting on #31, whichever way it goes. The first thing to check is
+that `GPU` appears at all:
 
 ```bash
 docker compose run --rm --entrypoint python3 nollama -c \

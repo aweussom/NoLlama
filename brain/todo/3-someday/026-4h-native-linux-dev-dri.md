@@ -10,11 +10,17 @@ from a container at native throughput (74-79 vs 76-78 tok/s; prefix cache
 Neither limitation found under WSL predicts the native answer:
 
 - the `/dev/dxg` **1 GiB allocation cap** (the same B60 reports 25,055,051,776
-  bytes natively and exactly 1,073,741,824 through a container) is a WSL
-  artifact by construction
-- **NPU in a container is closed and the answer is no** — no `/dev/accel*` in
-  either WSL channel, and `wslc run` exposes `--gpus` and no device flag, so
-  there is no way to even ask. See `TODONT.md`.
+  bytes natively and exactly 1,073,741,824 through a container) is the WSL
+  path itself — confirmed on a second GPU class by JRCuster in #31
+  (2026-10-19: Arrow Lake-HX iGPU, 4 GiB native, exactly 1 GiB via WSL)
+- **NPU in a container is closed for now** — the missing piece is a Linux
+  user-mode NPU driver in Intel's Windows driver package, which the GPU has
+  and the NPU does not. See `TODONT.md` for the DriverStore check.
+
+Already answered from outside (JRCuster, #31, 2026-10-19): `/dev/dri`
+passthrough **enumerates** on native Linux — but on a Gen 9.5 NAS iGPU in a
+2024.x image, so it says nothing about Battlemage or our image (which cannot
+see Gen 9 at all). The B60 run below is still the one that counts.
 
 A live-USB run book is ready at `docs/dev/linux-native-gpu-test.md`. A USB is
 prepared for the B60 box, and the 285K can be made dual-boot if that turns out
