@@ -45,3 +45,6 @@ medium-article-*.txt
 # Machine-specific timings - never shared.
 .load-times.json
 bench/side-lane-*.log
+
+# Conversion venv (optimum-cli exports), machine-local
+venv-convert/

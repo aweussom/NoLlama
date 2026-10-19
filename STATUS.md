@@ -53,7 +53,8 @@ Working state is `brain/next/` (needs Tommy), `brain/todo/` (startable cold) and
 | Runtime floor moved to OpenVINO **2026.4** (stable since 2026-09-16). Laptop and B60 both upgraded; 10/10 test modules after fixing a test double that had been failing since 3e9a918 on both boxes. Intel's re-exported gemma-4-E4B int8 segfaults on 2026.3.1 and runs on 2026.4, where its prefix cache works: ~13k-char prefix 10.3 s cold then 1.4 / 0.9 s | 2026-09-23 |
 | **All three boxes on OpenVINO/genai 2026.4.1, each with a 2026.5 nightly venv** (285K came from 2026.3.0). The B60 and 285K had held Intel's stale 2026-08-21 gemma-4-E4B download (IR stamped 2026.2); re-fetched | 2026-10-11 |
 | **gemma-4-E4B back on Intel's export.** B60 / 2026.4.1: Intel's re-export and ours both cache, cold turn 2.74 vs 2.73 s, warm load 17 s vs 23-26 s. `models.json` flipped; ours marked superseded on the Hub, deletion due 2027-01..04 (N-043) | 2026-10-11 |
-| **Whisper on the NPU (Lunar Lake)**: base and small as shipped, fastest device (50x / 25x real time), WER equal to CPU; medium dies with `ZE_RESULT_ERROR_DEVICE_LOST`. Served through `--whisper-device NPU`. Silence guard added (level spread + repeat-loop collapse). Running non-stop it slows an iGPU chat by 32-47%, so "the NPU leaves the GPU alone" is false under load; a dictated sentence costs ~0.5 s. NPU 3 (285K) untested | 2026-10-11 |
+| **Whisper on the NPU (Lunar Lake)**: base and small as shipped, fastest device (50x / 25x real time), WER equal to CPU; medium dies with `ZE_RESULT_ERROR_DEVICE_LOST`. Served through `--whisper-device NPU`. Silence guard added (level spread + repeat-loop collapse). Running non-stop it slows an iGPU chat by 32-47%, so "the NPU leaves the GPU alone" is false under load; a dictated sentence costs ~0.5 s | 2026-10-11 |
+| **Whisper on NPU 3 (285K): all three run, medium included** — 64/64 clips, WER equal to CPU, same driver (5540) and runtime as the laptop. Medium's `DEVICE_LOST` is NPU 4 only, the LFM2 pattern again. Re-test on the laptop's new driver and upstream report: T-050 | 2026-10-19 |
 | **Push-to-talk in the web UI, merged.** Real microphone in Edge and Firefox on the laptop, word-perfect; a 2.0 s clip transcribes in 0.4 s on the NPU with Qwen3-8B on the iGPU beside it (GPU driver 32.0.101.8991, NPU 32.0.100.5540, OpenVINO 2026.4.1). Headless Chrome with a WAV as fake mic: 0.6-0.8 s release-to-text (`scripts/ptt-e2e.mjs`) | 2026-10-12 |
 | OpenCode completes a real task on the 140V with `Qwen3-Coder-30B-A3B-int4`: 333 s, correct fix, tests green — TTFT 0.2–0.7 s cached against 16–28 s on a new suffix. The CPU side-model split is a **dGPU** recipe: 1.6 s idle, 40 s while an iGPU prefills | 2026-09-23 |
 | Agent-capable models, measured: `Qwen3-Coder-30B-A3B` PASS, `Qwen3-14B` PARTIAL (correct but 9 min), `Qwen2.5-Coder-14B`/`-7B` and `Qwen3-8B` FAIL — they narrate or fake tool calls. Tool training, not coding ability, is the constraint | 2026-09-23 |
@@ -119,9 +120,6 @@ back. Logs in `C:\Users\wossn\b60-eval\`. Its HF login is now an API token.
   `DEVICE_ARCHITECTURE` (`3720` = NPU 3, `4000` = NPU 4) is the only
   discriminator. The installer gates on it and the server warns; the evidence is
   openvino#38100.
-- **The B60 box cannot run `venv-nightly` at all** — application-control policy
-  blocks the unsigned `py_openvino_genai` DLL, and elevation does not lift it.
-  So "release vs nightly on a discrete Intel GPU" has nowhere to run today.
 - **We own no stock-cap iGPU with XMX.** The 285K is stock-cap but has no
   `GPU_HW_MATMUL`; the community 140T has both. The model-against-budget axis
   behind issues #24, #33 and #38 is not testable on our hardware.

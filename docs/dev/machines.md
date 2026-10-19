@@ -475,7 +475,7 @@ Read 2026-09-01:
 | Box | GPU driver | NPU driver |
 |---|---|---|
 | 258V laptop | `32.0.101.8991` (driver date 2026-08-24, **checked 2026-09-13**) — current | `32.0.100.5540` (2026-08-20) — current |
-| 285K | `32.0.101.8860` (2026-06-25) — ~2 months behind (Xe-LPG; the RTX 5090 is on `32.0.16.1088`) | `32.0.100.4778` (2026-04-28) — **old** |
+| 285K | `32.0.101.8991` (**checked 2026-10-19**; Xe-LPG; the RTX 5090 is on `32.0.16.1692`) | `32.0.100.5540` (2026-08-20, **checked 2026-10-19**) — same as the laptop |
 | B60 box | `32.0.101.8805` (re-checked 2026-09-13, unchanged) — **now the stale box** | none (no NPU) |
 
 **The laptop is no longer behind (2026-09-13)** — it is on `.8991`, the
@@ -498,14 +498,11 @@ from either is worth re-checking against a current driver before it is
 believed — which matters right now, because the gemma-4-E4B work (issue #24)
 is a GPU story.
 
-**The two NPUs are on different drivers, and that is a live gap.** The laptop
-(NPU 4) is on 5540; the 285K (NPU 3) is still on 4778. Every NPU 3 positive
-control we have — including the one in the #38100 report — was taken on 4778.
-The controlled comparison still holds, because the NPU 4 side was measured on
-*both* drivers and did not move, so 4778-vs-4778 is a like-for-like pair. But
-we have never run NPU 3 on 5540 ourselves; the only evidence that NPU 3 stays
-correct there is a third party's token counts (issue #24). Worth closing if
-the 285K is ever updated.
+**Both NPUs are on 5540 since some time before 2026-10-19** (found that day;
+the update date is not recorded). Every NPU 3 positive control from before
+then — including the one in the #38100 report — was taken on 4778, and was
+like-for-like against NPU 4 on 4778. An NPU 3 result from 2026-10-19 on is a
+5540 number, so NPU 3 vs NPU 4 is now a same-driver comparison by default.
 
 Read them back with:
 

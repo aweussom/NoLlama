@@ -2,7 +2,7 @@
 
 | Device | Examples | What it does | Streaming? |
 |---|---|---|---|
-| NPU (Intel AI Boost) | Core Ultra 7 258V | Text chat via LLMPipeline. Low power, sustained workload sweet spot. | Yes |
+| NPU (Intel AI Boost) | Core Ultra 7 258V, Core Ultra 9 285K | Text chat via LLMPipeline. Speech-to-text via WhisperPipeline (`--whisper-device NPU`; see [MODELS.md](MODELS.md#speech-to-text-whisper)). Low power, sustained workload sweet spot. | Yes |
 | ARC iGPU | ARC 140V (Core Ultra) | Vision + text, or bigger LLM | Yes (VLM streams in 2026.1+) |
 | ARC discrete | A770, B580 | Same as iGPU, more VRAM for larger models | Yes (VLM streams in 2026.1+) |
 | CPU | Any x86-64 with AVX2 — Intel supported, **AMD works too** (measured: Ryzen 9 5950X on DDR4, 23 tok/s on a 3B) | Fallback for everything. On desktops with DDR5 and many cores, often *faster* than NPU — see benchmarks. Decode is memory-bandwidth-bound: DDR4 boxes should size models accordingly. | Yes |

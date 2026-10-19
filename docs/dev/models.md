@@ -247,8 +247,9 @@ RTF is wall time over audio time; 0.02 is fifty times faster than real time.
   `L0 zeFenceHostSynchronize result: ZE_RESULT_ERROR_DEVICE_LOST, code
   0x70000001 - device hung, reset, was removed, or driver update occurred`.
   Twice, compile 246 s and 156 s. The process then dies; the NPU itself
-  recovers (base transcribed correctly straight after). Not tried: a
-  stateless re-export, NPU 3 (285K).
+  recovers (base transcribed correctly straight after). **NPU 3 runs the
+  same files** on the same driver and runtime (below), so this is an NPU 4
+  fault. Not tried: a stateless re-export.
 - **Silence without a language hallucinates everywhere, worst on the NPU.**
   CPU and iGPU return `"you"`. NPU base returns a Norwegian phrase repeated
   to `max_new_tokens` (440 words); NPU small returns a six-word Norwegian
@@ -259,6 +260,44 @@ RTF is wall time over audio time; 0.02 is fifty times faster than real time.
   five wrong, medium one in two. Read Bokmal (FLEURS) is far easier. None of
   this covers Northern Norwegian.
 - Clips over 30 s chunk correctly on every device.
+
+**NPU 3, and the 285K's CPU and Xe-LPG iGPU.** Same three models and files,
+same 64 clips rebuilt from the sources by `scripts/whisper-build-set.py`
+(group counts identical), same `scripts/whisper-probe.py`, one process per
+model x device. Core Ultra 9 285K, OpenVINO/genai 2026.4.1, NPU driver
+1005540 (`32.0.100.5540`, **the laptop's driver too**), GPU driver
+32.0.101.8991. Run over SSH from the B60 box [OBSERVED 2026-10-19]:
+
+| model | device | compile | RTF nb / en / NPSC | WER nb / en / NPSC / 62 s |
+|---|---|---|---|---|
+| base | CPU | 0.6 s | 0.027 / 0.051 / 0.091 | 0.46 / 0.12 / 0.81 / 0.50 |
+| base | iGPU | 25 s | 0.028 / 0.019 / 0.032 | 0.46 / 0.12 / 0.86 / 0.50 |
+| base | **NPU 3** | 13 s | **0.019 / 0.018 / 0.031** | 0.45 / 0.12 / 0.86 / 0.50 |
+| small | CPU | 0.9 s | 0.137 / 0.174 / 0.309 | 0.26 / 0.08 / 0.61 / 0.30 |
+| small | iGPU | 27 s | 0.053 / 0.051 / 0.087 | 0.26 / 0.08 / 0.63 / 0.30 |
+| small | **NPU 3** | 36 s | **0.050 / 0.048 / 0.081** | 0.26 / 0.08 / 0.61 / 0.30 |
+| medium | CPU | 1.8 s | 0.446 / 0.527 / 0.945 | 0.15 / 0.06 / 0.52 / 0.13 |
+| medium | iGPU | 30 s | 0.114 / 0.119 / 0.210 | 0.15 / 0.05 / 0.52 / 0.12 |
+| medium | **NPU 3** | 88 s | 0.147 / 0.142 / 0.249 | 0.15 / 0.06 / 0.52 / 0.13 |
+
+- **medium runs on NPU 3**: 64 of 64 clips, no errors, WER equal to CPU.
+  NPU 4 dies on the same files with driver and runtime held constant, so
+  the NPU generation is the whole variable — the LFM2 pattern again.
+- **WER is the CPU's on every device**, within a word or two per group.
+  Transcripts identical to CPU on 40 / 52 / 55 of 64 clips (NPU 3, base /
+  small / medium); iGPU 45 / 51 / 52.
+- **Speed is closer than on the laptop.** NPU 3 is fastest for base and
+  ties the Xe-LPG iGPU for small; for medium the iGPU is ahead. The 285K's
+  CPU is 2-4x the 258V's, so the NPU's lead over CPU shrinks on a desktop.
+- **Compile is 2-4x faster than NPU 4** (13 / 36 / 88 s against 46 / 102 /
+  156-246 s) [INFERRED: desktop CPU doing the compile; not separated].
+- **Silence hallucinates on NPU 3 exactly as on NPU 4**: base repeats a
+  Norwegian phrase to 440 words, small gives a six-word Norwegian sentence,
+  medium gives `Teksting av Amara.org` plus two CJK characters (Whisper's
+  subtitle-credit hallucination). CPU and iGPU say `"you"`.
+  `audio_level_spread` keeps such clips away from Whisper in the server.
+- Raw JSONL on the 285K under `C:\devel\t042-whisper\out\`, outside the repo
+  like the audio.
 
 **Beside a chat model, through the server.** Qwen3-8B int4-cw streaming a
 ~670-token answer on the 140V iGPU while whisper-small transcribes 8 short

@@ -16,8 +16,6 @@ What we know (checked 2026-10-11):
 
 - OpenVINO GenAI docs list NPU as a `WhisperPipeline` device, and the 2026.0.0
   release notes add word timestamps "on CPUs, GPUs, and NPUs" [DOCUMENTED].
-- `--whisper-device` help says "CPU or GPU", but the flag has no `choices=`,
-  so `NPU` goes straight through to `WhisperPipeline`. Never run.
 - **NPU 4 done, bare (2026-10-11):** base and small run as shipped, fastest
   of the three devices, WER equal to CPU. medium compiles and then hits
   `ZE_RESULT_ERROR_DEVICE_LOST` on the first inference. Silence without a
@@ -34,11 +32,12 @@ only. Whisper already covers Norwegian.
 ## How to run it — the standing orders apply
 
 - [x] Bare probe: `scripts/whisper-probe.py`, set from `scripts/whisper-build-set.py`.
-- [ ] Bare genai on **NPU 3 (285K)**; NPU 4 (laptop) done. Different
-      generations, and that has been the whole answer before (LFM2).
-      -> `docs/dev/machines.md`. Note the 285K NPU driver is older; record both.
+- [x] Bare genai on **NPU 3 (285K)**, 2026-10-19, same driver (5540) and
+      runtime as the laptop: base, small **and medium** all run, WER equal
+      to CPU. Medium's crash is NPU 4 only. `docs/dev/models.md`.
 - [x] Base, small, medium int8 as shipped on NPU 4. Medium refuses; a
       stateless re-export of medium is the one thing left to try for it.
+- [x] `--whisper-device` help, `docs/MODELS.md`, `docs/DEVICES.md` say NPU.
 - [x] Under the server: `--whisper-device NPU` serves (laptop, 2026-10-11).
 - [x] Measured against CPU and iGPU on the same clips (laptop).
 - [x] Silence guard: `audio_level_spread` + `collapse_repeat_loop`
@@ -46,8 +45,12 @@ only. Whisper already covers Norwegian.
 - [x] Concurrency measured: the claim does **not** hold under sustained
       load (chat -32..-47% with NPU Whisper running non-stop). Fine for
       push-to-talk. `docs/dev/models.md`.
-- [ ] Install menu offers no Whisper at all; add a step (device default
-      NPU where present, small) or decide it stays manual.
+- [ ] Install menu offers no Whisper at all. **Decided 2026-10-19 (Tommy):
+      offer it** — it is in the API and the web UI's push-to-talk, and it is
+      the NPU's best workload. Default small on the NPU where there is one,
+      CPU otherwise. Medium stays off the NPU menu on NPU 4 until T-050 says
+      otherwise.
+- [ ] Medium on NPU 4 on the new driver, and the upstream report: T-050.
 
 ## Done when
 

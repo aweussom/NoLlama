@@ -6591,7 +6591,8 @@ def parse_args():
                    help="Whisper model directory for speech-to-text (enables /v1/audio/transcriptions)")
     p.add_argument("--whisper-device", default="CPU",
                    help="Device for Whisper: CPU, GPU or NPU (default: CPU). NPU "
-                        "runs base and small; medium crashes it (docs/MODELS.md)")
+                        "runs base and small; medium runs on NPU 3 (Arrow/Meteor "
+                        "Lake) but crashes NPU 4 (Lunar Lake) (docs/MODELS.md)")
     p.add_argument("--whisper-min-spread", type=float, default=WHISPER_MIN_SPREAD_DB,
                    metavar="DB",
                    help="Skip Whisper on clips whose loud-to-quiet level spread is "

@@ -331,25 +331,31 @@ install menu does not offer Whisper yet; fetch one by hand:
 .\download-model.ps1 OpenVINO/whisper-small-int8-ov
 ```
 
-Measured on a Core Ultra 7 258V laptop, OpenVINO 2026.4.1, bare runtime:
+Speed is times faster than real time on Norwegian read speech, bare runtime,
+OpenVINO 2026.4.1, NPU driver 32.0.100.5540. Laptop is a Core Ultra 7 258V
+(Lunar Lake, NPU 4), desktop a Core Ultra 9 285K (Arrow Lake, NPU 3):
 
-| model | CPU | iGPU | NPU (Lunar Lake) | Norwegian (read / parliament) | English |
-|---|---|---|---|---|---|
-| base | 10x real time | 23x | **50x** | poor (46% / 81% word errors) | 12% |
-| small | 4x | 16x | **25x** | usable for read speech (26% / 62%) | 8% |
-| medium | ~1x | 8x | **does not run** | best (15% / 52%) | 5% |
+| model | laptop CPU / iGPU / NPU | desktop CPU / iGPU / NPU | Norwegian (read / parliament) | English |
+|---|---|---|---|---|
+| base | 10x / 23x / **50x** | 37x / 36x / **52x** | poor (46% / 81% word errors) | 12% |
+| small | 4x / 16x / **25x** | 7x / 19x / **20x** | usable for read speech (26% / 62%) | 8% |
+| medium | ~1x / 8x / **does not run** | 2x / 9x / 7x | best (15% / 52%) | 5% |
 
-- On the NPU, **small** is the pick: fastest to answer. Medium crashes the
-  NPU on its first inference (device lost); use it on the iGPU.
+Word error rates are the same on every device.
+
+- On the NPU, **small** is the pick: fast, and good enough for read
+  speech. Medium runs on an Arrow Lake / Meteor Lake NPU but crashes a
+  Lunar Lake one on its first inference (device lost); there, use it on
+  the iGPU.
 - The NPU is not free on a laptop. Transcribing non-stop, it slows a chat
   model on the iGPU by a third or more, since both share the same memory
   and power. Dictating a sentence now and then costs nothing you would
   notice. For hours of audio while you chat, put Whisper on the iGPU
   instead: the chat keeps its speed and Whisper waits its turn.
-- NPU compile is slow, 46 s for base and 102 s for small, paid at every
-  server start.
-- Measured on Lunar Lake's NPU only. Arrow Lake / Meteor Lake (NPU 3) is
-  not tested yet.
+- NPU compile is paid at every server start: 46 s for base and 102 s for
+  small on the laptop, 13 s and 36 s on the desktop.
+- "Meteor Lake" above is by NPU generation: it shares Arrow Lake's NPU 3,
+  but only the 285K was measured.
 - Send `language` whenever you know it. The server skips clips with no
   speech in them and cuts a phrase Whisper repeats in a loop, but a wrong
   language guess on real speech still gives a wrong transcript.
