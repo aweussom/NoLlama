@@ -95,9 +95,11 @@ def run_case(pipe, label, image, vlm, **cfg):
     """Generate once and print a single result row, failures included.
 
     Why it swallows everything: one config blowing up is the interesting
-    output, not a reason to abandon the remaining rows. The first line of
-    the exception carries the genai assertion, which is the part worth
-    pasting into an issue.
+    output, not a reason to abandon the remaining rows. The row shows the
+    first line of the exception that is not an `Exception from <file>:<line>:`
+    location — OpenVINO stacks those above the actual message, so the first
+    line alone printed only `infer_request.cpp:224:` and hid the reason
+    [OBSERVED 2026-10-19, Qwen3.5-4B on the B60].
 
     Why the two call shapes: LLMPipeline.generate takes the prompt
     positionally and rejects `prompt=` outright ("incompatible function
@@ -124,7 +126,10 @@ def run_case(pipe, label, image, vlm, **cfg):
         text = out if isinstance(out, str) else getattr(out, "texts", [str(out)])[0]
         print(f"  {label:26} {kind}  OK    {str(text)[:52]!r}")
     except Exception as e:
-        print(f"  {label:26} {kind}  FAIL  {str(e).strip().splitlines()[0][:96]}")
+        lines = [l.strip() for l in str(e).strip().splitlines() if l.strip()]
+        msg = next((l for l in lines if not l.startswith("Exception from")),
+                   lines[0] if lines else repr(e))
+        print(f"  {label:26} {kind}  FAIL  {msg[:160]}")
 
 
 def main():

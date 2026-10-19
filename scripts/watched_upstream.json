@@ -6,18 +6,18 @@
     "state": "open",
     "title": "[Feature Request]: Please add model."
   },
-  "openvinotoolkit/openvino#38026": {
-    "draft": false,
-    "kind": "pull",
-    "merged": true,
-    "state": "closed",
-    "title": "[GGUF FE] Add Q1_0 (binary, 1-bit) quantization support"
-  },
   "openvinotoolkit/openvino#38076": {
     "draft": false,
     "kind": "pull",
     "merged": false,
     "state": "open",
     "title": "[Core] Fix Concat::evaluate segfault for sub-byte types (#38057)"
+  },
+  "openvinotoolkit/openvino.genai#4318": {
+    "draft": false,
+    "kind": "pull",
+    "merged": false,
+    "state": "open",
+    "title": "[GGUF] Use the OpenVINO GGUF frontend: tokenizer from rt_info, stateful graph"
   }
 }

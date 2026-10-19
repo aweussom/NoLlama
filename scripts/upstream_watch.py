@@ -41,12 +41,16 @@ API = "https://api.github.com"
 # it goes verbatim into the issue, so write it for whoever reads that issue in
 # three months with no memory of this week.
 WATCH = {
-    "openvinotoolkit/openvino#38026":
-        "Intel's own PR adding Q1_0 (1-bit ternary) to the GGUF frontend. Q2_0 "
-        "(2-bit ternary) already landed in openvinotoolkit/openvino#37380, so "
-        "this is the other half. "
-        "Bonsai 8B ships Q1_0 as its released quantization — when this merges, "
-        "that model becomes convertible and is worth a real test.",
+    "openvinotoolkit/openvino.genai#4318":
+        "genai's LLMPipeline loading a GGUF through OpenVINO's GGUF frontend "
+        "(stateful graph, tokenizer from rt_info) instead of its own reader. "
+        "That is what Bonsai 8B's Q1_0 (binary, 1-bit) GGUF waits on: the "
+        "frontend learned Q1_0 in openvinotoolkit/openvino#38026 (merged "
+        "2026-09-25, in the 2026.5 nightly), but genai's own reader still fails "
+        "on it ('invalid unordered_map key', release and nightly, tested "
+        "2026-10-19 on the B60), and the frontend alone produces a "
+        "llama.cpp-shaped graph LLMPipeline cannot run. When this merges, "
+        "Bonsai 8B is worth a real test.",
     "openvinotoolkit/openvino#38076":
         "the fix for a segfault in Concat::evaluate on sub-byte types "
         "(openvinotoolkit/openvino#38057), which crashes compile_model on GPU "

@@ -1880,3 +1880,48 @@ on a dGPU might still be the right answer, and nobody has measured it.
 **Last checked:** 2026-08-18, B60, OpenVINO 2026.3. Not re-run; needs the
 B60, which now runs the nightly stack (N-007), so the next run there answers
 this for 2026.5 as well.
+
+## Bonsai 8B's Q1_0 GGUF through OpenVINO, now that the frontend reads it (2026-10-19)
+
+Idea: openvino#38026 (merged 2026-09-25) taught OpenVINO's GGUF frontend
+Q1_0, the binary 1-bit quantization `prism-ml/Bonsai-8B-gguf` ships as its
+release (1.16 GB for 8B). NoLlama issue #49 (the upstream watcher) fired on
+the merge. Test whether NoLlama can now serve it.
+
+**Verdict:** not yet. The frontend reads it; nothing NoLlama runs on can.
+Waiting on openvino.genai#4318, which is now in `scripts/upstream_watch.py`.
+
+**Why not** [OBSERVED 2026-10-19, B60 box, release 2026.4.1 and nightly
+2026.5.0-23394 (`972aa05b9b6`, 142 commits past the merge), Bonsai-1.7B-Q1_0
+as the fast stand-in, Qwen3-0.6B-Q8_0 as the control]:
+
+| | GGUF frontend (`load_by_framework("gguf")`) | genai `LLMPipeline(path.gguf)` |
+|---|---|---|
+| Q8_0 control | converts | **works**, release and nightly (answers "Oslo") |
+| Q1_0, release | `tensor 'token_embd.weight' has unsupported type 41` | `IndexError: invalid unordered_map<K, T> key` |
+| Q1_0, nightly | **converts** (5,848 ops) | same `unordered_map` error |
+
+- **genai does not use the frontend.** `LLMPipeline` on a `.gguf` goes through
+  genai's own GGUF reader, which never learned Q1_0. #38026 fixed a component
+  genai does not call.
+- **The frontend's graph is llama.cpp's, not genai's.** Inputs are
+  `inp_tokens`, `inp_pos`, `self_kq_mask`, `inp_kv_idx` and 56 explicit
+  `cache_k_l*`/`cache_v_l*` tensors — the shape llama.cpp's OpenVINO backend
+  drives. Not stateful, no `input_ids`/`beam_idx`, so `LLMPipeline` cannot run
+  it even after a `save_model`. Writing our own decode loop around it is the
+  "not worth doing" kind: a second inference path for one model family.
+- **Core does not auto-discover the frontend.** `ov.Core().read_model("x.gguf")`
+  says the format is unsupported on both stacks, and
+  `FrontEndManager().get_available_front_ends()` omits `gguf` although
+  `openvino_gguf_frontend.dll` ships in the wheel. Only `load_by_framework("gguf")`
+  reaches it. Easy to misread as "no GGUF support at all".
+- **Re-quantizing from `prism-ml/Bonsai-8B-unpacked` with optimum-intel** would
+  run, but at int4 it is ~4x the size and no longer the 1-bit model — the only
+  reason to want Bonsai here. Not done.
+
+Re-evaluate when openvino.genai#4318 ("Use the OpenVINO GGUF frontend:
+tokenizer from rt_info, stateful graph") merges and reaches a nightly: rerun
+`LLMPipeline` on `Bonsai-8B-Q1_0.gguf`, CPU then the B60. Ternary on GPU also
+waits on openvino#38076 (sub-byte `Concat` segfault), so expect CPU first.
+
+**Last checked:** 2026-10-19, as above.

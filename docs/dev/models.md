@@ -463,6 +463,32 @@ inference stacks (OpenVINO on the B60, Ollama/llama.cpp on an RTX 5090):
   2026-09-18 (`TODONT.md`, "VLMPipeline.set_chat_template"). Its template
   pre-seeds `<think>`; 3.6-4.8 tok/s on the 140V per `docs/MODELS.md`.
 
+- Qwen3.5-4B (Intel's `OpenVINO/Qwen3.5-4B-int4-ov`) — **re-exported by
+  Intel 2026-09-25** (`d481b7f` → `f237729`: every IR rewritten, an MTP draft
+  model added). Re-checked 2026-10-19 bare, both revisions side by side, and
+  **they behave identically**, including one fault that predates the
+  re-export [OBSERVED 2026-10-19, B60 GPU driver 32.0.101.8805, 285K iGPU
+  32.0.101.8991]:
+  - **On the B60 with OpenVINO 2026.4.1, alternating text-only and image
+    turns on one `VLMPipeline` dies on the third image turn** (turn 6 of
+    t,i,t,i,t,i) with `[GPU] CL_OUT_OF_RESOURCES`. Every later call fails
+    and the process exits `0xC0000409`. Deterministic across runs and both
+    revisions. Eight image turns in a row pass, so do t,i and t,i,i.
+    `repetition_penalty` is irrelevant: it showed up in `bare-probe.py` only
+    because that probe interleaves, and penalty-only sequences pass.
+  - **Fixed in the 2026.5 nightly** (`2026.5.0-23394`, same box, same
+    driver): eight interleaved turns pass, and every `bare-probe.py` row.
+  - **Not on the 285K's Xe-LPG iGPU** (2026.4.1, eight interleaved turns
+    pass), **not on CPU**, and **not other VLMs on the B60** on 2026.4.1:
+    Qwen3-VL-8B, gemma-4-E2B, and Qwen3.8-27B (the same `qwen3_5`
+    architecture) all pass eight interleaved turns.
+  - The driver axis is open: the B60 is on `.8805`, the other boxes on
+    `.8991`. T-051.
+  - Through NoLlama this lands in `_note_poisoned`: the slot goes out of
+    service with "restart NoLlama". Possibly the same class as the Qwen3.8
+    `CL_OUT_OF_RESOURCES` on its 34th B60 request above [INFERRED: same
+    error, same card, same family; not shown].
+
 Not yet tested here: Qwen3-VL, pre-exported by Intel as
 `OpenVINO/Qwen3-VL-8B-Instruct-int4-ov` (May 2026).
 
