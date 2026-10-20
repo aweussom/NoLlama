@@ -256,8 +256,9 @@ RTF is wall time over audio time; 0.02 is fifty times faster than real time.
   one earlier release run that day died with exit 139 (segfault) before
   printing the compile line. Base on the NPU (0.18 s) and medium on CPU
   (3.50 s) passed in between. 5540 is Intel's newest NPU driver as of
-  2026-10-20, so there is no newer driver to try; the upstream report is
-  T-050.
+  2026-10-20, so there is no newer driver to try; reported upstream as
+  [genai#4677](https://github.com/openvinotoolkit/openvino.genai/issues/4677)
+  (2026-10-20).
 - **Silence without a language hallucinates everywhere, worst on the NPU.**
   CPU and iGPU return `"you"`. NPU base returns a Norwegian phrase repeated
   to `max_new_tokens` (440 words); NPU small returns a six-word Norwegian
