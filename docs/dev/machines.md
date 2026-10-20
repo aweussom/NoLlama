@@ -276,7 +276,7 @@ Ollama, ComfyUI and the drivers are still ask-first.
 | CPU | Intel Core Ultra 7 258V (Lunar Lake) |
 | GPU | Intel Arc 140V iGPU — **~25.5 GB budget**, not the stock 16 GB (Intel Shared GPU Memory Override is on) |
 | NPU | yes — **NPU 4, `DEVICE_ARCHITECTURE=4000`.** The newer generation, and not the better one for every model |
-| Drivers | GPU `32.0.101.8991` (released 2026-08-24), NPU `32.0.100.5540` (released 2026-08-20) — **both installed 2026-09-14**, so anything measured here from 2026-09-15 is on a one-day-old stack |
+| Drivers | GPU `32.0.101.9150` (released 2026-10-08, **installed 2026-10-18**; was `8991` from 2026-09-14), NPU `32.0.100.5540` (released 2026-08-20, installed 2026-09-14, and still Intel's newest NPU driver as of 2026-10-20). Intel numbers them apart: graphics is `32.0.101.x`, the NPU is `32.0.100.x`; do not read an Arc update as an NPU one |
 | venvs | `venv` — **OpenVINO 2026.4.1 + genai 2026.4.1.0, upgraded from 2026.4.0 on 2026-10-11** (2026.4.0 since 2026-09-23; anything measured here before that is a 2026.3.1 number); `venv-nightly` (2026.5.0-23394, refreshed 2026-10-11) |
 
 **WSL and Docker: hands off.** The owner needs this machine to work and is

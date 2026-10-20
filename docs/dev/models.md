@@ -250,6 +250,14 @@ RTF is wall time over audio time; 0.02 is fifty times faster than real time.
   recovers (base transcribed correctly straight after). **NPU 3 runs the
   same files** on the same driver and runtime (below), so this is an NPU 4
   fault. Not tried: a stateless re-export.
+  Re-confirmed [OBSERVED 2026-10-20] with `scripts/whisper-npu-repro.py`
+  on `jfk.wav`: identical DEVICE_LOST on the 2026.4.1 release (compile
+  130 s) and on the 2026.5.0 nightly (23394 / genai 3521, compile 131 s);
+  one earlier release run that day died with exit 139 (segfault) before
+  printing the compile line. Base on the NPU (0.18 s) and medium on CPU
+  (3.50 s) passed in between. 5540 is Intel's newest NPU driver as of
+  2026-10-20, so there is no newer driver to try; the upstream report is
+  T-050.
 - **Silence without a language hallucinates everywhere, worst on the NPU.**
   CPU and iGPU return `"you"`. NPU base returns a Norwegian phrase repeated
   to `max_new_tokens` (440 words); NPU small returns a six-word Norwegian
