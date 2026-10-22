@@ -25,72 +25,72 @@ turn's question using this turn's research" (`scripts/judge.py` header).
 
 ## The shape
 
-Everything needed is already here, which is why this is 4 h and not a project:
-
-- oracle — `scripts/judge.py`, already calibrated against the heuristics
-- filler — `benchmark.py`'s `long_corpus(n_chars, offset)`, real repo text
-- harness — `scripts/agent-loop-test.py`'s history rewrite, which is the part
-  that is easy to get wrong
-
 Ask the **same** question at turn 1, 5, 10, 20, padding context between turns,
-and judge each answer. The control is the same question asked cold at turn 1
-with the same prompt length, so prompt size and turn count are separated —
-otherwise a result cannot tell "long prompt" from "many turns", and those are
-different bugs with different fixes.
+and judge each answer. The control is the same question asked cold with the
+same **measured prompt token count**, so prompt size and turn count are
+separated — otherwise a result cannot tell "long prompt" from "many turns",
+and those are different bugs with different fixes.
 
-- [x] `scripts/decay-probe.py`: question, turn schedule, padding, judge per turn
-- [x] cold-at-length control arm
-- [x] first real runs: `LFM2.5-24B-A2B` on the B60 GPU and the 285K CPU
-- [ ] **calibrate the probes** (see below) — blocking, the current set is unsound
-- [ ] **match the control arm on tokens, not turn index** — blocking
-- [x] T-048 done: `finish_reason` now reports "length" at the cap, so a
-      truncated answer is no longer scored as a wrong one
+`scripts/decay-probe.py` does this, built from parts that already existed:
+`judge.py` as oracle, `benchmark.py`'s `long_corpus()` as filler,
+`agent-loop-test.py`'s history rewrite as harness.
+
+- [x] probe, turn schedule, padding, judge per turn
+- [x] cold-at-length control arm, matched on measured `prompt_tokens`
+      (chars/token measured on the model's own tokenizer; Qwen3-8B within
+      0.4-2.7% at every checkpoint)
+- [x] calibration: every probe asked cold 3x first, dropped unless 3/3,
+      pass rate kept in the output. The probe set is per-model, not universal
+- [x] T-048: `finish_reason` reports "length" at the cap, so truncation is
+      no longer scored as a wrong answer
+- [x] `_digits_only` strips every thousands separator that is legal somewhere
+      (U+202F, nbsp, thin space, comma, apostrophe, …) — LFM2.5 wrote
+      `14 400` with a narrow no-break space and scored 0/5 while right
+- [x] first clean result: Qwen3-8B on the B60, 16/16 over 20 turns and
+      21,417 tokens, mechanical check and judge agreeing on every row. No
+      decay; the matched control says prompt length is not a factor either
+      (2026-10-14, driver not recorded in the commit — record it when the
+      `docs/BENCHMARKS.md` row is written)
+- [ ] re-run `LFM2.5-24B-A2B` with calibrated probes (B60 GPU + 285K CPU).
+      The pre-calibration runs are void; see below
 - [ ] run it on `Qwen3-Coder-30B-A3B` (the one agent-capable model) on the B60
-- [ ] `docs/BENCHMARKS.md` section, device and driver recorded per the standing order
+- [ ] `docs/BENCHMARKS.md` section, device and driver recorded per the
+      standing order
 
-## What the first runs taught (2026-10-14)
+## Benchmark faults found before any model fault (2026-10-14)
 
-Three runs, three faults, none of them in the model. Recorded because each one
-is the kind that produces a confident wrong curve.
+Four faults in the first three days, all in the benchmark, none in a model.
+Each one produces a confident wrong curve, and each was caught by a number
+that looked wrong rather than by the protocol. Kept here as the checklist for
+the next probe anyone writes:
 
-**1. A probe the model fails COLD measures nothing.** The `reason` probe
-(3 x 1200 x 4 = 14400) failed at turn 1 with a 152-token prompt — the model
-answered 1200. A probe without headroom cannot decay, and its failures at
-turn 20 look identical to its failures at turn 1. **Calibrate first**: run
-every probe N times cold, keep only those that pass every time, and record the
-pass rate in the output. A probe set is per-model, not universal.
+1. **A probe the model fails cold measures nothing.** Its failures at turn 20
+   are its failures at turn 1. Calibrate first.
+2. **Control matched on turn index, not tokens.** 19,512 vs 31,869 prompt
+   tokens at the same nominal "turn 20", because the conversational arm also
+   accumulates the model's own replies.
+3. **`finish_reason` lied** (T-048). Rows of ~7,530 chars, exactly the
+   3,000-token cap, came back as `stop`.
+4. **The checker was stricter about formatting than the model.** A correct
+   number with a locale separator scored 0/5. At temperature 0 the same model
+   used a comma and passed, so it looked like a regression.
 
-**2. The control arm was not matched.** It pads with `turn - 1` chunks while
-the conversational arm accumulates padding *and* the model's own replies, so
-at "turn 20" the arms sat at 19,512 and 31,869 prompt tokens. Comparing them
-compares two different prompt lengths and calls the difference turn count.
-Match on measured `prompt_tokens`, adding filler to the control until it
-reaches the conversational arm's figure.
+Also found on the way, filed separately: T-049, sampling is deterministic
+because `rng_seed` is never set, so five calls at temperature 0.7 were n=1.
 
-**3. `finish_reason` lied, so truncation read as decay.** Fixed (T-048,
-closed 2026-10-14). Rows of
-~7,530 characters — exactly the 3,000-token cap — came back as `stop`. Two
-runs were scored before that was spotted, and the char counts, not the
-protocol, are what gave it away.
+## Open observation on LFM2.5-24B-A2B
 
-## Not yet a verdict on the model
-
-With those three open, the only thing worth repeating from the runs so far is
-a mechanism, not a number: the model loops inside an **unclosed `<think>`**
-until the cap, and `_assistant_message`'s rescue path hands that back as
-content. The judge names it ("degenerate repetition") where the mechanical
-substring check passes, because the planted token does appear — inside the
-loop. That disagreement is the design working. The frequency-versus-turns
-question stays open until the probes are calibrated.
-
-## Why it is `todo/` and not `next/`
-
-No decision is pending. The method above is a starting position, not a
-proposal needing a verdict — if the first run shows the curve is flat, that is
-the finding and the script stops being interesting.
+From the void runs, one mechanism survives as worth re-checking: the model
+loops inside an **unclosed `<think>`** until the cap, and `_assistant_message`'s
+rescue path hands that back as content. The judge calls it "degenerate
+repetition" where the substring check passes, because the planted token does
+appear — inside the loop. That disagreement is the design working. Whether
+the frequency rises with turns is the open question; no number until the
+calibrated re-run.
 
 ## Done when
 
 `docs/BENCHMARKS.md` can answer "does this model get worse after N turns" with
 a number, for at least one model on at least one device, with the
-prompt-length arm separated from the turn-count arm.
+prompt-length arm separated from the turn-count arm. The Qwen3-8B result
+qualifies once it is written up with its driver.
