@@ -1,8 +1,9 @@
 # Runtime
 flask
-openvino>=2026.4.0
-openvino-genai>=2026.4.0.0
-openvino-tokenizers>=2026.4.0.0
+# 2026.4.1 floor: LFM2 on NPU 4 is word salad below it (openvino#38100).
+openvino>=2026.4.1
+openvino-genai>=2026.4.1.0
+openvino-tokenizers>=2026.4.1.0
 pillow>=10.3.0
 numpy>=1.26.4
 soundfile>=0.12.0

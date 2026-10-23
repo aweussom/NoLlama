@@ -386,7 +386,9 @@ alone measured before and after each arm and averaged
 - SmolLM3-3B (INT4-CW 23 tok/s, INT8-CW 12 tok/s) on 285K NPU — 2026.3,
   our export
 - LFM2-1.2B / LFM2.5-1.2B-Instruct (INT4-CW, ~37-39 tok/s) on 285K NPU —
-  NPU-only builds, old-stack exports fail CPU/GPU (see `TODONT.md`)
+  NPU-only builds, old-stack exports fail CPU/GPU (see `TODONT.md`). On
+  NPU 4 word salad below OpenVINO 2026.4.1, correct from 2026.4.1 on
+  (openvino#38100, verified 2026-10-23 bare and through the server)
 - MiniCPM5-1B (INT4) on GPU/CPU — 2026.3, no NPU support upstream
 - Phi 3.5 Mini (INT4-CW) on NPU — smaller, faster
 - DeepSeek-R1-1.5B (INT4-CW) on NPU — works but terrible quality (testing

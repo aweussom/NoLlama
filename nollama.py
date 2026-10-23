@@ -178,22 +178,40 @@ def needs_optimum(model_dir):
 # same venv are correct. Filed as openvinotoolkit/openvino#38100. A 2.6B on a
 # 256V was reported working upstream, so this is not the whole family: warn,
 # never refuse.
-NPU_ARCH_SUSPECT = {"lfm2": ("4000",)}
+#
+# [OBSERVED 2026-10-23] Fixed in the runtime, not the driver. Same 258V,
+# driver 5540, same two files, same afternoon, bare genai `Say hello.`:
+# 'cohclclcl...' on 2026.3.1 and 2026.4.0, 'Hello! How can I assist you
+# today?' on 2026.4.1 and 2026.5.0.dev20261020 (the build Intel asked for in
+# #38100). Through the server on 2026.4.1: 'Oslo', finish_reason 'stop'. The
+# pairing is bad only below the fixed-in version, so the warning is gated on
+# it. A nightly older than the fix but numbered 2026.5 slips through; that
+# is accepted, nightlies are not the installer's runtime.
+#
+# Keyed by config.json model_type; valued by {DEVICE_ARCHITECTURE: fixed-in
+# (major, minor, patch)}, None meaning no fix is known yet.
+NPU_ARCH_SUSPECT = {"lfm2": {"4000": (2026, 4, 1)}}
 
 
-def npu_arch_warning(model_dir, npu_platform):
-    """Warning text when this model is known to be wrong on this NPU generation.
+def npu_arch_warning(model_dir, npu_platform, installed=None):
+    """Warning text when this model is known to be wrong on this NPU generation
+    with this runtime.
 
     Why: the failure is silent. The model compiles, the tok/s look right, and
     the output is fluent nonsense — nothing in the log or the timings says
     otherwise, so a user reads it as the model being dim rather than the device
-    being wrong for it. install.ps1 keeps these off the menu (models.json
-    npu_arch_deny), but a model already on disk never passes the installer.
+    being wrong for it. install.ps1 installs a runtime past the fix, but a venv
+    that was never re-pipped, or a model already on disk, never passes the
+    installer — and the fix shipped in a patch release (2026.4.0 → 2026.4.1),
+    so a major.minor check is not enough to know.
 
-    In: a model directory, and the resolved DEVICE_ARCHITECTURE ("" when it
-    could not be read). Out: a one-line string, or None when the pairing is not
-    a known-bad one. An unreadable or absent config.json counts as not known
-    bad — this never blocks a load.
+    In: a model directory, the resolved DEVICE_ARCHITECTURE ("" when it could
+    not be read), and optionally the installed OpenVINO version string (read
+    from openvino.__version__ when omitted; tests pass it). Out: a one-line
+    string, or None when the pairing is not a known-bad one or the runtime is
+    at or past its fix. An unreadable or absent config.json counts as not known
+    bad; an unparseable version counts as before the fix — this never blocks a
+    load, and when in doubt about the runtime it warns.
     """
     if not npu_platform:
         return None
@@ -202,12 +220,29 @@ def npu_arch_warning(model_dir, npu_platform):
             mtype = json.load(f).get("model_type", "").lower()
     except Exception:
         return None
-    if str(npu_platform) not in NPU_ARCH_SUSPECT.get(mtype, ()):
+    fixed_in = NPU_ARCH_SUSPECT.get(mtype, {}).get(str(npu_platform), False)
+    if fixed_in is False:
         return None
-    return (f"'{mtype}' models are known to return word salad on this NPU "
-            f"(arch {npu_platform}) while looking healthy — verified for the "
-            f"350M and 1.2B builds, openvinotoolkit/openvino#38100. Check the "
-            f"output before trusting it; CPU, GPU and NPU 3 are unaffected.")
+    if fixed_in is None:
+        return (f"'{mtype}' models are known to return word salad on this NPU "
+                f"(arch {npu_platform}) while looking healthy. Check the output "
+                f"before trusting it; CPU, GPU and NPU 3 are unaffected.")
+    if installed is None:
+        try:
+            import openvino as _ov
+            installed = _ov.__version__
+        except Exception:
+            installed = ""
+    m = re.match(r"\s*(\d+)\.(\d+)\.(\d+)", installed or "")
+    if m and tuple(int(g) for g in m.groups()) >= fixed_in:
+        return None
+    fix = ".".join(str(n) for n in fixed_in)
+    return (f"'{mtype}' models return word salad on this NPU (arch "
+            f"{npu_platform}) while looking healthy on OpenVINO older than "
+            f"{fix}; this runtime is {installed or 'unknown'}. Fixed upstream "
+            f"(openvinotoolkit/openvino#38100): update the venv (pip install "
+            f"-U openvino openvino-genai openvino-tokenizers) or check every "
+            f"reply. CPU, GPU and NPU 3 are unaffected.")
 
 
 # Suffixes describing the *export* rather than the model, dropped from the

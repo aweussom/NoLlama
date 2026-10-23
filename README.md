@@ -57,17 +57,17 @@ the part of this that gets interesting.
 Below ~3B, expect trouble. Asked for the capital of Norway, a 1.5B once answered
 that "Norway is a small island". Fine for testing the plumbing.
 
-**Check which NPU generation you have.** A model can be correct on one and
-silently wrong on the next. The LFM2 1.2B builds decode at full speed on Lunar
-Lake (**NPU 4**, Core Ultra 200V) and return word salad, while the same files on
-Meteor/Arrow Lake (**NPU 3**) answer correctly — across two NPU drivers, three
-OpenVINO versions and both compilers
+**Check which NPU generation you have, and keep OpenVINO current.** A model
+can be correct on one generation and silently wrong on the next. The LFM2 1.2B
+builds decoded at full speed on Lunar Lake (**NPU 4**, Core Ultra 200V) and
+returned word salad, while the same files on Meteor/Arrow Lake (**NPU 3**)
+answered correctly, across two NPU drivers and both compilers
 ([openvino#38100](https://github.com/openvinotoolkit/openvino/issues/38100)).
-Nothing about the failure looks like a failure: it compiles, it is fast, and the
-sentences are fluent. The installer reads your generation and keeps the models
-that cannot work on it off the menu, and the server warns if you load one
-anyway — but if you are picking models by hand,
-[docs/MODELS.md](docs/MODELS.md) carries the per-generation list.
+Nothing about it looked like a failure: it compiled, it was fast, the sentences
+were fluent. OpenVINO 2026.4.1 fixed it; no driver update ever did. The server
+reads your generation and your runtime and warns when it loads a pairing that
+is known bad on that runtime. If you are picking models by hand,
+[docs/MODELS.md](docs/MODELS.md) carries the per-generation notes.
 
 **Raising the iGPU memory budget.** On Core Ultra the iGPU gets about half of system RAM by default, and a 13 GB model plus a KV pool does not fit in half of 32 GB. Intel Graphics Software has a "Shared GPU Memory Override" slider for it (driver 101.6987 and up). Run the app as Administrator; unelevated the toggle is greyed out and the app crashes, on two machines so far. If the slider refuses to stick, which one user hit on an Arc Pro 140T across three drivers ([#38](https://github.com/aweussom/NoLlama/issues/38)), set the value it writes directly, from an elevated PowerShell:
 

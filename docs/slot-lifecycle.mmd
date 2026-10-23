@@ -53,9 +53,9 @@ flowchart TB
   _gpu_large_alloc_props -->|"no (the common case)"| pipebuild
 
   pipebuild{"pipeline build<br/>plugin_props = OFFLOAD_RATIO +<br/>large-allocation hint"}
-  pipebuild -->|NPU| npu_arch{"npu_arch_warning<br/>config.json model_type x<br/>DEVICE_ARCHITECTURE"}
-  npu_arch -->|"not a known-bad pairing"| npu_pipe
-  npu_arch -.->|"known bad on this NPU generation"| npu_warn["WARNING to stdout;<br/>load CONTINUES - never refuses"]
+  pipebuild -->|NPU| npu_arch{"npu_arch_warning<br/>config.json model_type x<br/>DEVICE_ARCHITECTURE x<br/>OpenVINO version vs fixed-in"}
+  npu_arch -->|"not a known-bad pairing,<br/>or runtime at/past the fix"| npu_pipe
+  npu_arch -.->|"known bad on this NPU generation<br/>and runtime below the fix"| npu_warn["WARNING to stdout;<br/>load CONTINUES - never refuses"]
   npu_warn --> npu_pipe
   npu_pipe["LLMPipeline MAX_PROMPT_LEN=4096<br/>plain; no CB path on NPU"]
   pipebuild -->|"GPU/CPU + prompt cache"| cb_pipe["LLMPipeline / VLMPipeline with<br/>scheduler_config(enable_prefix_caching,<br/>cache_size=kv_pool_gb)"]

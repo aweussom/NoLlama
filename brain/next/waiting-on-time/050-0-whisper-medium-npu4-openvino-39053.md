@@ -1,4 +1,4 @@
-# T-050 — Whisper medium on NPU 4: filed as genai#4677, waiting on Intel
+# T-050 — Whisper medium on NPU 4: filed as genai#4677, now openvino#39053, waiting on Intel
 
 **Effort:** 0 · **Waiting on:** Intel, via the N-007 watch list · **Produces:** nothing until the ticket moves ·
 **Area:** NPU, Whisper · **Machine:** the **258V laptop** (NPU 4) — nowhere
@@ -36,13 +36,13 @@ says so.
 
 ## Filed
 
-[openvinotoolkit/openvino.genai#4677](https://github.com/openvinotoolkit/openvino.genai/issues/4677),
+[openvinotoolkit/openvino.genai#4677](https://github.com/openvinotoolkit/openvino.genai/issues/4677), moved by Intel to [openvino#39053](https://github.com/openvinotoolkit/openvino/issues/39053) by 2026-10-22,
 2026-10-20, from the laptop, body detuned and stamped. Link comment left on
 openvino#38100 the same day. Row added to N-007. The issue text is the
 ticket; the draft below was deleted with the filing.
 
 ## Done when
 
-Intel answers on #4677, or a release makes medium run on NPU 4. Either way
+Intel answers on #39053, or a release makes medium run on NPU 4. Either way
 the NPU 4 row in `docs/dev/models.md` and the `--whisper-device` help move,
 and this file is deleted.

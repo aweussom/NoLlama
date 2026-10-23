@@ -951,10 +951,11 @@ function Select-Device {
 
 # Drop registry entries that cannot work on the device they would be placed on.
 # Two gates, both measured rather than inferred:
-#   npu_arch_deny - correct on one NPU generation and silently wrong on another.
-#                   LFM2.5-1.2B decodes at full speed on NPU 4 and returns word
-#                   salad; models.json records the drivers, runtimes and
-#                   compilers that were held constant while proving it.
+#   npu_arch_deny - correct on one NPU generation and silently wrong on another,
+#                   with no fixed runtime known. LFM2.5-1.2B on NPU 4 was the
+#                   first entry (word salad at full speed) and left the list
+#                   when OpenVINO 2026.4.1 fixed it; nollama.py's
+#                   npu_arch_warning keeps the version-gated memory of it.
 #   npu_only      - an NPU-shaped export (static shapes, int4 channel-wise) that
 #                   does not load on CPU/GPU at all.
 # Listing a model IS recommending it, so one that cannot work here does not
@@ -1051,9 +1052,10 @@ function Get-ChatLocal { param([string]$Device, [string]$Exclude = "")
 # Whether a local model's registry entry is withdrawn from the installer.
 #
 # Why: withdrawing only the download entry would still offer a copy already on
-# disk under "Already on disk", and that is where the withdrawn LFM2.5-1.2B
-# sits on the machines that hit its bug. Find-RegistryEntry's family fallback
-# means an int8 copy of a withdrawn int4 model is withdrawn too.
+# disk under "Already on disk", and that is where a withdrawn model sits on
+# the machines that hit its bug (LFM2.5-1.2B on NPU 4 was the case, 2026-09-24
+# to 2026-10-23). Find-RegistryEntry's family fallback means an int8 copy of a
+# withdrawn int4 model is withdrawn too.
 #
 # In: a local model directory name. Out: $true when its entry says withdrawn.
 function Test-Withdrawn {

@@ -118,8 +118,9 @@ back. Logs in `C:\Users\wossn\b60-eval\`. Its HF login is now an API token.
 - **A model can be correct on one NPU generation and word salad on the next.**
   `FULL_DEVICE_NAME` is `Intel(R) AI Boost` on all of them, so
   `DEVICE_ARCHITECTURE` (`3720` = NPU 3, `4000` = NPU 4) is the only
-  discriminator. The installer gates on it and the server warns; the evidence is
-  openvino#38100.
+  discriminator. The one case on record, LFM2 on NPU 4 (openvino#38100), was
+  fixed by OpenVINO 2026.4.1 and by no driver; the server still warns when an
+  older runtime loads that pairing.
 - **We own no stock-cap iGPU with XMX.** The 285K is stock-cap but has no
   `GPU_HW_MATMUL`; the community 140T has both. The model-against-budget axis
   behind issues #24, #33 and #38 is not testable on our hardware.
@@ -133,7 +134,7 @@ back. Logs in `C:\Users\wossn\b60-eval\`. Its HF login is now an API token.
 
 Three community reporters and Intel. Details in `brain/next/waiting/` and
 `brain/next/waiting-on-time/007` (the upstream ticket watch list — openvino
-#38100, #37501, #38211, genai #4405, #4343, optimum-intel PR #1789).
+#37501, #38211, genai #4405, #4343, optimum-intel PR #1789).
 
 ## Where everything else lives
 

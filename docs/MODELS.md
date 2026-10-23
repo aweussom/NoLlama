@@ -42,8 +42,8 @@ All are in the `install.ps1` menu, with measured numbers on real hardware:
 |---|---|---|
 | [`SmolLM3-3B-int4-cw-ov`](https://huggingface.co/aweussom/SmolLM3-3B-int4-cw-ov) | 23.3 tok/s | New in OpenVINO 2026.3; also runs GPU (29.7) / CPU (37.5) |
 | [`SmolLM3-3B-int8-cw-ov`](https://huggingface.co/aweussom/SmolLM3-3B-int8-cw-ov) | 12.3 tok/s | Quality-first variant; ~half the speed of int4-cw |
-| [`LFM2.5-1.2B-Instruct-int4-cw-ov`](https://huggingface.co/aweussom/LFM2.5-1.2B-Instruct-int4-cw-ov) | **38.8 tok/s** | Fastest model we've verified on an NPU. NPU-only build. **NPU 3 only** — see below |
-| [`LFM2-1.2B-int4-cw-ov`](https://huggingface.co/aweussom/LFM2-1.2B-int4-cw-ov) | 36.5 tok/s | NPU-only build. **NPU 3 only** — see below |
+| [`LFM2.5-1.2B-Instruct-int4-cw-ov`](https://huggingface.co/aweussom/LFM2.5-1.2B-Instruct-int4-cw-ov) | **38.8 tok/s** | Fastest model we've verified on an NPU. NPU-only build. **NPU 4 needs OpenVINO 2026.4.1+** — see below |
+| [`LFM2-1.2B-int4-cw-ov`](https://huggingface.co/aweussom/LFM2-1.2B-int4-cw-ov) | 36.5 tok/s | NPU-only build. **NPU 4 needs OpenVINO 2026.4.1+** — see below |
 | [`Qwen2.5-VL-3B-Instruct-int8-ov`](https://huggingface.co/aweussom/Qwen2.5-VL-3B-Instruct-int8-ov) | — (GPU VLM) | The proven small vision model, now a download instead of a 10-min conversion. Research license |
 | [`LFM2-8B-A1B-int4-ov`](https://huggingface.co/aweussom/LFM2-8B-A1B-int4-ov) | — (GPU MoE) | 87 tok/s resident on an Arc 140V; the disk-offload test model |
 
@@ -53,19 +53,21 @@ driver compiler (a known vpux bug — `"Found N duplicated names"`). If you
 convert your own models for the NPU, use `download-model.ps1 -Weight
 int4-cw` (or `int8-cw`), which encodes the working recipe.
 
-**The two LFM builds are NPU 3 only (Arrow Lake / Meteor Lake).** On a
-Lunar Lake NPU 4 (Core Ultra 7 258V) the same files run at 46–48 tok/s and
-emit word salad — `Say hello.` → `cohclclclcl…`, byte-identical across
-OpenVINO 2026.3.0, 2026.3.1 and the 2026.5 nightly, with the plugin
-compiler and the driver compiler alike; Intel's own
-`OpenVINO/LFM2.5-350M-int8-ov` fails the same way, and the same file on
-CPU/GPU in the same venv answers correctly. The 285K's NPU 3 runs them
-correctly with identical software.
+**The two LFM builds need OpenVINO 2026.4.1 or newer on NPU 4 (Lunar
+Lake).** Up to 2026.4.0 the same files ran at 46–48 tok/s on a Core Ultra 7
+258V and emitted word salad — `Say hello.` → `cohclclclcl…`, byte-identical
+across 2026.3.0, 2026.3.1 and 2026.4.0, with the plugin compiler and the
+driver compiler alike; Intel's own `OpenVINO/LFM2.5-350M-int8-ov` failed the
+same way, while the same file on CPU/GPU in the same venv, and on the 285K's
+NPU 3, answered correctly. Updating the NPU driver never changed it:
+32.0.100.4778 and .5540 were byte-identical.
 
-**Updating the NPU driver does not fix it** (checked 2026-09-01): output
-is byte-identical on 32.0.100.4778 and 32.0.100.5540, while other models
-stay correct on the same NPU and driver. Upstream:
-openvinotoolkit/openvino#38100. Details in `TODONT.md`.
+**Fixed in the runtime** (verified 2026-10-23, 258V, driver 32.0.100.5540):
+OpenVINO 2026.4.1 and the 2026.5.0.dev20261020 nightly answer correctly
+through bare openvino_genai and through the server, with EOS where the old
+runtimes ran to the cap, while 2026.3.1 and 2026.4.0 still fail on the same
+box the same day. The server warns when an older runtime loads an LFM2 model
+on NPU 4. Upstream: openvinotoolkit/openvino#38100. Details in `TODONT.md`.
 
 ## Models
 

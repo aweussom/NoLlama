@@ -1544,9 +1544,12 @@ Idea: the two LFM builds are the fastest NPU models we publish (38.8 /
 36.5 tok/s on the 285K), and Lunar Lake laptops are NoLlama's flagship
 target — so offer them there too. The installer already did.
 
-**Verdict:** don't recommend either LFM build on NPU 4 until the numerics
-are fixed. They run at 46–48 tok/s and emit word salad. Registry notes and
-`docs/MODELS.md` say "NPU 3 only".
+**Verdict (revised 2026-10-23): fixed in OpenVINO 2026.4.1.** Below that,
+don't recommend either LFM build on NPU 4: they run at 46–48 tok/s and emit
+word salad. The server warns on the old runtimes, and the registry entry is
+back on the menu. The evidence below stays because it is the method — hold
+everything constant, vary one axis — and because it shows which axes it was
+*not*: not the driver, not the export, not the compiler.
 
 **Why not (258V laptop, `DEVICE_ARCHITECTURE=4000`, driver 32.0.100.4778):**
 - `aweussom/LFM2.5-1.2B-Instruct-int4-cw-ov`: `Say hello.` →
@@ -1619,14 +1622,30 @@ re-tested (it lives on the 285K); the "NPU 3 only" caveat covers it on
 the 4778 evidence. Full log:
 `C:\Users\tommyl\npu-driver-backup\FINDINGS.md`.
 
-Re-evaluate if: an NPU driver or OpenVINO release names LFM2 on NPU4000;
-NPU 4 firmware changes; or Intel publishes an LFM2 build validated on
-Lunar Lake. Retest is `npu-probe.sh LFM2.5-1.2B-Instruct-int4-cw-ov`
-(two minutes) plus the SmolLM3 control.
+**Closed 2026-10-23: the runtime was the fix.** Intel asked in #38100 for a
+retest on `2026.5.0.dev20261020`. Same 258V, driver 1005540, same two files,
+one afternoon, `bare-probe.py --device NPU` on four venvs:
 
-**Last checked:** OpenVINO 2026.4.0, driver 1005540, 2026-10-02,
-`bare-probe.py --device NPU`: `cohclclclcl…` on all six cases, byte-identical
-to every earlier run. Four OpenVINO versions now. #38100 open. Holds.
+| OpenVINO | genai | `Say hello.` |
+|---|---|---|
+| 2026.3.1 (archived venv) | 2026.3.1.0 | `cohclclclcl…` |
+| 2026.4.0 (fresh venv) | 2026.4.0.0 | `cohclclclcl…` |
+| 2026.4.1 (`venv/`) | 2026.4.1.0 | `Hello! How can I assist you today?` |
+| 2026.5.0.dev20261020 (`venv-nightly/`) | dev20261020 | `Hello! How can I assist you today?` |
+
+Both `LFM2.5-1.2B-Instruct-int4-cw-ov` and `OpenVINO/LFM2.5-350M-int8-ov`,
+all six probe cases each, on 2026.4.1 and the nightly. Through NoLlama on
+2026.4.1: `Say hello.` → `Hello! How can I assist you today?` (10 tokens,
+`stop`), `What is 2+2?` → `… 2 + 2 equals 4.` (31, `stop`), capital of
+Norway → `Oslo` (3, `stop`), so the never-emits-EOS half went with it. The
+two failing venvs ran the same day, so the box did not change. `venv/` had
+been on 2026.4.1 since 2026-10-11 and nobody re-ran the two-minute probe.
+
+**Lesson:** "retest when the NPU 4 firmware or the plugin's LFM path
+changes" was the right trigger and the wrong reading of it — the NPU plugin
+ships inside the OpenVINO wheel, so every OpenVINO patch release is that
+trigger, and a "Last checked" is only as good as the runtime it names.
+Re-run the probe when the stable venv moves, not only when a driver does.
 
 ## Qwen3.6-35B-A3B (Qwen3.5-MoE arch) on the NPU (2026-08-06)
 

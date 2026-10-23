@@ -25,14 +25,10 @@
         {
             "name": "LFM2.5 1.2B Instruct (INT4-CW)",
             "hf_id": "aweussom/LFM2.5-1.2B-Instruct-int4-cw-ov",
-            "withdrawn": "Correct on NPU 3, silent garbage on NPU 4 (Lunar Lake) -- Intel reproduced it and escalated it, openvinotoolkit/openvino#38100 (2026-09-18/23). Withdrawn from the installer until that is fixed (user, 2026-09-24).",
             "source": "pre-exported",
             "est_size_gb": 1,
-            "npu_arch_deny": [
-                "4000"
-            ],
             "npu_only": true,
-            "notes": "Tested on 285K NPU (NPU 3, Arrow Lake): 38.8 tok/s — fastest verified NPU model. NPU-only build (fails CPU/GPU, see model card). WARNING: on Lunar Lake (Core Ultra 200V, NPU 4) it produces word salad at full speed — NPU drivers 32.0.100.4778 and .5540, OpenVINO 2026.3.0/2026.3.1/2026.5-nightly all alike, Intel's own LFM2.5 exports too — a driver update does not fix it (verified 2026-09-01; see TODONT). Arrow Lake / Meteor Lake NPUs only until that is fixed."
+            "notes": "Tested on 285K NPU (NPU 3, Arrow Lake): 38.8 tok/s — fastest verified NPU model. NPU-only build (fails CPU/GPU, see model card). On Lunar Lake (Core Ultra 200V, NPU 4) it returned word salad at full speed on OpenVINO up to 2026.4.0, drivers 32.0.100.4778 and .5540 alike (openvinotoolkit/openvino#38100); fixed in OpenVINO 2026.4.1, verified 2026-10-23 on a 258V with driver 5540, bare genai and through the server. The server warns on older runtimes."
         },
         {
             "name": "Phi 3.5 Mini (INT4-CW)",
