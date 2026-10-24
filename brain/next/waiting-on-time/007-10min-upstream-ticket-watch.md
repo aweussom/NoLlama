@@ -10,7 +10,6 @@ Intel marks acceptance into engineering triage.
 
 | ticket | what | status |
 |---|---|---|
-| [openvino#38100](https://github.com/openvinotoolkit/openvino/issues/38100) | LFM2 350M/1.2B word salad on NPU 4, correct on NPU 3 | `Ref. 195511` (2026-09-23). Intel asked 2026-10-22 for a retest on nightly dev20261020; **retested 2026-10-23: fixed**, and already in the 2026.4.1 release (2026.4.0 fails / 2026.4.1 passes, same box, same day — `TODONT.md`). Reply with the table posted 2026-10-23; drop this row when Intel closes it |
 | [openvino#39053](https://github.com/openvinotoolkit/openvino/issues/39053) (was genai#4677) | whisper-medium-int8-ov: `ZE_RESULT_ERROR_DEVICE_LOST` on first inference on NPU 4, runs on NPU 3, driver 5540 on both, release and 2026.5.0 nightly | filed 2026-10-20 (T-050), moved to `openvino` by 2026-10-22. No `Ref.` yet. #38100 turned out to be a runtime fix, so re-probe this one on each OpenVINO release too |
 | [openvino#37501](https://github.com/openvinotoolkit/openvino/issues/37501) | USM OOM: a full-sequence logits allocation, `vocab_size x seq_len x width` | **closed 2026-09-24, fixed by genai#4511** (not in 2026.4). Verified on the B60 2026-09-29: 2026.4 release still requests 32,095,728,896 B on attempt 1, nightly `dev20260928` passes 3/3. Drop the row once a release carries it |
 | [genai#4405](https://github.com/openvinotoolkit/openvino.genai/issues/4405) | Phi-3.5-vision asserts under `repetition_penalty` | `Ref. 194483`, accepted |
