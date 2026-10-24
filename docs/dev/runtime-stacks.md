@@ -25,11 +25,11 @@ Four, none interchangeable. Activate before running.
 | venv | Built by | Stack | Use for |
 |---|---|---|---|
 | `venv/` | `install.ps1` | `requirements.txt` — OpenVINO 2026.4 release + genai 2026.4, transformers `<5` (4.57.6), optimum-intel `>=1.27` | Everything normal. **Qwen3-Next conversions must use this one** — the exporter refuses to run on transformers 5.x |
-| `venv-nightly/` | `install.ps1 -Nightly` | `requirements-nightly.txt` + nightly OpenVINO/genai/tokenizers wheels (2026.5.x), transformers `==5.2`, optimum-intel from git | IRs Intel published ahead of the runtime: Qwen3.8-27B, Muse-Glimmer-30B |
+| `venv-nightly/` | `install.ps1 -Nightly` | `requirements-nightly.txt` + nightly OpenVINO/genai/tokenizers wheels (2026.5.x), transformers `==5.2`, optimum-intel from git | Dating an upstream fix before it reaches a release (LFM2 on NPU 4, #37501, whisper on NPU 4). No `models.json` entry needs it since 2026.3.1; kept on purpose (N-002, 2026-10-24) |
 | `venv-optimum/` | `scripts\New-OptimumVenv.ps1` | transformers **and** optimum-intel from git `main`, release runtime | `NEEDS_OPTIMUM` architectures via `--backend optimum` |
 | `venv-optimum-nightly/` | `scripts\New-OptimumVenv.ps1 -Nightly` | same, nightly runtime | Testing an OpenVINO GPU fix while `venv-optimum/` stays as the control |
 
-Two things that keep biting:
+Things that keep biting:
 
 - The transformers pin in `requirements.txt` (`<5`) is the **opposite** of
   the one in `requirements-nightly.txt` (`==5.2`), on purpose. Read the
@@ -40,6 +40,10 @@ Two things that keep biting:
 - Nightly wheels move daily and carry no reproducibility promise, which is
   why `venv/` must keep pointing at `requirements.txt` (see `TODONT.md`,
   "Making the nightly OpenVINO stack the default install").
+- `pip install --pre -U` picks a beta (`2026.5.0b1`) over newer `.dev`
+  nightlies, because pip ranks a beta above a dev release. Pin
+  `==2026.5.0.dev<date>` for openvino, openvino-tokenizers and
+  openvino-genai together.
 
 ## Two serving backends
 
