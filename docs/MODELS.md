@@ -417,7 +417,10 @@ What to know before switching:
   now floors there. Verified on the Arc 140V with the release wheels
   (2026-08-30): quotes the instruction back verbatim, ~2.5 tok/s with 17 GB
   of weights in shared memory — chat-grade on an iGPU, agent-grade on a
-  B60 (~14 tok/s). It is in the `install.ps1` menu as of the same day.
+  B60: **23.8 tok/s decode, ~1,160 tok/s cold prefill** (4,707 tokens in
+  4.1 s) [OBSERVED 2026-10-24, Arc Pro B60, driver 32.0.101.8976, bare
+  genai 2026.4.1, `bench-results/t016-*` on the B60 box]. It is in the
+  `install.ps1` menu as of 2026-08-30.
 - It lands on a **VLM slot** — which since 2026-08-18 means **tool calling
   works** (structured `tool_calls` on both API surfaces, verified with
   Glimmer on the B60) and **prefix caching works** (VLMPipeline honors
@@ -562,7 +565,11 @@ a newer OpenVINO than the installed one is refused with the `pip install -U
 openvino openvino-genai openvino-tokenizers` line, instead of the crash
 (`--ignore-ir-version` to try anyway). Verified
 2026-08-30 on the Arc 140V with the release wheels: correct answers,
-**3.6–4.8 tok/s** — a dense 27B on an iGPU is quality-over-speed. Its chat
+**3.6–4.8 tok/s** — a dense 27B on an iGPU is quality-over-speed. On a
+discrete card it is a different model: **23.8 tok/s decode, ~1,500 tok/s
+cold prefill** (4,963 tokens in 3.3 s) [OBSERVED 2026-10-24, Arc Pro B60,
+driver 32.0.101.8976, bare genai 2026.4.1, `bench-results/t016-*` on the
+B60 box]. Its chat
 template opens the `<think>` block itself; NoLlama detects that at load so
 reasoning still arrives as `reasoning_content`.
 
