@@ -4,6 +4,14 @@
 **Area:** NPU, Whisper · **Machine:** the **258V laptop** (NPU 4) — nowhere
 else has one
 
+**Scope: one model on one NPU. Whisper itself works and ships.** base and
+small run on NPU 4 (50x / 25x real time, WER equal to CPU) and that is what
+`--whisper-device NPU` serves; all three sizes run on CPU, iGPU and NPU 3;
+the web UI's push-to-talk (T-045) transcribes through
+`/v1/audio/transcriptions`. Only **medium on NPU 4** crashes. Nothing here
+blocks a user — they get base/small on the NPU or medium elsewhere.
+→ `STATUS.md`, `docs/dev/models.md` "Whisper (speech-to-text)".
+
 Split out of T-042. `OpenVINO/whisper-medium-int8-ov` as shipped:
 
 - **NPU 4 (laptop), driver 32.0.100.5540**: compiles, then the first
