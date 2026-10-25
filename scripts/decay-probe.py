@@ -213,6 +213,13 @@ Rules:
 # 42k tokens on the 285K outran the old fixed 1800 s [OBSERVED 2026-10-20].
 REQUEST_TIMEOUT = 1800
 
+# Sampling sent with every request, set from --temperature. Greedy by
+# default so a row is reproducible. A reasoning-only model may need its
+# card's own sampling instead: LFM2.5-24B-A2B's card asks for temperature
+# 0.1, top_k 50 [DOCUMENTED, LiquidAI model card + generation_config.json].
+# No top_k: NoLlama's OpenAI route does not read one, so it would be a no-op.
+SAMPLING = {"temperature": 0}
+
 
 def post_chat(base, model, messages, max_tokens, timeout=None):
     """One non-streaming chat turn. Returns (text, prompt_tokens, seconds, finish).
@@ -231,13 +238,14 @@ def post_chat(base, model, messages, max_tokens, timeout=None):
     those have opposite fixes.
 
     In: server base URL, model id, OpenAI-shaped messages, token cap, and a
-    timeout that defaults to REQUEST_TIMEOUT (--timeout). Out: the tuple;
+    timeout that defaults to REQUEST_TIMEOUT (--timeout); sampling comes
+    from SAMPLING (--temperature). Out: the tuple;
     text is "[error: ...]", tokens 0 and finish "error" when the turn failed
     or timed out, so one dead turn records a row instead of killing the
     sweep -- and callers must not score that row.
     """
     body = json.dumps({"model": model, "messages": messages,
-                       "max_tokens": max_tokens, "temperature": 0,
+                       "max_tokens": max_tokens, **SAMPLING,
                        "stream": False}).encode()
     req = urllib.request.Request(base + "/v1/chat/completions", data=body,
                                  headers={"Content-Type": "application/json"})
@@ -522,10 +530,18 @@ def main():
                          "scored. The server keeps prefilling after the "
                          "client gives up, so the NEXT probe may then look "
                          "fast -- it is reading that cached prefix.")
+    ap.add_argument("--temperature", type=float, default=0.0,
+                    help="Sampling temperature (default 0, greedy). Use the "
+                         "model card's value for a reasoning-only model; "
+                         "greedy can loop inside <think> until the cap.")
+    ap.add_argument("--calibrate-only", action="store_true",
+                    help="Stop after calibration: answers 'which probes can "
+                         "this model even pass cold' in minutes")
     ap.add_argument("--out", default="bench/decay-probe.json")
     args = ap.parse_args()
     global REQUEST_TIMEOUT
     REQUEST_TIMEOUT = args.timeout
+    SAMPLING["temperature"] = args.temperature
 
     base = args.base.rstrip("/")
     checkpoints = sorted({int(x) for x in args.checkpoints.split(",") if x.strip()})
@@ -549,7 +565,7 @@ def main():
         probes, meta["calibration"] = calibrate(base, model, args.max_tokens,
                                                 args.calibrate)
         flush(args.out, model, base, results, meta)
-        if not probes:
+        if not probes or args.calibrate_only:
             return 0
 
     targets = {}  # checkpoint -> the prompt size the control arm must match
