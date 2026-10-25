@@ -199,6 +199,28 @@ descriptions from such a model have a slightly higher chance of repeating
 themselves. `OpenVINO/Phi-3.5-vision-instruct-int4-ov` is the known case,
 filed upstream as openvino.genai#4405.
 
+### Sampling is reproducible unless you send a seed
+
+`temperature` above 0 samples, but the runtime seeds its random generator
+with 0 unless told otherwise, so **the same request returns the same text
+every time**. Benchmarks rely on that. To get a different sample, send a
+seed: OpenAI clients `seed`, Ollama clients `options.seed`. The same seed
+gives the same text again; a different seed usually gives different text.
+On a predictable prompt several seeds can land on the same answer, which is
+the model being confident, not the seed being ignored. Before 2026-10-25
+the seed was accepted and ignored (T-049).
+
+One exception, from the runtime, not NoLlama: **with prefix caching on
+(the GPU/CPU default), the first request for a new prompt can differ from
+its repeats at the same seed.** The cached prefix is numerically a hair off
+the freshly computed one, and sampling amplifies that. Bare openvino_genai
+on CPU: 2 of 6 new prompts differed on the first call with the cache on,
+0 of 6 with it off [OBSERVED 2026-10-25, Qwen3-1.7B int4, genai 2026.4.1,
+laptop]. Through the server on the 140V GPU it also showed with
+`--no-prompt-cache`, 1 of 4 prompts, so the cache may not be the only
+source there [OBSERVED 2026-10-25, n=4]. If you need exact repeats, throw
+away the first answer, or run with `--no-prompt-cache` on CPU.
+
 ## API
 
 Standard OpenAI `/v1/chat/completions`. Works with any OpenAI client.

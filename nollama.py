@@ -4557,6 +4557,31 @@ def apply_penalties(gen, repetition=None, frequency=None, presence=None):
                 setattr(gen, attr, float(val))
             except Exception:
                 pass
+
+
+def apply_seed(gen, seed):
+    """Set gen.rng_seed from a client's seed, if it sent one.
+
+    Why: GenAI's GenerationConfig defaults rng_seed to 0 and nothing changed
+    it, so sampling at any temperature returned the same tokens every call
+    [OBSERVED 2026-10-14, genai 2026.4.1.0, LFM2.5-24B on the B60: five calls
+    at 0.7, byte-identical]. A client varying `seed` (OpenAI) or
+    `options.seed` (Ollama) to get a different sample got the same one.
+    Reproducible-by-default stays: no seed, no change. T-049.
+
+    In: the config and the raw request value (int, numeric string, None).
+    Out: nothing. A value that is not an integer is ignored rather than
+    rejected, the same leniency the penalties get; negatives wrap into
+    rng_seed's unsigned 64-bit range instead of raising in the binding.
+    """
+    if seed is None or isinstance(seed, bool):
+        return
+    try:
+        gen.rng_seed = int(seed) & 0xFFFFFFFFFFFFFFFF
+    except (TypeError, ValueError):
+        pass
+
+
 PROMPT_CACHE = True   # prefix-KV caching on GPU/CPU LLM slots (set False via --no-prompt-cache)
 PROMPT_CACHE_GB = None  # KV pool GB pinned via --cache-size-gb; None = auto-size per slot at load
 AUTO_KV_MIN_GB = 2    # auto-size floor — the old fixed default; also the fallback when the
@@ -5467,6 +5492,7 @@ def chat_completions():
                     repetition=body.get("repetition_penalty"),
                     frequency=body.get("frequency_penalty"),
                     presence=body.get("presence_penalty"))
+    apply_seed(gen, body.get("seed"))
 
     completion_id = make_id()
     created = int(time.time())
@@ -5833,6 +5859,7 @@ def ollama_chat():
                     repetition=_opts.get("repeat_penalty"),
                     frequency=_opts.get("frequency_penalty"),
                     presence=_opts.get("presence_penalty"))
+    apply_seed(gen, _opts.get("seed"))
 
     print(f"\n{datetime.now():%H:%M:%S} <- [{slot.device_name}] [Ollama] "
           f"{'image, ' if has_images else ''}{len(text_prompt)} chars"
@@ -6014,6 +6041,7 @@ def ollama_generate():
                     repetition=_opts.get("repeat_penalty"),
                     frequency=_opts.get("frequency_penalty"),
                     presence=_opts.get("presence_penalty"))
+    apply_seed(gen, _opts.get("seed"))
 
     t0 = time.perf_counter()
     usage = {}  # filled by the generate call; see ollama_counts
