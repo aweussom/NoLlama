@@ -543,6 +543,10 @@ def main():
                          "this model even pass cold' in minutes")
     ap.add_argument("--out", default="bench/decay-probe.json")
     args = ap.parse_args()
+    # Model text goes to stdout; redirected to a file under a scheduled task,
+    # stdout is cp1252 and LFM2.5's U+202F thousands separator killed a
+    # sweep during calibration [OBSERVED 2026-10-25, B60]. Replace, never die.
+    sys.stdout.reconfigure(errors="replace")
     global REQUEST_TIMEOUT
     REQUEST_TIMEOUT = args.timeout
     SAMPLING["temperature"] = args.temperature

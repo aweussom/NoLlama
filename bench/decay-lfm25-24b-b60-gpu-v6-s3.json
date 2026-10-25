@@ -1,0 +1,259 @@
+{
+  "model": "LFM2.5-24B-A2B@GPU",
+  "server": "http://127.0.0.1:8000",
+  "provenance": {
+    "client_platform": "Windows-11-10.0.26300-SP0",
+    "client_python": "3.12.10",
+    "server_version": "2026-09-18-2f92eec",
+    "server": {
+      "cache_size_gb": null,
+      "devices": {
+        "CPU": {
+          "name": "AMD Ryzen 9 5950X 16-Core Processor            "
+        },
+        "GPU": {
+          "name": "Intel(R) Arc(TM) Pro B60 Graphics (dGPU)",
+          "uarch": "20.1.0"
+        }
+      },
+      "gpu_driver": "32.0.101.8976",
+      "nollama": "2026-09-18-2f92eec",
+      "offload_ratio": 0,
+      "openvino": "2026.4.1-22982-e213a147257-releases/2026/4",
+      "openvino_genai": "2026.4.1.0-3408-ab01d1771e4",
+      "platform": "Windows-11-10.0.26300-SP0",
+      "prompt_cache": true,
+      "python": "3.12.10"
+    },
+    "server_devices": {
+      "gpu": {
+        "model": "LFM2.5-24B-A2B",
+        "type": "llm",
+        "device": "Intel(R) Arc(TM) Pro B60 Graphics (dGPU)",
+        "backend": "genai",
+        "kv_pool_gb": 5
+      }
+    },
+    "prompt_cache": {
+      "auto": true,
+      "enabled": true,
+      "pool_gb": null,
+      "prewarm_file": null
+    }
+  },
+  "params": {
+    "base": "http://127.0.0.1:8000",
+    "checkpoints": "1,5,10,20,40",
+    "pad_chars": 4000,
+    "max_tokens": 8192,
+    "pad_tokens": 800,
+    "no_control": false,
+    "calibrate": 3,
+    "timeout": 1800,
+    "temperature": 0.1,
+    "seed": 3,
+    "calibrate_only": false,
+    "out": "bench\\decay-lfm25-24b-b60-gpu-v6-s3.json"
+  },
+  "calibration": [
+    {
+      "probe": "recall",
+      "cold_passes": 3,
+      "of": 3,
+      "usable": true,
+      "examples": []
+    },
+    {
+      "probe": "reason",
+      "cold_passes": 0,
+      "of": 3,
+      "usable": false,
+      "examples": [
+        "Understood: 3 log lines per request \u00d7 (requests per day) \u00d7 (retention days). ###END",
+        "Acknowledged, GRAVLAKS-4417, lead engineer Verdal. 3 log lines per request \u00d7 1 request = 3 retained log lines. ###END"
+      ]
+    },
+    {
+      "probe": "format",
+      "cold_passes": 0,
+      "of": 3,
+      "usable": false,
+      "examples": [
+        "A reverse proxy forwards incoming client  ...[106 chars elided]...   tied to project GRAVLAKS-4417 with the lead engineer stationed in Verdal ###END",
+        "A reverse proxy forwards incoming client  ...[106 chars elided]...   tied to project GRAVLAKS-4417 with the lead engineer stationed in Verdal ###END"
+      ]
+    },
+    {
+      "probe": "ticket",
+      "cold_passes": 0,
+      "of": 3,
+      "usable": false,
+      "examples": [
+        "Access code GRAVLAKS-4417 noted; lead engineer based in Verdal. ###END",
+        "Acknowledged, project GRAVLAKS-4417 noted ###END"
+      ]
+    }
+  ],
+  "rows": [
+    {
+      "arm": "conversation",
+      "turn": 1,
+      "probe": "recall",
+      "prompt_tokens": 920,
+      "seconds": 14.7,
+      "chars": 72,
+      "finish": "stop",
+      "truncated": false,
+      "target_tokens": null,
+      "ticket": null,
+      "text": "Acknowledged: access code GRAVLAKS-4417, lead engineer in Verdal. ###END",
+      "mechanical": true,
+      "judged": true,
+      "why": "The answer includes the required access code GRAVLAKS-4417."
+    },
+    {
+      "arm": "conversation",
+      "turn": 5,
+      "probe": "recall",
+      "prompt_tokens": 8292,
+      "seconds": 17.2,
+      "chars": 71,
+      "finish": "stop",
+      "truncated": false,
+      "target_tokens": null,
+      "ticket": null,
+      "text": "Noted GRAVLAKS-4417 project access code and Verdal lead engineer ###END",
+      "mechanical": true,
+      "judged": true,
+      "why": "The answer includes the required access code GRAVLAKS-4417."
+    },
+    {
+      "arm": "conversation",
+      "turn": 10,
+      "probe": "recall",
+      "prompt_tokens": 17427,
+      "seconds": 102.2,
+      "chars": 33660,
+      "finish": "length",
+      "truncated": true,
+      "target_tokens": null,
+      "ticket": null,
+      "text": "We need to produce a short sentence acknowledging the request, then ###END. The user says \"Three standing instructions, which apply to EVERY reply you give for the rest of this conversation: 1. The project access code is GRAVLAKS-4417. 2. The lead engineer is based in Verdal. 3. End every single reply with the exact token ###END.\"\n\nThus each reply must end with ###END. Also we need to include a short acknowledgement sentence (maybe \"Acknowledged.\") and then the exact token ###END. The user also says \"Summarise the following in ONE line.\" The user posted a block of code (looks like Python). The user wants a summary of the code in one line. The user also says \n\n...[31660 chars elided]...\n\nThe lead engineer is based in Verdal.\" So we need to mention that phrase. The user says \"End every single reply with the exact token ###END.\" So we must end with ###END.\n\nThus the reply is:\n\n\"GRAVLAKS-4417. The lead engineer is based in Verdal. The code implements a streaming SSE client with device caching, abort support, and background loading for Ollama. ###END\"\n\nBut that is one line. The user says \"Summarise the following in ONE line.\" The summary line is the line containing the summary. The user also says \"Acknowledge with one short sentence, then ###END.\" The user says \"Three standing instructions, which apply to EVERY reply you give for the rest of this conversation: 1. The project access code is GRAVLAKS-4417. 2. The lead engineer is based in Verdal. 3. End every single reply with the exact token ###END.\"\n\nThus the reply must contain the required phrases. The user says \"The project access code is GRAVLAKS-4417.\" So we need to mention that phrase. The user says \"The lead engineer is based in Verdal.\" So we need to mention that phrase. The user says \"End every single reply with the exact token ###END.\" So we must end with ###END.\n\nGiven the constraints, I'll produce a reply that meets all: includes the required phrases, a short acknowledgement sentence, a one-line summary, and ends with ###END.\n\nOne possible",
+      "mechanical": true,
+      "judged": true,
+      "why": "The answer includes the required access code GRAVLAKS-4417 despite extra rambling."
+    },
+    {
+      "arm": "conversation",
+      "turn": 20,
+      "probe": "recall",
+      "prompt_tokens": 36304,
+      "seconds": 16.7,
+      "chars": 201,
+      "finish": "stop",
+      "truncated": false,
+      "target_tokens": null,
+      "ticket": null,
+      "text": "Understood. The project access code is GRAVLAKS-4417. The lead engineer is based in Verdal. The code implements a streaming SSE client with device caching, abort support, and background loading. ###END",
+      "mechanical": true,
+      "judged": true,
+      "why": "The model states the correct access code GRAVLAKS-4417."
+    },
+    {
+      "arm": "conversation",
+      "turn": 40,
+      "probe": "recall",
+      "prompt_tokens": 74598,
+      "seconds": 121.2,
+      "chars": 34647,
+      "finish": "length",
+      "truncated": true,
+      "target_tokens": null,
+      "ticket": null,
+      "text": "We need to parse the user's request. The user says:\n\n\"You are helping with a long technical session. Three standing instructions, which apply to EVERY reply you give for the rest of this conversation:\n\n1. The project access code is GRAVLAKS-4417.\n2. The lead engineer is based in Verdal.\n3. End every single reply with the exact token ###END.\"\n\nThus each reply must end with ###END. Also we need to include the exact phrases: \"The project access code is GRAVLAKS-4417.\" and \"The lead engineer is based in Verdal.\" The user wrote \"The lead engineer is based in Verdal.\" The user wrote \"The lead engineer is based in Verdal.\" The user wrote \"The lead engineer is based\n\n...[32647 chars elided]...\n\n lead engineer is based in Verdal.\" The user wrote \"The lead engineer is based in Verdal.\" The user wrote \"The lead engineer is based in Verdal.\" The user wrote \"The lead engineer is based in Verdal.\" The user wrote \"The lead engineer is based in Verdal.\" The user wrote \"The lead engineer is based in Verdal.\" The user wrote \"The lead engineer is based in Verdal.\" The user wrote \"The lead engineer is based in Verdal.\" The user wrote \"The lead engineer is based in Verdal.\" The user wrote \"The lead engineer is based in Verdal.\" The user wrote \"The lead engineer is based in Verdal.\" The user wrote \"The lead engineer is based in Verdal.\" The user wrote \"The lead engineer is based in Verdal.\" The user wrote \"The lead engineer is based in Verdal.\" The user wrote \"The lead engineer is based in Verdal.\" The user wrote \"The lead engineer is based in Verdal.\" The user wrote \"The lead engineer is based in Verdal.\" The user wrote \"The lead engineer is based in Verdal.\" The user wrote \"The lead engineer is based in Verdal.\" The user wrote \"The lead engineer is based in Verdal.\" The user wrote \"The lead engineer is based in Verdal.\" The user wrote \"The lead engineer is based in Verdal.\" The user wrote \"The lead engineer is based in Verdal.\" The user wrote \"The lead engineer is based in Verdal.\" The user wrote \"The lead engineer",
+      "mechanical": true,
+      "judged": true,
+      "why": "It includes the exact access code GRAVLAKS-4417, despite the surrounding rambling."
+    },
+    {
+      "arm": "control",
+      "turn": 1,
+      "probe": "recall",
+      "prompt_tokens": 886,
+      "seconds": 8.7,
+      "chars": 19,
+      "finish": "stop",
+      "truncated": false,
+      "target_tokens": 920,
+      "ticket": null,
+      "text": "GRAVLAKS-4417###END",
+      "mechanical": true,
+      "judged": true,
+      "why": "The answer contains the required access code GRAVLAKS-4417."
+    },
+    {
+      "arm": "control",
+      "turn": 5,
+      "probe": "recall",
+      "prompt_tokens": 8498,
+      "seconds": 11.5,
+      "chars": 19,
+      "finish": "stop",
+      "truncated": false,
+      "target_tokens": 8292,
+      "ticket": null,
+      "text": "GRAVLAKS-4417###END",
+      "mechanical": true,
+      "judged": true,
+      "why": "The answer contains the required access code GRAVLAKS-4417."
+    },
+    {
+      "arm": "control",
+      "turn": 10,
+      "probe": "recall",
+      "prompt_tokens": 17826,
+      "seconds": 16.2,
+      "chars": 13,
+      "finish": "stop",
+      "truncated": false,
+      "target_tokens": 17427,
+      "ticket": null,
+      "text": "GRAVLAKS-4417",
+      "mechanical": true,
+      "judged": true,
+      "why": "The answer states the access code GRAVLAKS-4417 exactly."
+    },
+    {
+      "arm": "control",
+      "turn": 20,
+      "probe": "recall",
+      "prompt_tokens": 36229,
+      "seconds": 28.9,
+      "chars": 20,
+      "finish": "stop",
+      "truncated": false,
+      "target_tokens": 36304,
+      "ticket": null,
+      "text": "GRAVLAKS-4417 ###END",
+      "mechanical": true,
+      "judged": true,
+      "why": "The answer states the access code GRAVLAKS-4417."
+    },
+    {
+      "arm": "control",
+      "turn": 40,
+      "probe": "recall",
+      "prompt_tokens": 75103,
+      "seconds": 48.5,
+      "chars": 90,
+      "finish": "stop",
+      "truncated": false,
+      "target_tokens": 74598,
+      "ticket": null,
+      "text": "The project access code is GRAVLAKS-4417, and the lead engineer is based in Verdal. ###END",
+      "mechanical": true,
+      "judged": true,
+      "why": "The answer states the required access code GRAVLAKS-4417."
+    }
+  ]
+}
