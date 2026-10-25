@@ -213,7 +213,7 @@ Rules:
 # 42k tokens on the 285K outran the old fixed 1800 s [OBSERVED 2026-10-20].
 REQUEST_TIMEOUT = 1800
 
-# Sampling sent with every request, set from --temperature. Greedy by
+# Sampling sent with every request, set from --temperature and --seed. Greedy by
 # default so a row is reproducible. A reasoning-only model may need its
 # card's own sampling instead: LFM2.5-24B-A2B's card asks for temperature
 # 0.1, top_k 50 [DOCUMENTED, LiquidAI model card + generation_config.json].
@@ -239,7 +239,7 @@ def post_chat(base, model, messages, max_tokens, timeout=None):
 
     In: server base URL, model id, OpenAI-shaped messages, token cap, and a
     timeout that defaults to REQUEST_TIMEOUT (--timeout); sampling comes
-    from SAMPLING (--temperature). Out: the tuple;
+    from SAMPLING (--temperature, --seed). Out: the tuple;
     text is "[error: ...]", tokens 0 and finish "error" when the turn failed
     or timed out, so one dead turn records a row instead of killing the
     sweep -- and callers must not score that row.
@@ -534,6 +534,10 @@ def main():
                     help="Sampling temperature (default 0, greedy). Use the "
                          "model card's value for a reasoning-only model; "
                          "greedy can loop inside <think> until the cap.")
+    ap.add_argument("--seed", type=int, default=None,
+                    help="Sampling seed sent with every request. Only "
+                         "matters above temperature 0; repeat a sweep with "
+                         "different seeds to tell an effect from one sample")
     ap.add_argument("--calibrate-only", action="store_true",
                     help="Stop after calibration: answers 'which probes can "
                          "this model even pass cold' in minutes")
@@ -542,6 +546,8 @@ def main():
     global REQUEST_TIMEOUT
     REQUEST_TIMEOUT = args.timeout
     SAMPLING["temperature"] = args.temperature
+    if args.seed is not None:
+        SAMPLING["seed"] = args.seed
 
     base = args.base.rstrip("/")
     checkpoints = sorted({int(x) for x in args.checkpoints.split(",") if x.strip()})
