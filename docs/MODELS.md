@@ -555,16 +555,19 @@ host. Note Glimmer *always* reasons by default (`reasoning_strength`
 defaults to high in its template); the web UI's no-think toggle sends its
 native `Reasoning strength: low.` directive.
 
-## Qwen3.8-27B: a release model since 2026.3.1 — pinned to a repo branch
+## Qwen3.8-27B: a release model since 2026.3.1
 
 [`OpenVINO/Qwen3.8-27B-int4-ov`](https://huggingface.co/OpenVINO/Qwen3.8-27B-int4-ov)
 spent two weeks needing a nightly runtime; OpenVINO **2026.3.1**
 (2026-08-26) lists it as functionally enabled and it is back in the
-`install.ps1` menu. One trap the menu handles for you: the repo's **`main`
-branch is a 2026.4-toolchain export that segfaults the 2026.3.x runtime at
-load** (no error, the process just dies); the IR that matches the release
-lives on the **`2026.3.1` branch**, so the registry entry carries
-`"revision": "2026.3.1"` and `download-model.ps1` takes `-Revision`. Since
+`install.ps1` menu. The repo's `main` branch is a 2026.4-toolchain export
+that segfaults the 2026.3.x runtime at load (no error, the process just
+dies), so until 2026-10-25 the registry pinned the `2026.3.1` branch. The
+floor is 2026.4 now and the pin is gone: `main` passes `bare-probe.py`
+12/12 on the B60 and gives the same answers as the old branch through the
+server [OBSERVED 2026-10-25, driver 32.0.101.8976, 2026.4.1]. An older
+copy from the `2026.3.1` branch keeps working; no need to re-download.
+`download-model.ps1 -Revision` stays for the next model that needs it. Since
 2026-10-02 NoLlama also checks this at load for every model: an IR built by
 a newer OpenVINO than the installed one is refused with the `pip install -U
 openvino openvino-genai openvino-tokenizers` line, instead of the crash

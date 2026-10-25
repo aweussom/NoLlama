@@ -863,7 +863,8 @@ function Install-Model {
             $env:PYTHONIOENCODING = "utf-8"
             # An entry may pin a repo branch/tag ("revision"): Intel keeps the
             # IR for the current release on a branch while main tracks the next
-            # runtime (Qwen3.8's main branch segfaults 2026.3.x at load).
+            # runtime (Qwen3.8's main branch segfaulted 2026.3.x at load; pinned
+            # until the 2026.4 floor, 2026-10-25).
             $revArgs = @()
             if ($Selected.PSObject.Properties['revision'] -and $Selected.revision) {
                 $revArgs = @("--revision", $Selected.revision)

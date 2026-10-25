@@ -44,7 +44,8 @@ param(
 
     # Repo branch/tag to download (pre-exported models only). Intel keeps the
     # IR for the current OpenVINO release on a branch while main tracks the
-    # next runtime — e.g. OpenVINO/Qwen3.8-27B-int4-ov -Revision 2026.3.1.
+    # next runtime — e.g. OpenVINO/Qwen3.8-27B-int4-ov -Revision 2026.3.1
+    # (needed on 2026.3.x only).
     [string]$Revision = "",
 
     [string]$HfToken,
