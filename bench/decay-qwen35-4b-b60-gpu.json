@@ -1,0 +1,97 @@
+{
+  "model": "Qwen3.5-4B@GPU",
+  "server": "http://127.0.0.1:8000",
+  "provenance": {
+    "client_platform": "Windows-11-10.0.26200-SP0",
+    "client_python": "3.12.10",
+    "server_version": "2026-09-18-7aa13f3",
+    "server": {
+      "cache_size_gb": null,
+      "devices": {
+        "CPU": {
+          "name": "AMD Ryzen 9 5950X 16-Core Processor            "
+        },
+        "GPU": {
+          "name": "Intel(R) Arc(TM) Pro B60 Graphics (dGPU)",
+          "uarch": "20.1.0"
+        }
+      },
+      "gpu_driver": "32.0.101.8805",
+      "nollama": "2026-09-18-7aa13f3",
+      "offload_ratio": 0,
+      "openvino": "2026.4.1-22982-e213a147257-releases/2026/4",
+      "openvino_genai": "2026.4.1.0-3408-ab01d1771e4",
+      "platform": "Windows-11-10.0.26200-SP0",
+      "prompt_cache": true,
+      "python": "3.12.10"
+    },
+    "server_devices": {
+      "gpu": {
+        "model": "Qwen3.5-4B",
+        "type": "vlm",
+        "device": "Intel(R) Arc(TM) Pro B60 Graphics (dGPU)",
+        "backend": "genai",
+        "kv_pool_gb": 8
+      }
+    },
+    "prompt_cache": {
+      "auto": true,
+      "enabled": true,
+      "pool_gb": null,
+      "prewarm_file": null
+    }
+  },
+  "params": {
+    "base": "http://127.0.0.1:8000",
+    "checkpoints": "1,5,10,20,40,80",
+    "pad_chars": 4000,
+    "max_tokens": 2000,
+    "pad_tokens": 800,
+    "no_control": false,
+    "calibrate": 3,
+    "out": "bench\\decay-qwen35-4b-b60-gpu.json"
+  },
+  "calibration": [
+    {
+      "probe": "recall",
+      "cold_passes": 0,
+      "of": 3,
+      "usable": false,
+      "examples": [
+        "truncated",
+        "truncated"
+      ]
+    },
+    {
+      "probe": "reason",
+      "cold_passes": 0,
+      "of": 3,
+      "usable": false,
+      "examples": [
+        "truncated",
+        "truncated"
+      ]
+    },
+    {
+      "probe": "format",
+      "cold_passes": 0,
+      "of": 3,
+      "usable": false,
+      "examples": [
+        "[error: HTTP 503 b'{\"error\":{\"message\":\"  ...[1 chars elided]...  erver not ready (status: error). Check GET /health.\",\"type\":\"server_error\"}}\\n']",
+        "[error: HTTP 503 b'{\"error\":{\"message\":\"  ...[1 chars elided]...  erver not ready (status: error). Check GET /health.\",\"type\":\"server_error\"}}\\n']"
+      ]
+    },
+    {
+      "probe": "ticket",
+      "cold_passes": 0,
+      "of": 3,
+      "usable": false,
+      "examples": [
+        "[error: HTTP 503 b'{\"error\":{\"message\":\"  ...[1 chars elided]...  erver not ready (status: error). Check GET /health.\",\"type\":\"server_error\"}}\\n']",
+        "[error: HTTP 503 b'{\"error\":{\"message\":\"  ...[1 chars elided]...  erver not ready (status: error). Check GET /health.\",\"type\":\"server_error\"}}\\n']"
+      ]
+    }
+  ],
+  "rows": []
+}

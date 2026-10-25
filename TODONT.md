@@ -1944,3 +1944,33 @@ tokenizer from rt_info, stateful graph") merges and reaches a nightly: rerun
 waits on openvino#38076 (sub-byte `Concat` segfault), so expect CPU first.
 
 **Last checked:** 2026-10-19, as above.
+
+## Measuring context decay by recalling a fact from the first message (2026-10-19)
+
+Idea: the obvious decay test. Plant a secret in the opening message, grow
+the conversation, ask for the secret at turn 1, 5, 10, 20; if the answer
+survives, the model has not decayed. It is what T-047's `decay-probe.py`
+shipped with as `recall`, and it is what most "needle in a haystack" demos
+are.
+
+**Verdict:** keep it as one probe among several; never let it be the
+evidence for "no decay".
+
+**Why not** [OBSERVED 2026-10-14..19, B60, OpenVINO 2026.4.1, driver
+32.0.101.8805]: it passed flat for every model that could run at length --
+Qwen3-8B to 32k, LFM2.5-24B-A2B to 32k, Qwen3-Coder-30B-A3B to 88k -- in
+both the conversational and the token-matched cold arm. A probe nobody
+fails cannot tell "no decay" from "cannot see decay". The first message is
+the easiest thing in a context to retrieve (it sits next to the attention
+sink and has no look-alikes), and the failure that motivated T-047 -- a
+Phi-3.5-mini reply built from the wrong turn -- is a *middle*-of-history,
+*interference* failure the first-message probe cannot express.
+
+What replaced it as the evidence: `ticket`, one near-identical "ticket T*k*
+got build number N" note per padding turn, asked for the one halfway back.
+That passed flat too on the same models, so the honest claim in
+`docs/BENCHMARKS.md` is "no decay on exact retrieval", and calibration --
+which drops probes a model fails *cold* -- still has no counterpart that
+flags a probe nobody fails *hot*. The only demonstration so far that the
+probes can fail at all is Phi-3.5-mini, and that was a runtime bug
+(`docs/dev/models.md`), not decay.
