@@ -95,7 +95,7 @@
             "hf_id": "OpenVINO/Qwen3.5-4B-int4-ov",
             "source": "pre-exported",
             "est_size_gb": 3,
-            "notes": "Newest Qwen VLM generation (Qwen2.5-VL -> Qwen3-VL -> Qwen3.5). Verified on Arc 140V 2026-08-07: 27 tok/s VLM streaming. Reads text in images well but confidently invents product identities from logos — prompt for visible features only."
+            "notes": "Newest Qwen VLM generation (Qwen2.5-VL -> Qwen3-VL -> Qwen3.5). Verified on Arc 140V 2026-08-07: 27 tok/s VLM streaming. Reads text in images well but confidently invents product identities from logos — prompt for visible features only. Arc Pro B60 on OpenVINO 2026.4: needs GPU driver 32.0.101.8976 or newer; on .8805 it died with CL_OUT_OF_RESOURCES after a few generations (2026-10-25)."
         },
         {
             "name": "Gemma 4 E2B Vision (INT4)",

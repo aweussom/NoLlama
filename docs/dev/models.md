@@ -527,12 +527,17 @@ inference stacks (OpenVINO on the B60, Ollama/llama.cpp on an RTX 5090):
     pass), **not on CPU**, and **not other VLMs on the B60** on 2026.4.1:
     Qwen3-VL-8B, gemma-4-E2B, and Qwen3.8-27B (the same `qwen3_5`
     architecture) all pass eight interleaved turns.
-  - The driver axis is open: the B60 is on `.8805`, the other boxes on
-    `.8991`. T-051.
-  - Through NoLlama this lands in `_note_poisoned`: the slot goes out of
-    service with "restart NoLlama". Possibly the same class as the Qwen3.8
-    `CL_OUT_OF_RESOURCES` on its 34th B60 request above [INFERRED: same
-    error, same card, same family; not shown].
+  - **Fixed by the driver.** On `32.0.101.8976` (installed 2026-10-19
+    evening), same release venv, `bare-probe.py` passes all twelve rows,
+    and through the server the decay probe's calibration (twelve cold
+    generates to the 2000-token cap, the sequence that killed the slot on
+    the third) ends with the slot still `ready` [OBSERVED 2026-10-25, B60,
+    OpenVINO/genai 2026.4.1]. Drivers between `.8805` and `.8976` are not
+    tested. Users on 2026.4.x and a B60 need the current driver.
+  - On the old driver this landed in `_note_poisoned` through NoLlama: the
+    slot went out of service with "restart NoLlama". Possibly the same
+    class as the Qwen3.8 `CL_OUT_OF_RESOURCES` on its 34th B60 request
+    above [INFERRED: same error, same card, same family; not shown].
 
 Not yet tested here: Qwen3-VL, pre-exported by Intel as
 `OpenVINO/Qwen3-VL-8B-Instruct-int4-ov` (May 2026).

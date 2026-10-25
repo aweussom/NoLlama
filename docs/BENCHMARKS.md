@@ -1020,7 +1020,7 @@ Greedy decoding unless the row says otherwise, so each cell is n=1 (T-049).
 | Phi-3.5-mini int4-cw | B60 | turn 40, 53-55k tok | recall, ticket | 0/9 | 1/9 — correct at 351 tok, degenerate from 6k |
 | LFM2.5-24B-A2B int4, greedy, 2k cap | B60 | turn 40, 57k tok | recall only (reason/ticket hit the cap cold) | **5/5** | **4/4**, 1 at the cap |
 | LFM2.5-24B-A2B int4, temp 0.1, 8k cap, 4 seeds | B60 | turn 40, 73k tok | recall, ticket (3 of 4 runs) | ticket **0/9** at turns 5-20; recall 8/11 | ticket **4/8** at turns 5-20; recall 7/9 |
-| Qwen3.5-4B int4 | B60 | — | none | could not be measured: thinks to the cap on every cold probe, then the GPU context died (T-051) | |
+| Qwen3.5-4B int4 | B60 | — | none | could not be measured: thinks to the cap on every cold probe, then the GPU context died on driver .8805. Re-run on .8976 (2026-10-25): no crash, still 0/3 cold on every probe, all truncated | |
 
 B60 rows: OpenVINO/genai 2026.4.1, driver 32.0.101.8805 (the two LFM2.5
 rows: 32.0.101.8976, 2026-10-25). 285K: same runtime, driver
