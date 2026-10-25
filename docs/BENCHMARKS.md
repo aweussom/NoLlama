@@ -1010,7 +1010,7 @@ for that model — a probe the model fails at 150 tokens cannot decay. Every
 answer is checked mechanically *and* by an LLM judge
 (`deepseek-v4.1-flash:cloud` via Ollama); they agreed on every row below
 but one LFM2.5 row that had run into the token cap.
-Greedy decoding, so each cell is n=1 (T-049).
+Greedy decoding unless the row says otherwise, so each cell is n=1 (T-049).
 
 | model | device | furthest checkpoint | probes kept | conversation | matched control |
 |---|---|---|---|---|---|
@@ -1018,12 +1018,39 @@ Greedy decoding, so each cell is n=1 (T-049).
 | Qwen3-Coder-30B-A3B int4 | 285K CPU | turn 40, 42k tok | recall, reason, ticket | **14/14** | **10/10** to 21k; turn 40 not measured — a cold 42k-token CPU prefill outran the 30-min client timeout (`--timeout`) |
 | Qwen3-8B int4 | B60 | turn 30, 32k tok | recall, reason, ticket | **14/14** | **14/14** |
 | Phi-3.5-mini int4-cw | B60 | turn 40, 53-55k tok | recall, ticket | 0/9 | 1/9 — correct at 351 tok, degenerate from 6k |
-| LFM2.5-24B-A2B int4 | B60 | turn 20, 32k tok | recall only | 4/4 mechanical, 2 at the cap | 4/4 mechanical, 1 at the cap |
+| LFM2.5-24B-A2B int4, greedy, 2k cap | B60 | turn 40, 57k tok | recall only (reason/ticket hit the cap cold) | **5/5** | **4/4**, 1 at the cap |
+| LFM2.5-24B-A2B int4, temp 0.1, 8k cap | B60 | turn 40, 73k tok | recall, ticket | ticket **0/3** at turns 5-20; recall 3/4; turn 40 both at the cap | ticket 2/3 at turns 5-20; **0/2 at 73k** |
 | Qwen3.5-4B int4 | B60 | — | none | could not be measured: thinks to the cap on every cold probe, then the GPU context died (T-051) | |
 
-B60 rows: OpenVINO/genai 2026.4.1, driver 32.0.101.8805. 285K: same
-runtime, driver 32.0.101.8991. Results: `bench/decay-*.json`, each with
-its calibration record and the server's provenance block.
+B60 rows: OpenVINO/genai 2026.4.1, driver 32.0.101.8805 (the two LFM2.5
+rows: 32.0.101.8976, 2026-10-25). 285K: same runtime, driver
+32.0.101.8991. Results: `bench/decay-*.json`, each with its calibration
+record and the server's provenance block.
+
+**LFM2.5-24B-A2B is the first model to show turn-count decay — n=1 per
+cell, so a lead, not a verdict** [OBSERVED 2026-10-25, B60,
+`bench/decay-lfm25-24b-b60-gpu-v5.json`]. It is a pure reasoning model with
+no off switch; its card asks for temperature 0.1 and a 4096+ budget, and
+at our original 2k cap under greedy it never finished `reason` or `ticket`
+cold. With the card's settings and an 8k cap, `ticket` calibrates 3/3. Then:
+
+- **Conversation arm, from turn 5 (8k tokens): it stops answering the
+  question.** Every reply is another one-line summary in the padding
+  turns' style, ending `###END`. `recall` passes only where that summary
+  happens to repeat the code; `ticket` fails 3 of 3. The cold control at
+  the same token counts answers `ticket` 2 of 3. Pattern lock-in on turn
+  count, not prompt length — the Phi-3.5 "answered the previous turn's
+  question" failure that started T-047.
+- **Both arms fail at ~73k** (turn 40): the control answers wrong, the
+  conversation runs into the 8k cap. Somewhere between 36k and 73k the
+  context stops being usable, well short of the advertised 131k.
+- **`reason` fails cold even at 8k**, and not on length: the reply opens by
+  acknowledging the briefing and computes from the briefing's rules instead
+  of the question.
+- The greedy 2k run passed `recall` in the conversation arm at every
+  checkpoint, so sampling moves the result. Repeat runs (T-049 first, so a
+  seed actually varies the sample) before this goes in a model
+  recommendation.
 
 **What the table does not say.** These probes are retrieval of exact
 strings and arithmetic. A flat line means a model can still *find and use*

@@ -1,0 +1,256 @@
+{
+  "model": "LFM2.5-24B-A2B@GPU",
+  "server": "http://127.0.0.1:8000",
+  "provenance": {
+    "client_platform": "Windows-11-10.0.26300-SP0",
+    "client_python": "3.12.10",
+    "server_version": "2026-09-18-2bda712",
+    "server": {
+      "cache_size_gb": null,
+      "devices": {
+        "CPU": {
+          "name": "AMD Ryzen 9 5950X 16-Core Processor            "
+        },
+        "GPU": {
+          "name": "Intel(R) Arc(TM) Pro B60 Graphics (dGPU)",
+          "uarch": "20.1.0"
+        }
+      },
+      "gpu_driver": "32.0.101.8976",
+      "nollama": "2026-09-18-2bda712",
+      "offload_ratio": 0,
+      "openvino": "2026.4.1-22982-e213a147257-releases/2026/4",
+      "openvino_genai": "2026.4.1.0-3408-ab01d1771e4",
+      "platform": "Windows-11-10.0.26300-SP0",
+      "prompt_cache": true,
+      "python": "3.12.10"
+    },
+    "server_devices": {
+      "gpu": {
+        "model": "LFM2.5-24B-A2B",
+        "type": "llm",
+        "device": "Intel(R) Arc(TM) Pro B60 Graphics (dGPU)",
+        "backend": "genai",
+        "kv_pool_gb": 5
+      }
+    },
+    "prompt_cache": {
+      "auto": true,
+      "enabled": true,
+      "pool_gb": null,
+      "prewarm_file": null
+    }
+  },
+  "params": {
+    "base": "http://127.0.0.1:8000",
+    "checkpoints": "1,5,10,20,40",
+    "pad_chars": 4000,
+    "max_tokens": 2000,
+    "pad_tokens": 800,
+    "no_control": false,
+    "calibrate": 3,
+    "timeout": 1800,
+    "out": "bench\\decay-lfm25-24b-b60-gpu-v4.json"
+  },
+  "calibration": [
+    {
+      "probe": "recall",
+      "cold_passes": 3,
+      "of": 3,
+      "usable": true,
+      "examples": []
+    },
+    {
+      "probe": "reason",
+      "cold_passes": 0,
+      "of": 3,
+      "usable": false,
+      "examples": [
+        "truncated",
+        "truncated"
+      ]
+    },
+    {
+      "probe": "format",
+      "cold_passes": 0,
+      "of": 3,
+      "usable": false,
+      "examples": [
+        "A reverse proxy forwards client requests  ...[9 chars elided]...  nd servers, often handling load balancing, caching, and security services ###END",
+        "A reverse proxy forwards client requests  ...[9 chars elided]...  nd servers, often handling load balancing, caching, and security services ###END"
+      ]
+    },
+    {
+      "probe": "ticket",
+      "cold_passes": 0,
+      "of": 3,
+      "usable": false,
+      "examples": [
+        "truncated",
+        "truncated"
+      ]
+    }
+  ],
+  "rows": [
+    {
+      "arm": "conversation",
+      "turn": 1,
+      "probe": "recall",
+      "prompt_tokens": 920,
+      "seconds": 9.2,
+      "chars": 86,
+      "finish": "stop",
+      "truncated": false,
+      "target_tokens": null,
+      "ticket": null,
+      "text": "Acknowledged: project access code GRAVLAKS-4417, lead engineer based in Verdal. ###END",
+      "mechanical": true,
+      "judged": true,
+      "why": "The model states the required access code GRAVLAKS-4417."
+    },
+    {
+      "arm": "conversation",
+      "turn": 5,
+      "probe": "recall",
+      "prompt_tokens": 8294,
+      "seconds": 7.5,
+      "chars": 172,
+      "finish": "stop",
+      "truncated": false,
+      "target_tokens": null,
+      "ticket": null,
+      "text": "Device loading manager with background threads for timing, aborting, and streaming token generation; project access code GRAVLAKS-4417; lead engineer based in Verdal ###END",
+      "mechanical": true,
+      "judged": true,
+      "why": "The answer includes the required access code GRAVLAKS-4417."
+    },
+    {
+      "arm": "conversation",
+      "turn": 10,
+      "probe": "recall",
+      "prompt_tokens": 17322,
+      "seconds": 7.0,
+      "chars": 172,
+      "finish": "stop",
+      "truncated": false,
+      "target_tokens": null,
+      "ticket": null,
+      "text": "Device loading manager with background threads for timing, aborting, and streaming token generation; project access code GRAVLAKS-4417; lead engineer based in Verdal ###END",
+      "mechanical": true,
+      "judged": true,
+      "why": "The answer includes the required access code GRAVLAKS-4417."
+    },
+    {
+      "arm": "conversation",
+      "turn": 20,
+      "probe": "recall",
+      "prompt_tokens": 31440,
+      "seconds": 7.1,
+      "chars": 20,
+      "finish": "stop",
+      "truncated": false,
+      "target_tokens": null,
+      "ticket": null,
+      "text": "GRAVLAKS-4417 ###END",
+      "mechanical": true,
+      "judged": true,
+      "why": "The answer states the access code GRAVLAKS-4417."
+    },
+    {
+      "arm": "conversation",
+      "turn": 40,
+      "probe": "recall",
+      "prompt_tokens": 57101,
+      "seconds": 7.4,
+      "chars": 172,
+      "finish": "stop",
+      "truncated": false,
+      "target_tokens": null,
+      "ticket": null,
+      "text": "Device loading manager with background threads for timing, aborting, and streaming token generation; project access code GRAVLAKS-4417; lead engineer based in Verdal ###END",
+      "mechanical": true,
+      "judged": true,
+      "why": "The answer includes the required access code GRAVLAKS-4417."
+    },
+    {
+      "arm": "control",
+      "turn": 1,
+      "probe": "recall",
+      "prompt_tokens": 886,
+      "seconds": 7.4,
+      "chars": 19,
+      "finish": "stop",
+      "truncated": false,
+      "target_tokens": 920,
+      "ticket": null,
+      "text": "GRAVLAKS-4417###END",
+      "mechanical": true,
+      "judged": true,
+      "why": "The answer contains the required access code GRAVLAKS-4417."
+    },
+    {
+      "arm": "control",
+      "turn": 5,
+      "probe": "recall",
+      "prompt_tokens": 8501,
+      "seconds": 10.1,
+      "chars": 20,
+      "finish": "stop",
+      "truncated": false,
+      "target_tokens": 8294,
+      "ticket": null,
+      "text": "GRAVLAKS-4417 ###END",
+      "mechanical": true,
+      "judged": true,
+      "why": "The answer states the access code GRAVLAKS-4417."
+    },
+    {
+      "arm": "control",
+      "turn": 10,
+      "probe": "recall",
+      "prompt_tokens": 17733,
+      "seconds": 24.3,
+      "chars": 9453,
+      "finish": "length",
+      "truncated": true,
+      "target_tokens": 17322,
+      "ticket": null,
+      "text": "We need to respond with a short sentence, then ###END. The user says: \"You are helping with a long technical session. Three standing instructions, which apply to EVERY reply you give for the rest of this conversation:\n\n1. The project access code is GRAVLAKS-4417. Remember it.\n2. The lead engineer is based in Verdal.\n3. End every reply with a single line.\n\nReference material:\n\n start/end on its own line.\n\n    In: device name and model dir. Out: nothing directly; done()\n    \"\"\"\n\n    def __init__(self, device_name, model_dir, still_loading=None):\n        \"\"\"Read any remembered duration for this model+device; start nothing yet.\n\n        Why the\n            ticke\n\n...[7453 chars elided]...\n\n would print forever \u2014 the load is a predicate that is None on a first\n            start: the ticker would print forever \u2014 the load is a predicate that is None on a first\n            start: the ticker would print forever \u2014 the load is a predicate that is None on a first\n            start: the ticker would print forever \u2014 the load is a predicate that is None on a first\n            start: the ticker would print forever \u2014 the load is a predicate that is None on a first\n            start: the ticker would print forever \u2014 the load is a predicate that is None on a first\n            start: the ticker would print forever \u2014 the load is a predicate that is None on a first\n            start: the ticker would print forever \u2014 the load is a predicate that is None on a first\n            start: the ticker would print forever \u2014 the load is a predicate that is None on a first\n            start: the ticker would print forever \u2014 the load is a predicate that is None on a first\n            start: the ticker would print forever \u2014 the load is a predicate that is None on a first\n            start: the ticker would print forever \u2014 the load is a predicate that is None on a first\n            start: the ticker would print forever \u2014 the load is a predicate that is None on a first\n            start: the ticker would print forever \u2014 the load is",
+      "mechanical": true,
+      "judged": false,
+      "why": "The response is degenerate rambling and does not clearly answer with the access code, despite mentioning it in quoted text."
+    },
+    {
+      "arm": "control",
+      "turn": 20,
+      "probe": "recall",
+      "prompt_tokens": 31390,
+      "seconds": 18.4,
+      "chars": 50,
+      "finish": "stop",
+      "truncated": false,
+      "target_tokens": 31440,
+      "ticket": null,
+      "text": "The project access code is GRAVLAKS-4417.  \n###END",
+      "mechanical": true,
+      "judged": true,
+      "why": "The answer states the correct access code GRAVLAKS-4417."
+    },
+    {
+      "arm": "control",
+      "turn": 40,
+      "probe": "recall",
+      "prompt_tokens": 57246,
+      "seconds": 27.8,
+      "chars": 20,
+      "finish": "stop",
+      "truncated": false,
+      "target_tokens": 57101,
+      "ticket": null,
+      "text": "GRAVLAKS-4417\n###END",
+      "mechanical": true,
+      "judged": true,
+      "why": "The answer states the required access code GRAVLAKS-4417."
+    }
+  ]
+}

@@ -19,6 +19,12 @@ one sample.
 client varying the seed to get different samples gets identical ones, with
 nothing in the response saying why.
 
+**Now blocking a result** (2026-10-25): LFM2.5-24B-A2B shows turn-count
+decay at temperature 0.1 and not under greedy (`docs/BENCHMARKS.md`, decay
+section). Telling a real effect from one lucky sample needs several seeds
+per cell, which this item is what provides. Then re-run
+`decay-probe.py --temperature 0.1 --max-tokens 8192` a few times.
+
 ## Why it matters beyond tidiness
 
 Determinism by default is a FEATURE for this project — it is why a benchmark
