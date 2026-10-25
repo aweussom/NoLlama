@@ -17,7 +17,7 @@ Where this repo lives and where most measurements are taken.
 | | |
 |---|---|
 | CPU | AMD Ryzen 9 5950X, 16C/32T (DDR4) |
-| GPU | **Intel Arc Pro B60, 24 GB, discrete** (Battlemage, XMX), driver `32.0.101.8805` (checked 2026-09-11) — **plus an AMD Radeon RX 580**, so it is not a single-vendor box after all |
+| GPU | **Intel Arc Pro B60, 24 GB, discrete** (Battlemage, XMX), driver `32.0.101.8976` (Arc Pro Q3.26 WHQL, Intel's current Arc Pro release; checked 2026-10-25). The laptop's `32.0.101.9xxx` is the consumer Arc branch — not comparable — **plus an AMD Radeon RX 580**, so it is not a single-vendor box after all |
 | NPU | **none** |
 | RAM | 32 GB |
 | OS | Windows 11 Pro 26200 |
