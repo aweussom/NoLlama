@@ -46,16 +46,33 @@ and those are different bugs with different fixes.
 - [x] `_digits_only` strips every thousands separator that is legal somewhere
       (U+202F, nbsp, thin space, comma, apostrophe, …) — LFM2.5 wrote
       `14 400` with a narrow no-break space and scored 0/5 while right
-- [x] first clean result: Qwen3-8B on the B60, 16/16 over 20 turns and
-      21,417 tokens, mechanical check and judge agreeing on every row. No
-      decay; the matched control says prompt length is not a factor either
-      (2026-10-14, driver not recorded in the commit — record it when the
-      `docs/BENCHMARKS.md` row is written)
-- [ ] re-run `LFM2.5-24B-A2B` with calibrated probes (B60 GPU + 285K CPU).
-      The pre-calibration runs are void; see below
-- [ ] run it on `Qwen3-Coder-30B-A3B` (the one agent-capable model) on the B60
+- [x] **Qwen3-8B, B60**: no decay to turn 30 / 31.8k tokens, both arms,
+      mechanical and judge agreeing on every row (`decay-qwen3-8b-b60-gpu-v3`,
+      2026-10-19, driver 8805 in the provenance, OV 2026.4.1)
+- [x] **Qwen3-Coder-30B-A3B, B60**: no decay to **turn 80 / 85-88k tokens**,
+      both arms, every row passing (`decay-qwen3-coder-30b-b60-gpu-v2`,
+      2026-10-19, driver 8805)
+- [x] **Qwen3-Coder-30B-A3B, 285K CPU**: no decay to turn 40 / 42k tokens in
+      the conversational arm. The cold control at 40 timed out (1800 s client
+      timeout on a cold 42k prefill on CPU), so that cell is a missing
+      number, not a failure (2026-10-20)
+- [ ] **Phi-3.5-mini, B60: collapses into gibberish from turn 5 (~6k tokens)
+      in BOTH arms**, so it is prompt length, not turn count. Turn 1 already
+      misquotes the planted code. [INFERRED] the LongRoPE short→long factor
+      switch past 4,096 tokens; confirm with `bare-probe.py` at 3k vs 6k
+      before anyone blames the model or the server (`decay-phi35-mini-b60-gpu`,
+      2026-10-19)
+- [ ] **Qwen3.5-4B, B60: void.** Calibration hit the 2000-token cap on
+      recall/reason (thinking), then the server went to `status: error`
+      and answered 503. Re-run needs the cause of the error state first
+- [ ] **LFM2.5-24B-A2B: still no calibrated run.** Every LFM file on the B60,
+      including the 285K CPU one dated 2026-10-20, has no `calibration` block,
+      so all are void; see below
+- [ ] the `format` probe is unusable on every Qwen model (0/3 cold): it
+      measures nothing there. Fix the probe or drop it from the write-up
 - [ ] `docs/BENCHMARKS.md` section, device and driver recorded per the
-      standing order
+      standing order. Qwen3-8B and Coder-30B already qualify. Raw JSON is
+      only on the B60 (`bench/decay-*.json`), not in the repo
 
 ## Benchmark faults found before any model fault (2026-10-14)
 
