@@ -16,8 +16,8 @@
   "openvinotoolkit/openvino.genai#4318": {
     "draft": false,
     "kind": "pull",
-    "merged": false,
-    "state": "open",
+    "merged": true,
+    "state": "closed",
     "title": "[GGUF] Use the OpenVINO GGUF frontend: tokenizer from rt_info, stateful graph"
   }
 }
