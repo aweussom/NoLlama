@@ -395,6 +395,13 @@ alone measured before and after each arm and averaged
   + 5950X; found by `scripts/decay-probe.py`, T-047]. Fine on the NPU,
   where NoLlama caps prompts at 4096 anyway, and for short side requests.
   Not fine for anything that hands it a long document.
+  Not the driver: the B60 fails the same on `32.0.101.8976` [OBSERVED
+  2026-10-26, genai 2026.4.1, `scripts/longrope-recall-probe.py`, all three
+  exports, plain and paged: ok at 1,981 tokens, fail from 4,786; `int4`
+  still ok at 4,207, `int4-cw` now empty rather than garbage].
+  Same on the 285K iGPU, driver `32.0.101.9150` [OBSERVED 2026-10-26, same
+  script: ok at ~2.1k, fail from ~4.5k, `int4` ok at 4.5k and fail at 5.1k;
+  plain mode at 14k hits that iGPU's 4.29 GB allocation cap instead].
 
   Same prompt (a planted code, real repo text as filler, "what is the
   code?"), greedy, bare genai with NoLlama absent:

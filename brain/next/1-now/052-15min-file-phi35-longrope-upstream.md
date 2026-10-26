@@ -33,7 +33,8 @@ from runtime would need the IR's RoPE subgraph read by hand.
 > | 6,833 | ok | ok | garbage | garbage | garbage |
 > | 12,685 | — | ok | garbage | garbage | garbage |
 >
-> Same result on GPU (Arc Pro B60, driver 32.0.101.8805) and CPU (Ryzen 9
+> Same result on GPU (Arc Pro B60, driver 32.0.101.8976, rerun 2026-10-26), Core Ultra 9 285K iGPU (driver
+> 32.0.101.9150, 2026-10-26) and CPU (Ryzen 9
 > 5950X); OpenVINO/genai 2026.4.1 and 2026.5.0 nightly (2026.5.0.0-3521).
 > fp16 export: `optimum-cli export openvino --task
 > text-generation-with-past --weight-format fp16`, optimum 2.3.0,
