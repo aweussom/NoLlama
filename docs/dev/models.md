@@ -427,7 +427,7 @@ alone measured before and after each arm and averaged
   switch, but `int4` passing at 4.6k says it is not simply "> 4096"].
   Through the server it shows as a decay curve that is really a wall: the
   probe's control arm is correct at 351 tokens and degenerate at 6,230.
-  Upstream report drafted in `brain/next/`, for Tommy to file.
+  Reported upstream as optimum-intel#2086 (2026-10-27).
 
   Possibly the anomaly that started T-047 — the Phi-3.5-mini run that
   "answered the previous turn's question" — was this cliff, not turn
