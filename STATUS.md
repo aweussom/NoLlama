@@ -5,10 +5,11 @@ what is merely *built*, and what is in flight. Three minutes to read; updated at
 the end of a working session. If `README.md` disagrees, this one is younger —
 say so and fix the older.
 
-**As of 2026-09-23. `v1.0.0` was tagged 2026-09-18; 21 commits since, all on
-`main`.** The evening's theme: the installer and the registry now rest on
-measurements rather than on plausible assumptions, and three of those
-assumptions turned out to be wrong.
+**As of 2026-10-26. `v1.0.0` was tagged 2026-09-18; 173 commits since, all on
+`main`.** Recent theme: answer decay over long conversations is measured
+(T-047), the B60's driver turned out to be the fix for one crash (T-051) and
+is being checked against the KV-pool overshoot (T-031), and the client's
+`seed` now reaches the sampler (T-049).
 
 **Read this first if you are picking up the agent work.** Decode speed tracks
 **active** parameters, not model size: a 30B-A3B MoE runs 18-32 tok/s on a 140V
