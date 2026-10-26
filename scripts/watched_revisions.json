@@ -45,12 +45,12 @@
     "sha": "21140c68a63012da511fe50656319e00be2f6542"
   },
   "OpenVINO/Qwen3-VL-8B-Instruct-int4-ov": {
-    "lastModified": "2026-05-13",
-    "sha": "f3d0bc7e798a324a7cbb017de566f84d25cea0a4"
+    "lastModified": "2026-10-22",
+    "sha": "8640be5dd2a92ddfe6ea1620c794d20a54ce3d51"
   },
   "OpenVINO/Qwen3-VL-8B-Instruct-int8-ov": {
-    "lastModified": "2026-05-13",
-    "sha": "b4c7ae8b276be0e539fb46f484bcd964cbeca23e"
+    "lastModified": "2026-10-22",
+    "sha": "a1f012cc2a41c26cd2be739b233f8c43983dc5c2"
   },
   "OpenVINO/Qwen3.5-4B-int4-ov": {
     "lastModified": "2026-09-25",
