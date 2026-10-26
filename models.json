@@ -73,7 +73,7 @@
             "hf_id": "OpenVINO/Muse-Glimmer-30B-int4-ov",
             "source": "pre-exported",
             "est_size_gb": 17,
-            "notes": "Intel's official export (2026-08-12), enabled in the OpenVINO 2026.3.1 release. Lands on a VLM slot with tool calling + prefix caching. Verified 2026-08-30 on Arc 140V (2026.3.1): quotes the instruction back verbatim, answers correctly, ~2.5 tok/s (17 GB on a shared-memory iGPU); ~14 tok/s on an Arc Pro B60. The Xe2/Xe3 GPU corruption seen 2026-08 was the optimum path only — this GenAI path was never affected. Always reasons by default; the web UI's 'Just answer me' trims it."
+            "notes": "Intel's official export (2026-08-12), enabled in the OpenVINO 2026.3.1 release. Lands on a VLM slot with tool calling + prefix caching. Verified 2026-08-30 on Arc 140V (2026.3.1): quotes the instruction back verbatim, answers correctly, ~2.5 tok/s (17 GB on a shared-memory iGPU); 23.8 tok/s on an Arc Pro B60 (2026-10-24). On a 24 GB card the auto-sized 3 GB KV pool peaks ~0.13 GiB under the budget on a 35k-token prefill (2026-10-26, driver 32.0.101.8976); if prefills turn slow there, --cache-size-gb 2. The Xe2/Xe3 GPU corruption seen 2026-08 was the optimum path only — this GenAI path was never affected. Always reasons by default; the web UI's 'Just answer me' trims it."
         },
         {
             "name": "Gemma 4 26B-A4B (INT4)",

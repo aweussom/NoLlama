@@ -8,7 +8,7 @@ say so and fix the older.
 **As of 2026-10-26. `v1.0.0` was tagged 2026-09-18; 173 commits since, all on
 `main`.** Recent theme: answer decay over long conversations is measured
 (T-047), the B60's driver turned out to be the fix for one crash (T-051) and
-is being checked against the KV-pool overshoot (T-031), and the client's
+was the fix for the KV-pool overshoot too (T-031), and the client's
 `seed` now reaches the sampler (T-049).
 
 **Read this first if you are picking up the agent work.** Decode speed tracks
@@ -61,6 +61,7 @@ Working state is `brain/next/` (needs Tommy), `brain/todo/` (startable cold) and
 | **No answer decay on the agent model**: `scripts/decay-probe.py`, conversational arm vs a token-matched cold arm. Qwen3-Coder-30B-A3B 17/17 + 17/17 to 88k tokens on the B60, 14/14 + 10/10 on the 285K CPU; Qwen3-8B 14/14 + 14/14 to 32k. Exact retrieval and arithmetic only — instruction-following is untested, every model fails that probe cold. `docs/BENCHMARKS.md` | 2026-10-20 |
 | **Phi-3.5-mini collapses past ~4-5k prompt tokens under OpenVINO** — Intel's int4-cw and int4 exports and our fp16 one, GPU and CPU, 2026.4.1 and the 2026.5 nightly; transformers and llama.cpp (RTX 5090) read the same prompts to 30k. NPU is safe behind its 4096 cap. Upstream report drafted: N-052 | 2026-10-19 |
 | Qwen3.5-4B's B60 crash (T-051) was the driver: on 32.0.101.8976 bare `bare-probe.py` passes 12/12 and the server survives the sequence that killed it on .8805. Same 2026.4.1 runtime | 2026-10-25 |
+| **The B60 KV-pool overshoot was the driver too (T-031).** On 32.0.101.8976 Qwen3.8 (5 GB), Qwen3-Coder-30B (5 GB) and Glimmer (3 GB) each pass a 35-request ~40k-token agent load at their auto pool, no host spill. Glimmer peaks 0.13 GiB under the budget. Sizer unchanged | 2026-10-26 |
 | OpenCode completes a real task on the 140V with `Qwen3-Coder-30B-A3B-int4`: 333 s, correct fix, tests green — TTFT 0.2–0.7 s cached against 16–28 s on a new suffix. The CPU side-model split is a **dGPU** recipe: 1.6 s idle, 40 s while an iGPU prefills | 2026-09-23 |
 | Agent-capable models, measured: `Qwen3-Coder-30B-A3B` PASS, `Qwen3-14B` PARTIAL (correct but 9 min), `Qwen2.5-Coder-14B`/`-7B` and `Qwen3-8B` FAIL — they narrate or fake tool calls. Tool training, not coding ability, is the constraint | 2026-09-23 |
 

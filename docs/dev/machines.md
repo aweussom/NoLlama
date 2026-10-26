@@ -158,7 +158,10 @@ with `CL_OUT_OF_RESOURCES`, after a ~4.5k-token prefill and three 500-token
 generations had already succeeded. **`--cache-size-gb 3` ran the same
 sequence plus a second full pass without incident.** Whether 5 GB is a
 genuine headroom problem or the driver leaks per request is not settled; the
-pool size is the lever that worked. (An earlier version of this note said "a
+pool size is the lever that worked. **It was the driver:** on
+`32.0.101.8976` the same auto 5 GB pool ran a 35-request agent load with
+~40k-token prompts, dedicated memory flat at 20.35–21.64 GiB, no error
+[OBSERVED 2026-10-26, OpenVINO 2026.4.1, `main`-branch IR]. (An earlier version of this note said "a
 dGPU has no shared-memory spill". That is wrong: Glimmer on this card spilled
 2.2 GiB to host memory at a 3 GB pool on 2026-09-29, see
 `prefix-cache.md`.)

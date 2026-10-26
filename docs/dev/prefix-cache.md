@@ -207,7 +207,24 @@ ship (Glimmer, the Gemma family), not only to Glimmer. → N-035.
 Why auto chose 3: headroom 23.33 − 16.95 x 1.1 = 4.68 GiB, minus the 2 GiB
 reserve is 2.68, and `round()` gives **3**. Truncation would have given 2, which
 fits. The round-not-int change fixed an under-spend in the flat-share case and
-spends reserve in the discrete case. → T-031.
+spends reserve in the discrete case.
+
+**On driver `32.0.101.8976` the same 3 GB pool no longer spills.** [OBSERVED
+2026-10-26, B60, OpenVINO/genai 2026.4.1, same load and `typeperf` sampling,
+requests and memory in `bench/t031-*-b60.*`] All three 24 GB-card models
+ran the 35-request load at their auto-sized pool, 35/35 each:
+
+| model | auto pool (raw) | idle → peak dedicated | shared during load | cold / hit turn |
+|---|---|---|---|---|
+| Muse-Glimmer-30B | 3 GB (2.64) | 20.77 → 23.20 GiB | flat 1.22–1.28 GiB | 51–67 s / 21 s |
+| Qwen3.8-27B | 5 GB (4.97) | 20.35 → 21.64 GiB | flat 0.82 GiB | 65–80 s / 31 s |
+| Qwen3-Coder-30B | 5 GB (4.59) | 20.3 GiB, flat | ≤ 1.09 GiB | 70–93 s / 4.6 s |
+
+Glimmer's prefill transient is still ~2.4 GiB, and its peak sits ~0.13 GiB
+under the budget: it fits, barely. Truncating instead of rounding (the T-031
+proposal) would have cost Qwen3.8 and the coder a GiB each for nothing, so
+the sizer is unchanged. If Glimmer prefills turn slow on some other driver,
+`--cache-size-gb 2` is the lever; sliding-window KV (N-035) is the real fix.
 
 `--cache-size-gb N` pins it and skips auto.
 
