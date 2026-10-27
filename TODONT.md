@@ -1974,3 +1974,28 @@ which drops probes a model fails *cold* -- still has no counterpart that
 flags a probe nobody fails *hot*. The only demonstration so far that the
 probes can fail at all is Phi-3.5-mini, and that was a runtime bug
 (`docs/dev/models.md`), not decay.
+
+## Retrying a failed reload at a smaller KV pool (2026-10-27)
+
+**Tried:** nothing built; rejected at design time in T-046. The idea: when an
+idle-unload reload's CB pipeline fails to allocate its pool, retry the CB
+build at `AUTO_KV_MIN_GB` before falling back to the plain pipeline, so a
+machine that filled up since startup keeps prefix caching.
+
+**Verdict:** no. A failed reload reports why (`/health` `reason`) and the next
+request retries at the normal size.
+
+**Why not:**
+- The incident it was meant for would not have been saved by it. On
+  2026-10-12 (140V, Qwen3-8B, 7 GB pool, 8.6 GB of 31.5 GB RAM free) the
+  plain pipeline, which needs no pool, failed as well: the machine was out of
+  memory, not the pool [INFERRED from the first request's 500; the log was
+  not kept]. A smaller pool moves the failure and adds a third load attempt
+  to every request.
+- A second CB build follows a constructor that died mid-allocation. Whether
+  that USM is fully released first is untested, and stacking another
+  allocation on it is the riskiest order to find out in.
+- The slot would come back with a pool that differs from startup's, which
+  `/health`, prewarm and the capacity line all treat as fixed per run
+  (`_resolve_kv_pool` sizes from the total budget for exactly that
+  stability). Inherited weirdness, Tommy's words.
