@@ -15,7 +15,7 @@
 %%          client (yellow) = external effects, warn (orange) = annotations.
 %% Updated 2026-10-02: ir_runtime_mismatch refuses an IR newer than the runtime
 %%   before any pipeline is built (T-009); every slot type checks it.
-%% covers: nollama.py:_gpu_keepalive,_keepalive_eligible,_LoadProgress,_load_time_key,_remembered_load_time,_record_load_time,main,needs_optimum,is_vlm,_verify_weights_integrity,ir_runtime_mismatch,_runtime_pair,read_ir_rt_info,_resolve_kv_pool,_gpu_is_integrated,_preflight_memory,_preflight_verdict,_largest_weight_tensor_bytes,_gpu_large_alloc_props,npu_arch_warning,load,warmup,_prewarm_slot,_idle_watchdog,ensure_loaded,unload,_load_in_background
+%% covers: nollama.py:_gpu_keepalive,_keepalive_eligible,_LoadProgress,_load_time_key,_remembered_load_time,_record_load_time,main,needs_optimum,is_vlm,_verify_weights_integrity,ir_runtime_mismatch,_runtime_pair,read_ir_rt_info,_resolve_kv_pool,_gpu_is_integrated,_preflight_memory,_preflight_verdict,_largest_weight_tensor_bytes,_gpu_large_alloc_props,npu_arch_warning,load,warmup,_prewarm_slot,_idle_watchdog,ensure_loaded,_reload_failed,_build_pipeline,unload,_load_in_background
 %% (_slot_class is nested inside main and invisible to the checker's AST scan
 %%  — its box below is covered via main.)
 flowchart TB
@@ -63,7 +63,7 @@ flowchart TB
   cb_pipe -.->|"runtime rejects the property"| cb_fallback["plain pipeline; kv_pool_gb=0<br/>so /health is honest and<br/>prewarm skips this slot"]
 
   cb_pipe --> _LoadDone
-  _LoadDone["_LoadProgress.done<br/>stops ticker, _record_load_time writes<br/>.load-times.json for the NEXT run's estimate.<br/>NOT called on a raise - a failed duration<br/>would poison the estimate"]
+  _LoadDone["_LoadProgress.done<br/>stops ticker, _record_load_time writes<br/>.load-times.json for the NEXT run's estimate.<br/>NOT called on a raise - a failed duration<br/>would poison the estimate; _build_pipeline<br/>raising calls _LoadProgress.abort instead"]
   _LoadDone --> template_probe["template probe, via pipe.get_tokenizer()<br/>_prompt_preseeds_think: does the template open<br/>think itself? (Qwen3.5/3.8: yes)<br/>_nothink_render_ok, VLM only: does<br/>enable_thinking=false render a CLOSED block?<br/>Feeds _ThinkSplitter and render_nothink_prompt"]
   template_probe --> warmup["warmup<br/>5-token generate; ready or error"]
   npu_pipe --> _LoadDone
@@ -128,6 +128,13 @@ flowchart TB
   _idle_watchdog -.-> WATCHDOGGUARD
   unload -.-> ensure_loaded["ensure_loaded<br/>reload + warmup on next request,<br/>double-checked under lock"]
   ensure_loaded -.-> ready
+  ensure_loaded -.->|"load or warmup raised"| _reload_failed["_reload_failed<br/>pipe=None, status idle_unloaded,<br/>error_reason in /health; request gets 500,<br/>the NEXT request retries the load"]
+  _reload_failed -.->|"poisoned context"| poisoned_slot
+  _reload_failed -.-> RELOADFAIL
+  RELOADFAIL["A FAILED RELOAD MUST NOT STAY 'loading'. Before T-046 it did:
+  'loading' is not serviceable, so every request after the first got 503,
+  and the ticker kept printing 'still loading...' because it keys on that
+  status (observed 2026-10-12, 140V, Qwen3-8B after idle unload)."]
 
   NOREWARM["RELOAD DOES NOT RE-WARM, deliberately: a synchronous re-warm
   would stall the triggering request pre-SSE and trip the very client
@@ -230,5 +237,5 @@ flowchart TB
   class load,optimum_load,npu_pipe,npu_warn,cb_pipe,plain_pipe,cb_fallback,template_probe,warmup,ready,ensure_loaded gen
   class embed_load,embed_warm,embed_ready gen
   class _LoadProgress,_LoadDone client
-  class loaderr,unload,poisoned_slot client
+  class loaderr,unload,poisoned_slot,_reload_failed client
   class NOREWARM,POOLSTABLE,DXGCAP,RUNTIMEALLOC,WRONGSLOT,EVICTION,WATCHDOGGUARD,EMBEDSLOT,NPUARCH warn

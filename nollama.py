@@ -2363,7 +2363,7 @@ class DeviceSlot:
         self.lock = threading.Lock()
         self._cancel = threading.Event()  # the ACTIVE generation's cancel token (see stream_tokens)
         self._stream_error = None        # last stream_tokens backend exception (single consumer per lock)
-        self.error_reason = None         # why status is "error", for /health and the log (see _note_poisoned)
+        self.error_reason = None         # why the slot is not ready, for /health and the log (_note_poisoned, warmup, _reload_failed)
         self.last_used = time.time()     # for idle-unload watchdog
         self.model_dir = None            # remembered so we can reload after unload
         self.last_ttft_ms = None         # last request's time-to-first-token (prefix-cache hit ≈ low)
@@ -2407,7 +2407,38 @@ class DeviceSlot:
         progress = _LoadProgress(self.device_name, model_dir,
                                  still_loading=lambda: self.status == "loading")
         progress.start()
+        try:
+            self._build_pipeline(model_dir, vlm)
+        except BaseException:
+            # Without this the ticker outlives the load: it keys on status
+            # 'loading', and a reload that raised left it there, printing
+            # 'still loading...' indefinitely (T-046).
+            progress.abort()
+            raise
+        progress.done()
+        # Uses the pipeline's own tokenizer, never a fresh ovg.Tokenizer: on a
+        # runtime older than the IR that second construction can segfault
+        # [OBSERVED 2026-08-30, 2026.3.0 + Qwen3.8 main-branch IR].
+        get_tok = getattr(self.pipe, "get_tokenizer", None)
+        self.think_preseeded = _prompt_preseeds_think(get_tok() if get_tok else None)
+        self._nothink_ok = (_nothink_render_ok(get_tok())
+                            if (get_tok and self.model_type == "vlm") else False)
+        if self._nothink_ok:
+            print(f"  [{self.device_name}] no-think switch: pre-rendered prompt "
+                  f"(VLMPipeline takes no ChatHistory)", flush=True)
 
+    def _build_pipeline(self, model_dir, vlm):
+        """Construct self.pipe for this device: NPU, CB with prefix cache, or plain.
+
+        Why a separate method: load() must stop its _LoadProgress ticker when
+        construction raises, and that needs one call to wrap, not a hundred
+        lines of branches.
+
+        In: model dir, whether it is a VLM; self.kv_pool_gb already resolved.
+        Out: self.pipe set. A CB constructor that raises (property rejected,
+        or the KV pool's allocation failing) falls back to the plain pipeline
+        with kv_pool_gb=0; if the plain one raises too, that propagates.
+        """
         # MoE disk offload (--offload-ratio): GPU-only plugin property, and it
         # only does anything on XMX hardware (Arc dGPU, Lunar Lake 140V+) —
         # [OBSERVED 2026-08-06] Qwen3-30B-A3B int4 runs in 2.35 GB resident at
@@ -2520,17 +2551,6 @@ class DeviceSlot:
             else:
                 self.pipe = ovg.LLMPipeline(str(model_dir), device=self.device_id,
                                             **plugin_props)
-        progress.done()
-        # Uses the pipeline's own tokenizer, never a fresh ovg.Tokenizer: on a
-        # runtime older than the IR that second construction can segfault
-        # [OBSERVED 2026-08-30, 2026.3.0 + Qwen3.8 main-branch IR].
-        get_tok = getattr(self.pipe, "get_tokenizer", None)
-        self.think_preseeded = _prompt_preseeds_think(get_tok() if get_tok else None)
-        self._nothink_ok = (_nothink_render_ok(get_tok())
-                            if (get_tok and self.model_type == "vlm") else False)
-        if self._nothink_ok:
-            print(f"  [{self.device_name}] no-think switch: pre-rendered prompt "
-                  f"(VLMPipeline takes no ChatHistory)", flush=True)
 
     def _resolve_kv_pool(self, vlm):
         """Set self.kv_pool_gb — the KV-cache pool for this slot's CB backend.
@@ -2699,7 +2719,8 @@ class DeviceSlot:
         Why: the first generate pays kernel compilation / graph init (minutes
         on some GPU models) — paying it at startup keeps it out of a user's
         first-turn latency, and a model that can't generate at all fails HERE,
-        visibly, instead of on someone's request. Out: status ready or error.
+        visibly, instead of on someone's request. Out: status ready, or error
+        with error_reason saying why (ensure_loaded reads it on a reload).
         """
         self.status = "warming_up"
         print(f"  [{self.device_name}] Warmup...", end="", flush=True)
@@ -2721,6 +2742,7 @@ class DeviceSlot:
         except Exception as e:
             print(f" failed: {e}", flush=True)
             self.status = "error"
+            self.error_reason = f"warmup failed: {e}"
 
     def unload(self):
         """Release the loaded pipeline. Caller must hold self.lock."""
@@ -2733,7 +2755,24 @@ class DeviceSlot:
         gc.collect()
 
     def ensure_loaded(self):
-        """Reload pipeline if it was unloaded. Blocks until ready."""
+        """Reload pipeline if it was unloaded. Blocks until ready.
+
+        Why the failure path: load() sets status 'loading' first, and before
+        T-046 a reload that raised left it there. 'loading' is not
+        serviceable, so every later request got 503 and /health said
+        'loading' with no reason, until a restart [OBSERVED 2026-10-12,
+        laptop 140V, Qwen3-8B after idle unload: first request 500, then 503
+        for 5+ minutes]. Startup had a failure path (_load_in_background);
+        reload did not.
+
+        In: nothing. Out: returns with status 'ready', or raises. On a raise
+        the slot goes back to 'idle_unloaded' with error_reason set, so
+        /health shows why and the NEXT request retries the load; a poisoned
+        GPU context instead goes to 'error' via _note_poisoned and is never
+        retried, because touching it again can abort the process. A warmup
+        that fails without raising (DeviceSlot.warmup swallows) counts as a
+        failed reload too.
+        """
         if self.pipe is not None and self.status == "ready":
             return
         with self.lock:
@@ -2742,8 +2781,37 @@ class DeviceSlot:
             if self.model_dir is None:
                 raise RuntimeError(f"Slot {self.device_name} has no model_dir")
             print(f"  [{self.device_name}] Reloading {self.model_name}...", flush=True)
-            self.load(self.model_dir)
-            self.warmup()
+            try:
+                self.load(self.model_dir)
+                self.warmup()
+                if self.status != "ready":
+                    raise RuntimeError(self.error_reason or "warmup failed")
+            except Exception as e:
+                self._reload_failed(e)
+                raise
+            self.error_reason = None
+
+    def _reload_failed(self, e):
+        """Leave a slot whose reload raised in a state the next request can retry.
+
+        Why: see ensure_loaded. Kept separate so the state change is one
+        place, and testable without a model.
+
+        In: the exception. Out: status 'idle_unloaded', pipe dropped,
+        error_reason set to the explained error; or status 'error' when the
+        exception is the poisoned-context class (_note_poisoned decides).
+        Caller holds self.lock and re-raises.
+        """
+        if _is_poisoned_context_error(e):
+            self._note_poisoned(e)
+            return  # never drop or reload a poisoned pipe; operator restarts
+        self.pipe = None
+        self.status = "idle_unloaded"
+        self.error_reason = f"reload failed: {explain_genai_error(e, self)}"
+        print(f"{datetime.now():%H:%M:%S} !! [{self.device_name}] {self.error_reason}"
+              f" -- the next request retries the load", flush=True)
+        import gc
+        gc.collect()
 
     def render_nothink_prompt(self, raw_messages, images):
         """The chat template rendered with enable_thinking=false, or None.
@@ -3357,7 +3425,7 @@ class DeviceSlot:
             "kv_pool_gb": self.kv_pool_gb or None,  # resolved KV pool (null: no prefix cache)
             "last_ttft_ms": (round(self.last_ttft_ms)
                              if self.last_ttft_ms is not None else None),
-            "reason": self.error_reason,        # set when status is "error" (poisoned GPU context)
+            "reason": self.error_reason,        # why not ready: poisoned context, failed warmup, failed reload
         }
 
 
