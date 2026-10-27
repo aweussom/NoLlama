@@ -49,10 +49,10 @@ and bare-JSON outputs — so most instruct/coder models work.
 **`install.ps1` writes this file for you.** Pick the "Coding agent" use-case
 and it writes `opencode.json` for one server, with the model id NoLlama will
 actually advertise, an honest context limit, the raised timeouts and the
-tool-output caps. The "Chat +
-Coding agent" combo writes the dual-mode form instead (one process,
-`<name>@GPU` / `<name>@NPU`). Manual installs can run
-`scripts/New-OpenCodeConfig.ps1` with the same arguments. What follows is
+tool-output caps. Manual installs can run
+`scripts/New-OpenCodeConfig.ps1` with the same arguments, and `-Mode dual`
+writes the form for one process with two slots (`<name>@GPU` /
+`<name>@NPU`); the installer no longer offers that setup. What follows is
 what that file contains and why.
 
 **You do not have to copy it anywhere.** `.\launch-agent.ps1 -Path <project>`

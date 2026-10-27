@@ -54,6 +54,8 @@ it cannot drive a coding agent at all. Treat it as a short-document and
 side-task device, not a daily driver. That gap is closing fast, and the NPU is
 the part of this that gets interesting.
 
+The installer uses the NPU for speech-to-text, not chat. Whisper small runs about 20x faster than real time there, as accurate as on the CPU. The push-to-talk button in the web UI talks to it. Chat, coding and vision models go on the GPU or the CPU.
+
 Below ~3B, expect trouble. Asked for the capital of Norway, a 1.5B once answered
 that "Norway is a small island". Fine for testing the plumbing.
 
@@ -110,7 +112,7 @@ Full methodology, MoE disk offload, and the Ollama and RTX 5090 comparisons:
 
 | Use-case | Pick in the menu | HuggingFace | Size |
 |---|---|---|---|
-| NPU chat | Qwen3 8B (INT4-CW) | `OpenVINO/Qwen3-8B-int4-cw-ov` | ~5 GB |
+| NPU speech-to-text | Whisper Small (INT8) | `OpenVINO/whisper-small-int8-ov` | ~0.4 GB |
 | GPU vision | Qwen3-VL 8B (INT4) | `OpenVINO/Qwen3-VL-8B-Instruct-int4-ov` | ~6 GB |
 | GPU vision, newest (24 GB GPU) | Qwen3.8 27B (INT4) | `OpenVINO/Qwen3.8-27B-int4-ov` | ~15 GB |
 | Coding agent | Qwen3 Coder 30B-A3B MoE (INT4) | `OpenVINO/Qwen3-Coder-30B-A3B-Instruct-int4-ov` | ~17 GB |
@@ -143,18 +145,9 @@ OpenCode, Goose and VS Code Copilot Chat all work, with tool-calling on GPU or C
 (never the NPU — it has a hard prompt cap). Prefix caching is on by default, so
 an agent's fixed system prompt is prefilled once rather than every turn.
 
-The installer writes an `opencode.json` for you. Two shapes, depending on the
-use-case you pick:
+The installer writes an `opencode.json` for you when you pick "Coding agent". It runs one server with the coder. OpenCode's side requests (session titles) go to the coder too: they cost under a second there, so a second server would only spend RAM.
 
-- **"Coding agent"** → *one server*, the coder. OpenCode's side requests
-  (session titles) go to the coder too: they cost under a second there, so a
-  second server would only spend RAM.
-- **"Chat + Coding agent"** → *dual mode*: **one** server, one port, two
-  devices — the coder on the GPU for OpenCode, and a chat model on the NPU or
-  CPU for everything else, addressed as `<model>@GPU` and `<model>@NPU`.
-
-Either way: `.\launch-agent.ps1 -Path <your project>` starts the server if it
-is down, waits for the model to load, and opens OpenCode against it. Nothing is
+Then `.\launch-agent.ps1 -Path <your project>` starts the server if it is down, waits for the model to load, and opens OpenCode against it. Nothing is
 written to your machine — the config reaches OpenCode through `OPENCODE_CONFIG`,
 which layers on top of your own settings instead of replacing them.
 
