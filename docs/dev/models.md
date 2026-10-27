@@ -335,6 +335,15 @@ alone measured before and after each arm and averaged
   ~0.5 s, so the chat slows for half a second. Sustained transcription
   beside a busy chat is where the device choice matters.
 
+**Chat and Whisper both on the NPU, through the server.** LFM2.5-1.2B-Instruct
+int4-cw (`--device NPU`) and whisper-small (`--whisper-device NPU`) in one
+server on NPU 4: both slots ready, chat load 107 s (Whisper compiled first),
+a 5.5 s TTS clip transcribed in 0.2-0.3 s between chat turns and 0.5 s while
+an 80-token chat ran at 33.8 tok/s, transcripts identical [OBSERVED
+2026-10-27, laptop 258V, NPU driver 32.0.100.5540, OpenVINO/genai 2026.4.1].
+This is the installer's `[NPU] Chat + ...` with speech-to-text accepted.
+Not run on NPU 3.
+
 ### Chat and vision models
 
 - **LFM2.5-24B-A2B (INT4) on GPU — converts and runs, but read the caveat**

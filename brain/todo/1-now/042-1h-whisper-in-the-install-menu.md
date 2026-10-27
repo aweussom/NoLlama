@@ -24,8 +24,17 @@ Measured verdicts per device and NPU generation: `docs/dev/models.md`,
 
 ## Done when
 
-- [ ] `install.ps1` offers Whisper (none / base / small / medium), defaulting
-      to small on the NPU or CPU, and hides medium-on-NPU on arch 4000.
-- [ ] The generated `start.ps1` carries the flags; tested on the laptop
-      (NPU 4) and the 285K (NPU 3).
-- [ ] `tests/test_menu.ps1` covers the new choice.
+- [x] `install.ps1` offers Whisper, filtered by hardware: base withdrawn,
+      medium off NPU 4, one fit taken without a menu. With an NPU it is asked
+      before the use-case menu, as the NPU's job; without one, after the
+      models on CPU/GPU (Tommy, 2026-10-27). `Test-ModelCacheValid` now knows
+      Whisper's encoder/decoder pair; before, a cached Whisper was deleted
+      and re-downloaded on every install.
+- [x] `tests/test_install_whisper.ps1`: NPU 4, NPU 3, CPU, GPU, declined,
+      skipped, ordering, cache check. Function-level, no real install.
+- [x] Chat + Whisper on NPU 4 in one server, sequential and parallel
+      (`docs/dev/models.md`).
+- [ ] A real `install.ps1` run on the laptop (NPU 4) and the 285K (NPU 3):
+      the generated `start.ps1` starts with Whisper and the mic shows. The
+      285K checkout has local edits to `scripts/decay-probe.py` and an
+      untracked bench file that block a pull; Tommy's call.

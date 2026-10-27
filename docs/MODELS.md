@@ -331,11 +331,19 @@ other — cosine 0.999999 on nomic (2026-09-17, Arc 140V).
 ## Speech-to-text (Whisper)
 
 Start with `--whisper-dir <dir> --whisper-device NPU`; the endpoint is
-`POST /v1/audio/transcriptions` ([API.md](API.md#speech-to-text)). The
-install menu does not offer Whisper yet; fetch one by hand:
+`POST /v1/audio/transcriptions` ([API.md](API.md#speech-to-text)), and the
+web UI shows its push-to-talk button only when a Whisper model is loaded.
+
+On a machine with an NPU, `install.ps1` asks about Whisper first, before
+the chat model: it is what the NPU is best at today, and a chat model can
+share the NPU with it. It offers only what runs there: on a Lunar Lake NPU
+that is small alone, so it takes it without asking; on an Arrow Lake /
+Meteor Lake NPU small or medium. Without an NPU it is asked after the chat
+model, on the CPU or GPU. Base is not offered (small is fast enough everywhere and much better
+on Norwegian). Any of them by hand:
 
 ```powershell
-.\download-model.ps1 OpenVINO/whisper-small-int8-ov
+.\download-model.ps1 OpenVINO/whisper-base-int8-ov
 ```
 
 Speed is times faster than real time on Norwegian read speech, bare runtime,

@@ -106,25 +106,27 @@
     ],
     "whisper": [
         {
-            "name": "Whisper Base (INT8)",
-            "hf_id": "OpenVINO/whisper-base-int8-ov",
-            "source": "pre-exported",
-            "est_size_gb": 0.2,
-            "notes": "Fastest. Multi-language. Pre-exported — no conversion step (just a small, quick download)."
-        },
-        {
             "name": "Whisper Small (INT8)",
             "hf_id": "OpenVINO/whisper-small-int8-ov",
             "source": "pre-exported",
             "est_size_gb": 0.4,
-            "notes": "Good balance. Multi-language. Pre-exported — no conversion step (small, quick download)."
+            "notes": "Recommended. Good balance of speed and accuracy, multi-language. On the NPU it runs 10-28x faster than real time at the CPU's word error rate [OBSERVED 2026-10-11 NPU 4, 2026-10-19 NPU 3]."
+        },
+        {
+            "name": "Whisper Base (INT8)",
+            "hf_id": "OpenVINO/whisper-base-int8-ov",
+            "source": "pre-exported",
+            "est_size_gb": 0.2,
+            "withdrawn": "not offered by the installer: small is fast enough on every device (10-28x real time on the NPU) and far better on Norwegian. Still runs by hand: download-model.ps1 OpenVINO/whisper-base-int8-ov",
+            "notes": "Fastest. Multi-language, but weak on Norwegian: 46% word error on read speech, 81% on parliamentary speech [OBSERVED 2026-10-11] (docs/dev/models.md)."
         },
         {
             "name": "Whisper Medium (INT8)",
             "hf_id": "OpenVINO/whisper-medium-int8-ov",
             "source": "pre-exported",
             "est_size_gb": 0.9,
-            "notes": "Best accuracy under 16 GB. Multi-language. Pre-exported — no conversion step (download still needed)."
+            "npu_arch_deny": ["4000"],
+            "notes": "Best accuracy. Multi-language. Not on a Lunar Lake NPU: ZE_RESULT_ERROR_DEVICE_LOST on first inference (openvino#39053); fine on NPU 3, CPU and GPU."
         }
     ],
     "gpu_llm": [

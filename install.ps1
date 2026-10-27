@@ -781,30 +781,46 @@ function Test-ModelCacheValid {
     # fail at load with "Could not find a model in the directory" (#17).
     # Smallest real model in our registry (DeepSeek-1.5B INT4) is ~700 MB;
     # tokenizer .bin files top out around 10 MB. 100 MB separates the two.
+    #
+    # Whisper is the exception: an encoder/decoder pair, no openvino_model,
+    # and much smaller (whisper-base int8: 23 MB encoder, 52 MB decoder).
+    # Without its own branch a cached Whisper read as "incomplete" and was
+    # deleted and re-downloaded on every install (caught in T-042, 2026-10-27).
     param([string]$Path)
     if (-not (Test-Path $Path)) { return $false }
     foreach ($base in @("openvino_language_model", "openvino_model")) {
-        $bin = Join-Path $Path "$base.bin"
-        $xml = Join-Path $Path "$base.xml"
-        if (-not ((Test-Path $bin) -and ((Get-Item $bin).Length -gt 100MB) -and (Test-Path $xml))) {
-            continue
-        }
-        # Truncation check: the IR .xml records each weight blob's
-        # offset+size into the .bin, so max(offset+size) is the exact
-        # minimum byte count the .bin must have. Catches a download that
-        # lost even the last few bytes; a truncated cache is re-fetched.
-        $need = [int64]0
-        foreach ($m in [regex]::Matches((Get-Content $xml -Raw), 'offset="(\d+)" size="(\d+)"')) {
-            $end = [int64]$m.Groups[1].Value + [int64]$m.Groups[2].Value
-            if ($end -gt $need) { $need = $end }
-        }
-        if ($need -gt 0 -and (Get-Item $bin).Length -lt $need) {
-            Write-Host "  $base.bin in $Path is truncated ($((Get-Item $bin).Length) of $need bytes) - re-fetching." -ForegroundColor Yellow
-            continue
-        }
-        return $true
+        if (Test-IrComplete -Path $Path -Base $base -MinBytes 100MB) { return $true }
     }
-    return $false
+    return ((Test-IrComplete -Path $Path -Base "openvino_encoder_model" -MinBytes 10MB) -and
+            (Test-IrComplete -Path $Path -Base "openvino_decoder_model" -MinBytes 10MB))
+}
+
+# One IR (<base>.xml + <base>.bin) is present, big enough, and not truncated.
+#
+# Why: the truncation check is what catches a download that lost its last few
+# bytes; Test-ModelCacheValid needs it for one IR (chat models) or two (Whisper).
+#
+# In: model dir, IR base name, minimum .bin size. Out: $true or $false; prints a
+# line when the .bin is truncated, since that file is about to be re-fetched.
+function Test-IrComplete {
+    param([string]$Path, [string]$Base, [int64]$MinBytes)
+    $bin = Join-Path $Path "$Base.bin"
+    $xml = Join-Path $Path "$Base.xml"
+    if (-not ((Test-Path $bin) -and ((Get-Item $bin).Length -gt $MinBytes) -and (Test-Path $xml))) {
+        return $false
+    }
+    # The IR .xml records each weight blob's offset+size into the .bin, so
+    # max(offset+size) is the exact minimum byte count the .bin must have.
+    $need = [int64]0
+    foreach ($m in [regex]::Matches((Get-Content $xml -Raw), 'offset="(\d+)" size="(\d+)"')) {
+        $end = [int64]$m.Groups[1].Value + [int64]$m.Groups[2].Value
+        if ($end -gt $need) { $need = $end }
+    }
+    if ($need -gt 0 -and (Get-Item $bin).Length -lt $need) {
+        Write-Host "  $Base.bin in $Path is truncated ($((Get-Item $bin).Length) of $need bytes) - re-fetching." -ForegroundColor Yellow
+        return $false
+    }
+    return $true
 }
 
 function New-ModelJunction {
@@ -1070,6 +1086,76 @@ function Get-AgentLocal { param([string]$Exclude = "")
     Sort-AgentLocal @($LocalModels | Where-Object { $_.Type -eq "llm" -and $_.Name -ne $Exclude })
 }
 
+# Ask for speech-to-text and install it; returns the start.ps1 args, or @().
+#
+# Why: Whisper serves POST /v1/audio/transcriptions and the web UI's
+# push-to-talk, but before T-042 (decided 2026-10-19) it was only reachable by
+# editing start.ps1. The mic button only appears when this slot is configured
+# and ready, so skipping here leaves nothing half-offered.
+#
+# -Upfront is the NPU case, asked BEFORE the use-case menu: speech-to-text is
+# what an NPU is best at today, so it is pitched as the NPU's job, not tucked
+# in after the chat model (Tommy, 2026-10-27). The device is the NPU, no
+# question. Without an NPU it is an add-on, asked after the models, on CPU or
+# GPU. Chat and Whisper both on NPU 4 share it fine [OBSERVED 2026-10-27,
+# laptop, LFM2.5-1.2B + whisper-small: both ready, 0.2-0.3 s a clip].
+#
+# Offers only what fits the hardware (Tommy, 2026-10-27): withdrawn entries
+# (base) go nowhere, npu_arch_deny drops medium on a Lunar Lake NPU, and when
+# one model is left it is taken without a menu -- NPU 4 gets small, no
+# question.
+#
+# In: -Upfront or not (reads $HasNPU, $HasGPU, $DeviceInfo, $Registry,
+# $ScriptDir). Out: an args array; empty when declined, skipped or the
+# download failed. A function so tests/test_install_whisper.ps1 can drive it.
+function Select-SpeechToText {
+    param([switch]$Upfront)
+    Write-Host ""
+    if ($Upfront) {
+        $arch = [string]$DeviceInfo.NPU.arch
+        Write-Host "=== Your NPU: speech-to-text ===" -ForegroundColor Cyan
+        Write-Host "  $($DeviceInfo.NPU.name) ($(Get-NpuGenLabel $arch))."
+        Write-Host "  Its best job today is Whisper: push-to-talk in the web UI and"
+        Write-Host "  /v1/audio/transcriptions, ~20x faster than real time with Whisper small,"
+        Write-Host "  as accurate as the CPU."
+        Write-Host "  A chat model can share the NPU with it." -ForegroundColor DarkGray
+        if ($arch -eq "4000") {
+            Write-Host "  On Lunar Lake it slows a GPU chat model while it transcribes (~0.5 s per spoken sentence)." -ForegroundColor DarkGray
+        }
+        $answer = Read-Host "  Put Whisper on the NPU? [Y/n]"
+        if ($answer -match '^\s*[nN]') { return @() }
+        $dev = "NPU"
+    } else {
+        $sttDevices = @("CPU"); if ($HasGPU) { $sttDevices += "GPU" }
+        Write-Host "=== Speech-to-text (optional) ===" -ForegroundColor Cyan
+        Write-Host "  Whisper: push-to-talk in the web UI, and /v1/audio/transcriptions." -ForegroundColor DarkGray
+        $answer = Read-Host "  Add it? [Y/n]"
+        if ($answer -match '^\s*[nN]') { return @() }
+        $dev = Select-Device -Purpose "speech-to-text" -Choices $sttDevices `
+            -Note "GPU is faster; CPU leaves the GPU to the chat model."
+    }
+    $fit = @(Where-NpuUsable $Registry.whisper $dev |
+             Where-Object { -not ($_.PSObject.Properties['withdrawn'] -and $_.withdrawn) })
+    if ($fit.Count -eq 0) { return @() }
+    if ($fit.Count -eq 1) {
+        $e = $fit[0]
+        Write-Host "  $($e.name) - the only Whisper model offered for $dev here." -ForegroundColor Green
+        $sel = [PSCustomObject]@{
+            Action = $e.source; Name = $e.name; Path = $null; HfId = $e.hf_id; Source = $e.source
+            Weight = $null; Trust = $false; SizeGB = $e.est_size_gb; Notes = $e.notes
+        }
+    } else {
+        Write-Host ""
+        $sel = Show-ModelMenu -Title "Whisper model ($dev)" -RegistryModels $fit -LocalModels @() -AllowSkip $true
+    }
+    if (-not $sel) { return @() }
+    if (-not (Install-Model -Selected $sel -TargetDir (Join-Path $ScriptDir "whisper-model"))) { return @() }
+    return @("--whisper-dir", "whisper-model", "--whisper-device", $dev)
+}
+
+# With an NPU, speech-to-text is asked first: it is the NPU's job.
+$SttArgs = if ($HasNPU) { @(Select-SpeechToText -Upfront) } else { @() }
+
 # --- Use-case menu (filtered by available hardware) ---
 Write-Host ""
 Write-Host "=== What will you use NoLlama for? ===" -ForegroundColor Cyan
@@ -1197,6 +1283,11 @@ if ($isAgent) {
     Write-Host ""
     Write-Host "Coding agent ready. Point OpenCode, Goose or Copilot Chat at it - see docs/AGENTS.md" -ForegroundColor Green
 }
+
+
+# Without an NPU, speech-to-text is an add-on, asked once the models are in.
+if (-not $HasNPU) { $SttArgs = @(Select-SpeechToText) }
+$StartArgs += $SttArgs
 
 # ---------------------------------------------------------------------------
 # 5. Generate start.ps1
