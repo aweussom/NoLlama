@@ -335,8 +335,8 @@ Start with `--whisper-dir <dir> --whisper-device NPU`; the endpoint is
 web UI shows its push-to-talk button only when a Whisper model is loaded.
 
 On a machine with an NPU, `install.ps1` asks about Whisper first, before
-the chat model: it is what the NPU is best at today, and a chat model can
-share the NPU with it. It offers only what runs there: on a Lunar Lake NPU
+the chat model: it is what the NPU is for. The installer does not put chat
+models on the NPU. It offers only what runs there: on a Lunar Lake NPU
 that is small alone, so it takes it without asking; on an Arrow Lake /
 Meteor Lake NPU small or medium. Without an NPU it is asked after the chat
 model, on the CPU or GPU. Base is not offered (small is fast enough everywhere and much better

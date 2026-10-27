@@ -94,7 +94,21 @@ and found **CPU > iGPU > NPU**. Decode is memory-bandwidth-bound, and DDR5 plus
 many CPU cores beat a 4-core Xe-LPG iGPU and the NPU's power-sipping memory
 path. That makes it tempting to expose CPU as a deliberate install-time choice.
 
-**Verdict:** NPU > GPU > CPU stays the install default on Ultra hardware. CPU is
+**Reversed 2026-10-27 (Tommy: "NPU != Chat").** The installer no longer puts a
+chat model on the NPU at all. The NPU's job is speech-to-text, asked before
+the use-case menu (T-042); chat, coding agent and vision each go on the GPU or
+CPU, and coding and vision models chat too. Gone with it, the two
+`[NPU] Chat + [GPU] Coding agent / Vision` combos: dual mode routes plain
+text to the NPU slot (`_route_request`), so "Chat + Vision" sent every text
+question to a 1-2B NPU model instead of the vision model, and the combos
+cost a second model's memory for a worse answer. Dual mode and
+`--device NPU` stay in the server for anyone who wants them by hand. Point 2
+below is also weaker than it reads: on Lunar Lake the NPU shares LPDDR5X and
+the power budget, and NPU Whisper running non-stop took 32-47% off a GPU
+chat model's decode [OBSERVED 2026-10-11, `docs/dev/models.md`]. The 2026-05-26
+verdict, kept for its measurements:
+
+**Verdict (2026-05-26, superseded):** NPU > GPU > CPU stays the install default on Ultra hardware. CPU is
 offered only when neither an NPU nor a GPU is present.
 
 **Why not — the "CPU wins" rule is narrower than the benchmark suggests:**

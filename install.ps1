@@ -458,14 +458,7 @@ if (Test-Path $ModelsRoot) {
                 } catch {}
             }
         }
-        # Detect NPU compatibility: needs int4 quantization and NPU-class size.
-        # Matches the older "-int4-cw" / "-cw-ov" naming and the newer plain
-        # "-int4-ov" exports (e.g. Qwen3.5). Soft filter — user still confirms.
-        # Size cap 6 GB ~ 8B params at int4: proven NPU models top out at 8B
-        # (~4.4 GB); a 14B int4 (~8 GB) slipped under the old 10 GB cap and
-        # died in the NPU compiler (#20).
-        $npuOk = ($_.Name -match "int4") -and $sizeGB -lt 6
-        [PSCustomObject]@{ Name = $_.Name; Path = $_.FullName; SizeGB = $sizeGB; Type = $mtype; NpuOk = $npuOk }
+        [PSCustomObject]@{ Name = $_.Name; Path = $_.FullName; SizeGB = $sizeGB; Type = $mtype }
     })
 }
 
@@ -1031,12 +1024,11 @@ function Install-Model {
 # ---------------------------------------------------------------------------
 # 4. Model selection — use-case first
 # ---------------------------------------------------------------------------
-# Ask what the user wants to DO, then place each model on the best device.
-# NoLlama runs ONE primary model + (optionally) ONE GPU secondary, so the combos
-# are: chat / agent / vision alone, or NPU(or CPU) chat + a GPU coder/vision.
+# Ask what the user wants to DO, then place the model on the GPU or the CPU.
+# One model per install: chat, coding agent or vision. Speech-to-text is
+# asked separately (on the NPU first, where there is one).
 
 $ModelDir = Join-Path $ScriptDir "model"
-$GpuModelDir = Join-Path $ScriptDir "gpu-model"
 $StartArgs = @()  # collect args for start.ps1
 
 function Select-Device {
@@ -1145,13 +1137,13 @@ function Sort-AgentLocal {
     })
 }
 
-# Chat can run anywhere; small NPU-class models + bigger GPU LLMs both work on GPU/CPU.
+# Chat models for the GPU or CPU: the small NPU-class entries run there too,
+# beside the bigger GPU LLMs. Where-NpuUsable drops the npu_only builds.
 function Get-ChatRegistry { param([string]$Device)
-    if ($Device -eq "NPU") { return Where-NpuUsable $Registry.npu "NPU" }
     return Where-NpuUsable (@($Registry.npu) + @($Registry.gpu_llm)) $Device
 }
 function Get-ChatLocal { param([string]$Device, [string]$Exclude = "")
-    @($LocalModels | Where-Object { $_.Type -eq "llm" -and (($Device -ne "NPU") -or $_.NpuOk) -and $_.Name -ne $Exclude -and -not (Test-Withdrawn $_.Name) })
+    @($LocalModels | Where-Object { $_.Type -eq "llm" -and $_.Name -ne $Exclude -and -not (Test-Withdrawn $_.Name) })
 }
 
 # Whether a local model's registry entry is withdrawn from the installer.
@@ -1206,7 +1198,6 @@ function Select-SpeechToText {
         Write-Host "  Its best job today is Whisper: push-to-talk in the web UI and"
         Write-Host "  /v1/audio/transcriptions, ~20x faster than real time with Whisper small,"
         Write-Host "  as accurate as the CPU."
-        Write-Host "  A chat model can share the NPU with it." -ForegroundColor DarkGray
         if ($arch -eq "4000") {
             Write-Host "  On Lunar Lake it slows a GPU chat model while it transcribes (~0.5 s per spoken sentence)." -ForegroundColor DarkGray
         }
@@ -1249,19 +1240,21 @@ Write-Host ""
 Write-Host "=== What will you use NoLlama for? ===" -ForegroundColor Cyan
 Write-Host ""
 $cases = @()
-# Labels lead with the device map — "[NPU] Chat + [GPU] Vision" tells you
-# what runs where, which is the actual decision being made (user feedback).
-# Combos pin chat to NPU (CPU when absent); single-purpose options let you
-# pick the device on the next screen.
-$chatDevices  = @(); if ($HasNPU) { $chatDevices += "NPU" }; if ($HasGPU) { $chatDevices += "GPU" }; $chatDevices += "CPU"
-$agentDevices = @(); if ($HasGPU) { $agentDevices += "GPU" }; $agentDevices += "CPU"
-$comboChatDev = if ($HasNPU) { "NPU" } else { "CPU" }
-$cases += [PSCustomObject]@{ Key = "chat";   Label = "Chat";         Desc = "text assistant (you pick the device next: $($chatDevices -join '/'))" }
-$cases += [PSCustomObject]@{ Key = "agent";  Label = "Coding agent"; Desc = "OpenCode / Goose / VS Code Copilot, tool-calling (pick GPU or CPU next)" }
+# One model, on the GPU or the CPU. The NPU is not a chat device (Tommy,
+# 2026-10-27): its job here is speech-to-text, asked above. Coding and
+# vision models chat too, so each case below is a complete chat setup.
+# The two "[NPU] Chat + [GPU] ..." combos are gone for the same reason, and
+# because dual mode routes plain text to the NPU slot (_route_request), so
+# "[NPU] Chat + [GPU] Vision" sent every text question to a 1-2B NPU model
+# instead of the vision model. Dual mode itself stays in the server
+# (--gpu-model-dir) for anyone who wants it by hand. TODONT.md has the entry.
+$chatDevices  = @(); if ($HasGPU) { $chatDevices += "GPU" }; $chatDevices += "CPU"
+$agentDevices = $chatDevices
+$devNote = if ($chatDevices.Count -gt 1) { "pick $($chatDevices -join ' or ') next" } else { "on the $($chatDevices[0])" }
+$cases += [PSCustomObject]@{ Key = "chat";   Label = "Chat";         Desc = "text assistant ($devNote)" }
+$cases += [PSCustomObject]@{ Key = "agent";  Label = "Coding agent"; Desc = "OpenCode / Goose / VS Code Copilot, tool-calling; chats too ($devNote)" }
 if ($HasGPU) {
-    $cases += [PSCustomObject]@{ Key = "vision";      Label = "[GPU] Vision + chat"; Desc = "image understanding; a vision model answers plain chat too" }
-    $cases += [PSCustomObject]@{ Key = "chat+agent";  Label = "[$comboChatDev] Chat + [GPU] Coding agent"; Desc = "two models, one server" }
-    $cases += [PSCustomObject]@{ Key = "chat+vision"; Label = "[$comboChatDev] Chat + [GPU] Vision";       Desc = "two models, one server (the classic NoLlama setup)" }
+    $cases += [PSCustomObject]@{ Key = "vision"; Label = "Vision"; Desc = "image understanding on the GPU; a vision model answers plain chat too" }
 }
 for ($i = 0; $i -lt $cases.Count; $i++) {
     Write-Host ("  {0}. {1}" -f ($i + 1), $cases[$i].Label) -NoNewline
@@ -1332,38 +1325,6 @@ switch ($useKey) {
         Write-VisionPick
         $sel = Show-ModelMenu -Title "Vision model (GPU)" -RegistryModels $Registry.gpu_vlm -LocalModels $loc
         if ($sel) { Install-Primary $sel "GPU" }
-    }
-    "chat+agent" {
-        $chatDev = if ($HasNPU) { "NPU" } else { "CPU" }
-        $chatSel = Show-ModelMenu -Title "Chat model ($chatDev)" -RegistryModels (Get-ChatRegistry $chatDev) -LocalModels (Get-ChatLocal $chatDev)
-        if ($chatSel) {
-            Install-Primary $chatSel $chatDev
-            $cloc = Get-AgentLocal -Exclude $chatSel.Name
-            Write-NoAgentFits $coders
-            $coderSel = Show-ModelMenu -Title "Coding agent model (GPU) - OpenCode / Copilot ready" -RegistryModels (Get-AgentRegistry $coders) -LocalModels $cloc -AllowSkip $true
-            if ($coderSel -and (Install-Model -Selected $coderSel -TargetDir $GpuModelDir)) {
-                $StartArgs += @("--gpu-model-dir", "gpu-model", "--prewarm", "prewarm.json", "--vscode-compat", "--idle-timeout", "0"); $isAgent = $true
-                # Dual mode: one process, two slots — the chat model serves
-                # chat, the coder serves OpenCode. The chat slot is declared in
-                # opencode.json as <name>@NPU/CPU so it can be picked by hand,
-                # but it is not OpenCode's small_model: titles go to the coder
-                # (no side lane in coding installs, see the "agent" case).
-                $OpenCodeArgs = @{ CoderDir = (Get-InstalledDirName $coderSel); CoderDevice = "GPU"; SmallDir = (Get-InstalledDirName $chatSel); SmallDevice = $chatDev; Mode = "dual" }
-            }
-        }
-    }
-    "chat+vision" {
-        $chatDev = if ($HasNPU) { "NPU" } else { "CPU" }
-        $chatSel = Show-ModelMenu -Title "Chat model ($chatDev)" -RegistryModels (Get-ChatRegistry $chatDev) -LocalModels (Get-ChatLocal $chatDev)
-        if ($chatSel) {
-            Install-Primary $chatSel $chatDev
-            $vloc = @($LocalModels | Where-Object { $_.Type -eq "vlm" })
-            Write-VisionPick
-            $visSel = Show-ModelMenu -Title "Vision model (GPU)" -RegistryModels $Registry.gpu_vlm -LocalModels $vloc -AllowSkip $true
-            if ($visSel -and (Install-Model -Selected $visSel -TargetDir $GpuModelDir)) {
-                $StartArgs += @("--gpu-model-dir", "gpu-model")
-            }
-        }
     }
 }
 

@@ -341,8 +341,8 @@ server on NPU 4: both slots ready, chat load 107 s (Whisper compiled first),
 a 5.5 s TTS clip transcribed in 0.2-0.3 s between chat turns and 0.5 s while
 an 80-token chat ran at 33.8 tok/s, transcripts identical [OBSERVED
 2026-10-27, laptop 258V, NPU driver 32.0.100.5540, OpenVINO/genai 2026.4.1].
-This is the installer's `[NPU] Chat + ...` with speech-to-text accepted.
-Not run on NPU 3.
+Matters only for `--device NPU` by hand: the installer stopped offering
+chat on the NPU the same day. Not run on NPU 3.
 
 ### Chat and vision models
 
