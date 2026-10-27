@@ -350,7 +350,17 @@ $SystemRamGB = Get-SystemRamGB
 # 8 GB goes to the OS and the applications the person is actually using; a
 # 16 GB model with a 5 GB pool on a 32 GB laptop left 1-2 GB free with
 # ordinary apps open (2026-09-23, 140V), which is where paging starts.
+#
+# The iGPU's own limit (GPU_DEVICE_TOTAL_MEM_SIZE, what Shared GPU Memory
+# Override sets) is NOT the ceiling: it is a setting, and the server's
+# preflight checks it. A model that fits RAM - 8 but not the current limit is
+# installed, and the end of the install says how to raise the limit (Tommy,
+# 2026-10-27: "It WILL fit, once I change the limit"). Found when a 32 GB
+# laptop at the default 16.5 GB limit got Qwen3-Coder-30B (15.2 GB) with no
+# word from the installer and a refusal from the server.
 $UsableModelGB = if ($IsDiscreteGPU) { $DeviceInfo.GPU.mem_gb } else { [math]::Max(0, $SystemRamGB - 8) }
+$IgpuLimitGB = if ($HasGPU -and -not $IsDiscreteGPU) { [double]$DeviceInfo.GPU.mem_gb } else { 0 }
+$script:RaiseLimitToGB = 0.0   # set by Confirm-Fit when a pick needs a higher iGPU limit
 
 Write-Host ""
 if ($HasNPU) {
@@ -366,6 +376,10 @@ if ($HasGPU) {
     } else {
         Write-Host "      Integrated: its memory IS system RAM ($SystemRamGB GB total), so a model" -ForegroundColor DarkGray
         Write-Host "      competes with everything else you run. Budgeting $UsableModelGB GB for models." -ForegroundColor DarkGray
+        if ($IgpuLimitGB -gt 0 -and $IgpuLimitGB -lt $UsableModelGB) {
+            Write-Host "      The GPU is set to use at most $IgpuLimitGB GB of it. Bigger models are still offered;" -ForegroundColor DarkGray
+            Write-Host "      the end of the install says how to raise that limit." -ForegroundColor DarkGray
+        }
     }
     if ($DeviceInfo.GPU.xmx) {
         Write-Host "      XMX: yes — large MoE models can stream experts from disk (OpenVINO 2026.3+);" -ForegroundColor DarkGray
@@ -480,18 +494,90 @@ if ($SkipModel) {
 function Get-FitTag {
     param([double]$SizeGB)
     if ($script:UsableModelGB -le 0 -or $SizeGB -le 0) { return "" }
-    # Weights are not the whole cost: the prompt cache is what makes a second
-    # turn fast, and it scales with the model (2-4 GB in practice). A tag that
-    # counted weights alone would wave through a model that then has no cache.
-    $poolGB  = [math]::Min(4, [math]::Max(2, [math]::Round($SizeGB / 3)))
-    $needGB  = $SizeGB + $poolGB
+    $needGB = Get-FitNeedGB $SizeGB
     if ($needGB -gt $script:UsableModelGB) {
         return "  [WON'T FIT: ~$needGB GB with a cache, you have ~$($script:UsableModelGB) GB]"
     }
+    if ($script:IgpuLimitGB -gt 0 -and $needGB -gt $script:IgpuLimitGB) {
+        return "  [RAISE GPU LIMIT: ~$needGB GB with a cache, the GPU is set to $($script:IgpuLimitGB) GB]"
+    }
     if ($needGB -gt ($script:UsableModelGB - 2)) {
-        return "  [TIGHT: ~$needGB GB with a cache — close the browser]"
+        $hint = if ($script:IsDiscreteGPU) { "little room left for long prompts" } else { "close the browser" }
+        return "  [TIGHT: ~$needGB GB with a cache of ~$($script:UsableModelGB) GB - $hint]"
     }
     return ""
+}
+
+# GB a model needs with its prompt cache, the way the server's preflight counts.
+#
+# Why: weights are not the whole cost -- the prompt cache is what makes a
+# second turn fast, and it scales with the model (2-4 GB in practice). The
+# x1.1 is _preflight_memory's runtime overhead, so the menu and the server
+# agree on what fits.
+#
+# In: weights in GB. Out: GB, one decimal.
+function Get-FitNeedGB {
+    param([double]$SizeGB)
+    $poolGB = [math]::Min(4, [math]::Max(2, [math]::Round($SizeGB / 3)))
+    return [math]::Round(($SizeGB + $poolGB) * 1.1, 1)
+}
+
+# Ask before installing a model tagged WON'T FIT; $true means go ahead.
+#
+# Why: the tag sits in a list and is easy to read past, and the cost of
+# missing it is a download of many GB followed by a server that refuses to
+# load (or pages for minutes). A pick tagged RAISE GPU LIMIT is not asked
+# about: it will fit once the iGPU's limit is raised, so it is recorded in
+# $script:RaiseLimitToGB and Write-RaiseLimit says how at the end.
+#
+# In: a menu item (SizeGB). Out: $true when it fits, is tight, needs the
+# limit raised, or the user said yes; $false sends the caller back.
+function Confirm-Fit {
+    param($Item)
+    $tag = Get-FitTag $Item.SizeGB
+    if ($tag.Contains("RAISE GPU LIMIT")) {
+        $script:RaiseLimitToGB = [math]::Max([double]$script:RaiseLimitToGB, [double](Get-FitNeedGB $Item.SizeGB))
+        return $true
+    }
+    if (-not $tag.Contains("WON'T FIT")) { return $true }
+    Write-Host ""
+    Write-Host "  $($Item.Name):$tag" -ForegroundColor Yellow
+    Write-Host "  More than this machine can give a model, whatever the settings. Pick a smaller" -ForegroundColor Yellow
+    Write-Host "  model or quant; as it stands the server will refuse it or crawl." -ForegroundColor Yellow
+    return ((Read-Host "  Install anyway? [y/N]") -match '^\s*[yY]')
+}
+
+# After the install: tell the user to raise the iGPU limit, and how.
+#
+# Why: a model that fits RAM but not the iGPU's current limit is installed
+# (see Confirm-Fit); without this the first sign is the server's preflight
+# warning. Two ways, both in README.md: Intel Graphics Software's Shared GPU
+# Memory Override, which must be run as Administrator (unelevated the toggle
+# is greyed out and the app crashes, two machines), or the registry value
+# that slider writes. The suggested percentage comes from two readings on one
+# 32 GB laptop: 57% gave 16.5 GB, 87% gave 25.3 GB, so the limit is about
+# 0.92 x percent x RAM [INFERRED from those two points]. Rounded up, plus a
+# margin, never under 70 (README's sane start) or over 90.
+#
+# In: nothing (reads $script:RaiseLimitToGB, $IgpuLimitGB, $SystemRamGB).
+# Out: nothing; prints only when a pick needs the limit raised.
+function Write-RaiseLimit {
+    if ($script:RaiseLimitToGB -le 0 -or $SystemRamGB -le 0) { return }
+    $pct = [math]::Ceiling($script:RaiseLimitToGB / (0.92 * $SystemRamGB) * 100) + 3
+    $pct = [math]::Min(90, [math]::Max(70, $pct))
+    $key = 'HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers\MemoryManager'
+    $check = ".\$VenvName\Scripts\python -c `"import openvino as ov; print(round(ov.Core().get_property('GPU','GPU_DEVICE_TOTAL_MEM_SIZE')/2**30,1), 'GB')`""
+    Write-Host ""
+    Write-Host "=== Before you start: raise the GPU memory limit ===" -ForegroundColor Yellow
+    Write-Host "  Your model needs ~$($script:RaiseLimitToGB) GB on the GPU; it is set to $IgpuLimitGB GB of $SystemRamGB GB RAM." -ForegroundColor Yellow
+    Write-Host "  Either:"
+    Write-Host "    - Intel Graphics Software, RUN AS ADMINISTRATOR -> Shared GPU Memory Override,"
+    Write-Host "      set it to $pct% or more. Unelevated, the toggle is greyed out and the app may crash."
+    Write-Host "    - or from an elevated PowerShell (the value that slider writes):"
+    Write-Host "        reg add `"$key`" /v SystemPartitionCommitLimitPercentage /t REG_DWORD /d $pct /f" -ForegroundColor Cyan
+    Write-Host "  Then reboot. A driver update can reset it. Check what the GPU gets with:"
+    Write-Host "    $check" -ForegroundColor Cyan
+    Write-Host "  More in README.md, 'Raising the iGPU memory budget'." -ForegroundColor DarkGray
 }
 
 # Whether at least one verified agent model fits the detected memory budget.
@@ -762,7 +848,9 @@ function Show-ModelMenu {
         }
         $num = 0
         if ([int]::TryParse($choice, [ref]$num) -and $num -ge 1 -and $num -le $items.Count) {
-            return $items[$num - 1]
+            $picked = $items[$num - 1]
+            if (Confirm-Fit $picked) { return $picked }
+            continue
         }
         Write-Host "Enter a number between 1 and $($items.Count)" -ForegroundColor Red
     }
@@ -1316,6 +1404,7 @@ if ($OpenCodeArgs) {
 # Done
 # ---------------------------------------------------------------------------
 
+Write-RaiseLimit
 Write-Host ""
 Write-Host "=== NoLlama install complete ===" -ForegroundColor Green
 Write-Host ""
