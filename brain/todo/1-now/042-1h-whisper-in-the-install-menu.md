@@ -1,7 +1,7 @@
 # T-042 — Offer Whisper in the install menu
 
 **Effort:** 1 h · **Produces:** a Whisper choice in `install.ps1`, written into
-`start.ps1` as `--whisper-model-dir` / `--whisper-device` · **Area:**
+`start.ps1` as `--whisper-dir` / `--whisper-device` · **Area:**
 installer, `models.json` (`whisper`)
 
 Whisper is served (`POST /v1/audio/transcriptions`, the web UI's
