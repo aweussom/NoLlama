@@ -12,7 +12,8 @@
 // Needs a running NoLlama with --whisper-dir. Node 22+ (global WebSocket),
 // no npm packages. Prints JSON: whether the button showed, its tooltip, the
 // transcript that landed in the input box. Exit 0 when the input box got
-// non-empty text, 1 otherwise.
+// non-empty text, 1 otherwise. Also reports the chat picker's options
+// (`picker`), which must hold no Whisper or embedding entry.
 import { spawn } from 'node:child_process';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -105,6 +106,8 @@ try {
     out.button_disabled = await evaluate(c, "document.getElementById('ptt-btn').disabled");
     out.title = await evaluate(c, "document.getElementById('ptt-btn').title");
     out.language = await evaluate(c, "document.getElementById('ptt-lang').value");
+    // The chat picker must not offer Whisper (or any non-chat slot).
+    out.picker = await evaluate(c, "[...document.getElementById('model-select').options].map(o => o.value)");
     if (out.button_shown && !out.button_disabled) {
         await evaluate(c, `document.getElementById('ptt-lang').value = ${JSON.stringify(lang)}`);
         await evaluate(c, 'pttStart()');

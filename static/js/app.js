@@ -241,15 +241,31 @@ async function checkHealth() {
 }
 
 /**
- * Fill the model picker from /v1/models. Ids stay "name@DEVICE" (that is
- * what the server routes on); only the label is prettified to "name (DEVICE)".
+ * Fill the model picker with the chat-capable models. Ids stay "name@DEVICE"
+ * (that is what the server routes on); only the label is prettified to
+ * "name (DEVICE)".
+ *
+ * Why the filter: /v1/models also lists Whisper and the embedding model, on
+ * purpose, because API clients look them up there. Neither can chat, and
+ * "whisper (NPU)" in the picker read as a chat model (2026-10-27). The test
+ * is what can chat, not what cannot: /health's `devices` holds exactly the
+ * generative slots (chat, coding agent, vision; a VLM chats too), while
+ * Whisper, embeddings and any later audio slot report outside it. So a new
+ * non-chat model stays out of the picker without touching this. Whisper
+ * reaches the UI through push-to-talk.
+ *
+ * In: nothing. Out: none; the picker keeps its old contents if a fetch
+ * fails, and falls back to the unfiltered list if /health has no devices.
  */
 async function loadModels() {
     try {
-        const resp = await fetch('/v1/models');
-        const data = await resp.json();
+        const [modelsResp, healthResp] = await Promise.all([fetch('/v1/models'), fetch('/health')]);
+        const data = await modelsResp.json();
+        const devices = Object.values((await healthResp.json()).devices || {});
+        const chatIds = new Set(devices.map(d => `${d.model}@${d.device_name}`));
         modelSelect.innerHTML = '';
         for (const m of data.data) {
+            if (chatIds.size && !chatIds.has(m.id)) continue;
             const opt = document.createElement('option');
             opt.value = m.id;  // e.g. "qwen3-8b-int4-cw@NPU"
             // Display as "qwen3-8b-int4-cw (NPU)"

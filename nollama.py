@@ -5252,7 +5252,14 @@ def health():
 @app.route("/v1/models", methods=["GET"])
 def list_models():
     """OpenAI model list. Ids are "name@DEVICE" so a dual-mode setup exposes
-    both slots distinctly; _route_request accepts either form back."""
+    both slots distinctly; _route_request accepts either form back.
+
+    Whisper ("whisper@DEVICE") and the embedder (bare name) are listed too,
+    for API clients. The web UI's chat picker (loadModels) keeps only ids of
+    the form f"{info['model']}@{info['device_name']}" from /health's
+    `devices`, so a slot that cannot chat must report outside `devices`
+    (as whisper and embed do), and these two id shapes must stay in step.
+    """
     data = []
     for slot in (primary, secondary):
         if slot and slot.status == "ready":
