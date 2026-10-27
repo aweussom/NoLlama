@@ -1,16 +1,22 @@
 # NoLlama
 
-OpenAI-compatible LLM/VLM server for Intel hardware. NPU-first.
+OpenAI-compatible LLM/VLM server for Intel hardware: GPU, CPU and NPU.
+**NPU != chat** (Tommy, 2026-10-27): the NPU's job is speech-to-text
+(Whisper), and the installer puts chat, coding and vision models on the GPU
+or CPU. The server still runs a chat model on the NPU when asked by hand.
 
 ## Architecture at a glance
 
 - `nollama.py` — Flask server, `DeviceSlot` class per device, auto-detects
   VLM/LLM from `config.json`. `threaded=True`, concurrency via per-device locks.
-- NPU: `LLMPipeline` with MAX_PROMPT_LEN=4096 (driver default is 1024),
-  streaming via SSE.
+- NPU chat (manual `--device NPU` only): `LLMPipeline` with
+  MAX_PROMPT_LEN=4096 (driver default is 1024), streaming via SSE.
 - GPU: `VLMPipeline` (images) or `LLMPipeline` (text). Both stream as of
   openvino-genai 2026.1 — verified on Arc 140V iGPU.
-- Routing: images go to GPU, text goes to NPU (or GPU if no NPU).
+- Routing, dual mode (`--gpu-model-dir`, manual only): images go to the
+  GPU, text to the NPU slot (or GPU if no NPU). The installer sets up one
+  generative model; its old `[NPU] Chat + [GPU] ...` combos sent text to a
+  weak NPU model this way, which is why they went (TODONT.md).
 - Embeddings: `EmbedSlot` + `TextEmbeddingPipeline` for RAG clients,
   `/v1/embeddings` plus Ollama's `/api/embed` on **both** ports. CPU or GPU,
   never the NPU (its plugin requires SDPA nodes). Non-generative, so it is
@@ -19,7 +25,11 @@ OpenAI-compatible LLM/VLM server for Intel hardware. NPU-first.
   corpus in one request, so `embed()` slices it (`--embed-batch-size`).
   -> `docs/API.md`
 - Whisper: `WhisperSlot` + `WhisperPipeline` for STT,
-  `POST /v1/audio/transcriptions`, CPU or GPU.
+  `POST /v1/audio/transcriptions` and the web UI's push-to-talk. NPU, CPU or
+  GPU; on an NPU machine the installer asks for it first, on the NPU (T-042).
+  Not a chat model: it reports outside `/health`'s `devices`, which is what
+  keeps it out of the web UI's chat picker (`loadModels`). Every future
+  audio slot follows the same rule (T-054).
 - Prefix (KV) caching is **default on** for GPU/CPU **LLM and VLM** slots;
   NPU keeps the plain pipeline. → `docs/dev/prefix-cache.md`
 - Tool calling works on **GPU/iGPU + CPU only, never the NPU**, on both LLM
@@ -31,9 +41,12 @@ OpenAI-compatible LLM/VLM server for Intel hardware. NPU-first.
   runtime (`--backend`). → `docs/dev/runtime-stacks.md`
 - `models.json` — curated model registry (npu, gpu_vlm, gpu_llm, whisper,
   embed).
-  `install.ps1` detects devices, shows the model menu, generates `start.ps1`;
-  agent setups get `--idle-timeout 0` (keeps the prefix cache alive,
-  auto-enables prewarm).
+  `install.ps1` detects devices, asks speech-to-text first on NPU machines,
+  then one model (Chat / Coding agent / Vision, GPU or CPU), and generates
+  `start.ps1`; agent setups get `--idle-timeout 0` (keeps the prefix cache
+  alive, auto-enables prewarm). Its fit tags use the server preflight's
+  arithmetic; on an iGPU a model over the current GPU limit but within RAM
+  installs, and the end of the install says how to raise the limit.
 - Web UI: `templates/index.html` + `static/css/style.css` +
   `static/js/app.js`. Collapsible `<think>` blocks, "Just answer me,
   dammit!" button, temperature slider. Markdown rendering
