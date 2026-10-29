@@ -8,8 +8,8 @@ say so and fix the older.
 **As of 2026-10-29. `v1.1.0` cut 2026-10-29 (192 commits after `v1.0.0`),
 all on `main`.** Recent theme: the NPU's job is speech-to-text, not chat
 (Tommy, 2026-10-27); the installer asks for Whisper first on NPU machines and
-puts every generative model on the GPU or CPU (T-042, verified by a real
-install on the laptop). A failed reload no longer sticks in `loading` (T-046).
+puts every generative model on the GPU or CPU (T-042, verified by real
+installs on the laptop, NPU 4, and the 285K, NPU 3, where medium is offered). A failed reload no longer sticks in `loading` (T-046).
 
 **Read this first if you are picking up the agent work.** Decode speed tracks
 **active** parameters, not model size: a 30B-A3B MoE runs 18-32 tok/s on a 140V
