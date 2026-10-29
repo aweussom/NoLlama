@@ -5,7 +5,7 @@ what is merely *built*, and what is in flight. Three minutes to read; updated at
 the end of a working session. If `README.md` disagrees, this one is younger —
 say so and fix the older.
 
-**As of 2026-10-29. `v1.1.0` cut 2026-10-29 (192 commits after `v1.0.0`),
+**As of 2026-10-29. Release `2026-10-29` cut that day (192 commits after `v1.0.0`),
 all on `main`.** Recent theme: the NPU's job is speech-to-text, not chat
 (Tommy, 2026-10-27); the installer asks for Whisper first on NPU machines and
 puts every generative model on the GPU or CPU (T-042, verified by real
@@ -93,7 +93,7 @@ tool training -- none exists in an OpenVINO export yet.
 - **`brain/` itself.** Adopted from `ace-brain` on 2026-09-18 and this repo is
   its first instance outside that one. The `triage` and `premise-sweep` skills
   there have never run against a repo.
-- **The release ZIP** (v1.0.0, v1.1.0). Nobody has yet unzipped one on
+- **The release ZIP** (v1.0.0, 2026-10-29). Nobody has yet unzipped one on
   a clean box and run `install-windows.bat` from it. That is the path
   release-ZIP users take and the one a checkout never exercises.
 - **Docker Phase 3.** `Dockerfile`, `docker-compose.yml` and
