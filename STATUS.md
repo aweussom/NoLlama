@@ -5,11 +5,11 @@ what is merely *built*, and what is in flight. Three minutes to read; updated at
 the end of a working session. If `README.md` disagrees, this one is younger —
 say so and fix the older.
 
-**As of 2026-10-26. `v1.0.0` was tagged 2026-09-18; 173 commits since, all on
-`main`.** Recent theme: answer decay over long conversations is measured
-(T-047), the B60's driver turned out to be the fix for one crash (T-051) and
-was the fix for the KV-pool overshoot too (T-031), and the client's
-`seed` now reaches the sampler (T-049).
+**As of 2026-10-29. `v1.1.0` cut 2026-10-29 (192 commits after `v1.0.0`),
+all on `main`.** Recent theme: the NPU's job is speech-to-text, not chat
+(Tommy, 2026-10-27); the installer asks for Whisper first on NPU machines and
+puts every generative model on the GPU or CPU (T-042, verified by a real
+install on the laptop). A failed reload no longer sticks in `loading` (T-046).
 
 **Read this first if you are picking up the agent work.** Decode speed tracks
 **active** parameters, not model size: a 30B-A3B MoE runs 18-32 tok/s on a 140V
@@ -93,7 +93,7 @@ tool training -- none exists in an OpenVINO export yet.
 - **`brain/` itself.** Adopted from `ace-brain` on 2026-09-18 and this repo is
   its first instance outside that one. The `triage` and `premise-sweep` skills
   there have never run against a repo.
-- **The v1.0.0 release ZIP.** Tagged 2026-09-18; nobody has yet unzipped it on
+- **The release ZIP** (v1.0.0, v1.1.0). Nobody has yet unzipped one on
   a clean box and run `install-windows.bat` from it. That is the path
   release-ZIP users take and the one a checkout never exercises.
 - **Docker Phase 3.** `Dockerfile`, `docker-compose.yml` and

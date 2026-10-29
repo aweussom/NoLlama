@@ -25,7 +25,7 @@ Usage:
 # return to semver. It does not appear here on purpose: a bug report still has
 # to name a tree, and "1.0.0" would not. If a later release is ever called
 # 1.1.0, this line still moves to that day's date.
-__version_date__ = "2026-09-18"
+__version_date__ = "2026-10-29"
 
 import argparse
 import ast
