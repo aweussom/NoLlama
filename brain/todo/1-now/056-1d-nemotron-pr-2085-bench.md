@@ -30,7 +30,7 @@ JSONs in `C:\devel\nemotron\results\`, bench `scripts/nemotron-bench.py`.
 
 ## Done when
 
-- [ ] Reply on #2085, detuned, shown to Tommy before posting.
+- [x] Reply posted on #2085 2026-11-02 (issuecomment-6589414327).
 - [ ] Nano-4B on the B60 and the 140V, bare genai, then the server.
 - [ ] Lightning again once OpenVINO has a non-gated expert pattern (the
       contributor says that needs a new OpenVINO pattern); onto N-007.
