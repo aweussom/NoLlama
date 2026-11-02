@@ -57,8 +57,8 @@
     "sha": "f2377291372c62c0114ee20a094261fa3b193b0b"
   },
   "OpenVINO/Qwen3.8-27B-int4-ov": {
-    "lastModified": "2026-09-25",
-    "sha": "7b20ea8c7df7223a85ff27bab5c473f0cb038943"
+    "lastModified": "2026-10-30",
+    "sha": "d15f4d91eccd11dd44f615ffdb539c61bf1f1e6e"
   },
   "OpenVINO/gemma-4-26b-a4b-it-int4-ov": {
     "lastModified": "2026-09-17",
