@@ -52,8 +52,9 @@ fast path, and everything else in these notes assumes it.
 
 Some architectures land in optimum-intel (export) before openvino_genai
 (serving) learns to run them. Those are served through **optimum-intel's
-python runtime** instead: `NEEDS_OPTIMUM` in `nollama.py`, currently just
-`{"nemotron_h"}`. Detection is automatic from `config.json`'s `model_type`;
+python runtime** instead: `NEEDS_OPTIMUM` in `nollama.py`, empty since
+2026-11-03, when `nemotron_h` (optimum-intel#2085 export) was seen running on
+bare LLMPipeline and through the server on CPU, iGPU and the B60 (T-056). Detection is automatic from `config.json`'s `model_type`;
 `--backend auto|genai|optimum` overrides, and `--scan` prints a `Backend`
 line.
 

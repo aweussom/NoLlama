@@ -447,9 +447,12 @@ What to know before switching:
 ## Brand-new architectures: the optimum backend
 
 Some architectures land in optimum-intel (export) before openvino_genai
-(serving) learns to run them — as of 2026-08 that's **NVIDIA Nemotron 3.5
-Lightning** (`nemotron_h`); Muse Glimmer lived here until Intel's official
-export (above), and its history fills the rest of this section. NoLlama
+(serving) learns to run them. None do today: NVIDIA Nemotron (`nemotron_h`)
+moved to GenAI on 2026-11-03, when the optimum-intel#2085 export of
+Nemotron-3-Nano-4B ran on plain LLMPipeline on CPU, iGPU and the B60 (the
+30B-A3B Lightning export does not load yet, upstream). Muse Glimmer lived
+here until Intel's official export (above), and its history fills the rest
+of this section. NoLlama
 serves these through optimum-intel's python runtime instead: detection is
 automatic (`--scan` shows a `Backend` line; `--backend` overrides), tool
 calling works, and both API surfaces behave identically. Differences from

@@ -138,9 +138,14 @@ def is_vlm(model_dir):
         return False
 
 
-# Architectures openvino_genai pipelines cannot run — nemotron_h is hybrid
-# Mamba2+MoE with no GenAI path. Served through optimum-intel's python
-# runtime (OptimumSlot) instead. muse_glimmer left this set on 2026-08-18:
+# Architectures openvino_genai pipelines cannot run, served through
+# optimum-intel's python runtime (OptimumSlot) instead. Empty today.
+# nemotron_h left this set on 2026-11-03: the optimum-intel#2085 export of
+# Nemotron-3-Nano-4B runs on bare LLMPipeline (285K CPU + iGPU, 5950X CPU,
+# B60) and through the server on the B60 with the prefix cache on, all
+# answers right [OBSERVED 2026-11-03, genai 2026.4.1, T-056]; the optimum
+# backend meanwhile failed to load it on the B60's main venv. muse_glimmer
+# left on 2026-08-18:
 # every Glimmer export in existence (Intel's official one and ours) is
 # VLM-shaped, and VLMPipeline feeds its language model from embeddings by
 # design — the "takes inputs_embeds" problem only ever ruled out
@@ -148,7 +153,7 @@ def is_vlm(model_dir):
 # GenAI nightly, B60 2026-08-18, ~14 tok/s vs 8-11 on optimum). If an
 # LLM-shaped Glimmer export ever appears, put it back; meanwhile
 # --backend optimum still forces the python runtime for any model.
-NEEDS_OPTIMUM = {"nemotron_h"}
+NEEDS_OPTIMUM = set()
 
 
 def needs_optimum(model_dir):
@@ -3913,8 +3918,8 @@ def _hf_gen_kwargs(gen):
 class OptimumSlot(DeviceSlot):
     """One model served through optimum-intel's python runtime instead of an
     openvino_genai pipeline — for the NEEDS_OPTIMUM architectures GenAI can't
-    run (nemotron_h: hybrid Mamba2+MoE), and for anything forced here with
-    --backend optimum. Muse Glimmer lived here until Intel's VLM-shaped
+    run (none today; nemotron_h moved to GenAI 2026-11-03), and for anything
+    forced here with --backend optimum. Muse Glimmer lived here until Intel's VLM-shaped
     export moved it to the GenAI path (2026-08-18); this slot remains its
     fallback on release runtimes whose VLMPipeline lacks the arch.
 
@@ -6829,7 +6834,7 @@ def parse_args():
                         "(genai), optimum-intel python runtime (optimum), or "
                         "pick per model (auto — optimum only for architectures "
                         "GenAI can't run: "
-                        f"{', '.join(sorted(NEEDS_OPTIMUM))}).")
+                        f"{', '.join(sorted(NEEDS_OPTIMUM)) or 'none today'}).")
     return p.parse_args()
 
 
