@@ -1,4 +1,12 @@
 {
+  "huggingface/optimum-intel#2085": {
+    "draft": false,
+    "head": "dbab78490476842aaf1080bff712a1787274b926",
+    "kind": "pull",
+    "merged": false,
+    "state": "open",
+    "title": "[OpenVINO] Support NemotronH"
+  },
   "openvinotoolkit/openvino#37457": {
     "draft": false,
     "kind": "issues",
@@ -8,6 +16,7 @@
   },
   "openvinotoolkit/openvino#38076": {
     "draft": false,
+    "head": "e11c6904150b61e0decb4d63e7c29b4d0e9a1208",
     "kind": "pull",
     "merged": false,
     "state": "open",
@@ -15,6 +24,7 @@
   },
   "openvinotoolkit/openvino.genai#4318": {
     "draft": false,
+    "head": "0e16e0cf7bafb4e85e887c02534a9bc24b46948a",
     "kind": "pull",
     "merged": true,
     "state": "closed",

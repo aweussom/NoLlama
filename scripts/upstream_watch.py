@@ -9,7 +9,8 @@ actually moves — merged, closed, reopened, or out of draft.
 Only *state* transitions are reported. Comments, pushes and label churn are
 deliberately ignored: a watcher that fires every time someone types in a busy
 upstream thread gets muted within a month, and then it is worth nothing on the
-week that matters.
+week that matters. The exception is WATCH_HEAD: PRs where a new push is
+the cue we are waiting for, with a one-time nudge if none comes by a date.
 
 Diffs against a committed snapshot (watched_upstream.json), same as the model
 watcher. First run establishes a baseline silently.
@@ -23,6 +24,7 @@ Writes the issue title/body to scripts/.upstream_title and
 scripts/.upstream_body.md.
 """
 
+import datetime
 import json
 import os
 import sys
@@ -63,6 +65,24 @@ WATCH = {
         "earliest real signal about the family. See NoLlama issue #46.",
 }
 
+# PRs whose *pushes* are the news, not only their state: we wait on a new head
+# to re-run a test. Key as in WATCH; value is (why, nudge date). A head change
+# is reported every time; if the head has not moved by the nudge date, one
+# "nothing happened" issue is opened, once. Add the key to WATCH as well.
+WATCH_HEAD = {
+    "huggingface/optimum-intel#2085": (
+        "NemotronH export. Lightning 30B-A3B exported from head dbab784 does "
+        "not load (batched 3D u4 experts fold to f32, >100 GB on a 63 GB box). "
+        "rkazants (2026-11-03) pointed the contributor at the grouped-MatMul "
+        "MoE patch, huggingface/optimum-intel#1947, which already handles "
+        "non-gated experts. A new head is the cue to re-export Lightning on the "
+        "285K against openvino-nightly and re-run T-056.",
+        "2026-11-16"),
+}
+# Every WATCH_HEAD PR is also watched for state changes, with the same reason.
+for _key, (_why, _nudge_on) in WATCH_HEAD.items():
+    WATCH[_key] = _why
+
 
 def api_get(path):
     """GET one GitHub API path as parsed JSON, or None if it fails.
@@ -101,9 +121,9 @@ def fetch_item(key):
     there, and those are opposite news. So a PR costs a second call.
 
     In: "owner/repo#number". Out: {"title", "kind", "state", "merged",
-    "draft"}, or None if either call fails. `merged`/`draft` are always False
-    for a plain issue, so callers can compare snapshots without special-casing
-    the kind.
+    "draft"}, plus "head" (commit sha) for a PR, or None if either call fails.
+    `merged`/`draft` are always False for a plain issue, so callers can
+    compare snapshots without special-casing the kind.
     """
     repo, _, number = key.partition("#")
     item = api_get(f"/repos/{repo}/issues/{number}")
@@ -121,6 +141,7 @@ def fetch_item(key):
         return None
     state["merged"] = bool(pr.get("merged"))
     state["draft"] = bool(pr.get("draft"))
+    state["head"] = pr.get("head", {}).get("sha", "")
     return state
 
 
@@ -147,6 +168,33 @@ def describe(was, now):
     if not was["draft"] and now["draft"]:
         return "back to **draft**"
     return None
+
+
+def describe_head(key, was, now):
+    """For a WATCH_HEAD PR: a new head, or the one-time nudge, or None.
+
+    Why: describe() ignores pushes on purpose; for these PRs a push is the
+    whole point. The nudge exists because silence is also news: an upstream
+    that stalls for two weeks needs a human decision, not another week.
+
+    In: key, previous and current state dicts. Out: a markdown fragment or
+    None. Mutates `now`: carries the "nudged" flag over from `was`, sets it
+    when the nudge fires, so the nudge is sent exactly once. A snapshot from
+    before head tracking has no "head"; that baselines silently.
+    """
+    now["nudged"] = was.get("nudged", False)
+    if was.get("head") and now["head"] != was["head"]:
+        return f"new head **{now['head'][:7]}** (was {was['head'][:7]})"
+    if not was.get("head"):
+        return None
+    if now["state"] == "closed":
+        return None  # merged or closed was already reported; no nudge after the end
+    nudge_on = WATCH_HEAD[key][1]
+    if now["nudged"] or datetime.date.today().isoformat() < nudge_on:
+        return None
+    now["nudged"] = True
+    return (f"**no new push** since {now['head'][:7]} by {nudge_on}. "
+            "Decide: keep waiting, ask on the PR, or patch it ourselves")
 
 
 def check():
@@ -178,6 +226,8 @@ def check():
         if not was:
             continue  # new to the list; baseline it silently
         what = describe(was, now)
+        if key in WATCH_HEAD:
+            what = what or describe_head(key, was, now)
         if what:
             repo, _, number = key.partition("#")
             lines.append(

@@ -32,5 +32,10 @@ JSONs in `C:\devel\nemotron\results\`, bench `scripts/nemotron-bench.py`.
 
 - [x] Reply posted on #2085 2026-11-02 (issuecomment-6589414327).
 - [ ] Nano-4B on the B60 and the 140V, bare genai, then the server.
-- [ ] Lightning again once OpenVINO has a non-gated expert pattern (the
-      contributor says that needs a new OpenVINO pattern); onto N-007.
+- [ ] Lightning again on the grouped-MatMul MoE export. rkazants
+      (2026-11-03) pointed the contributor at optimum-intel#1947 (merged
+      2026-10-30, `torch._grouped_mm`, already handles non-gated experts),
+      to be tested on openvino-nightly. On a new #2085 head: re-export
+      Lightning and Nano-4B on the 285K against the nightly, same 100 GB
+      watchdog, compare Nano-4B current vs grouped. `upstream-watch` opens
+      an issue on a new head, or once on 2026-11-16 if none came.
