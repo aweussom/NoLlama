@@ -27,11 +27,25 @@ JSONs in `C:\devel\nemotron\results\`, bench `scripts/nemotron-bench.py`.
   the same bytes as a 2D weight stay compressed (+0.38). The trailing f32
   Convert is not it (variant B). GPU not reproduced synthetically.
 - **Lightning on the 5090** (Ollama Q4_K_M): all correct, 360-440 tok/s.
+- **Nano-4B on the B60 box** (2026-11-03, `venv` genai 2026.4.1, driver
+  .8976, IR copied from the 285K): all correct, needle 3/3 on both.
+  5950X CPU 16 tok/s, TTFT 7.5/29.9/124 s; B60 97-118 tok/s, TTFT
+  0.75/1.3/3.9 s. Through the server on the B60: all correct, ~119 tok/s,
+  3.6 s TTFT at 13k, prefix-cache repeats at 48 ms. Needed
+  `NEEDS_OPTIMUM` emptied first (1f300df): auto-detect sent nemotron_h to
+  the optimum backend, which died on the B60 venv's transformers.
+- **#2085 head f294ba2** (2026-11-03): merged main; from transformers
+  5.13 + torch 2.10 the experts export as grouped MatMul (#1947) and become
+  GatherMatmul, int4 kept. Contributor's synthetic 1-layer test: CPU
+  5.46 -> 1.35 GB after load, decode 11 -> 96 tok/s. He asked us to retry
+  Lightning. Round 3 on the 285K (`venv-nemotron-nightly`, `*-grouped`
+  IRs, run3.log/mem3.log) started 2026-11-03.
 
 ## Done when
 
 - [x] Reply posted on #2085 2026-11-02 (issuecomment-6589414327).
-- [ ] Nano-4B on the B60 and the 140V, bare genai, then the server.
+- [x] Nano-4B on the B60, bare genai, then the server (2026-11-03).
+- [ ] Nano-4B on the 140V laptop (iGPU), bare genai, then the server.
 - [ ] Lightning again on the grouped-MatMul MoE export. rkazants
       (2026-11-03) pointed the contributor at optimum-intel#1947 (merged
       2026-10-30, `torch._grouped_mm`, already handles non-gated experts),
