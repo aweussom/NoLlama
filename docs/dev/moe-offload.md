@@ -20,6 +20,12 @@ is now measured on a genuinely XMX-less GPU: on the desktop 285K's Xe-LPG a
 15 GB int4 MoE stages ~47 GB of shared memory and never finishes loading
 [OBSERVED 2026-09-11, `TODONT.md`]. Without XMX the MoE fusion is off,
 offload is a silent no-op, and the unfused expert constants blow up staging.
+Intel's position is stated: "there is no plan to support MOE on GPU without
+IMMAD support", on a 265K iGPU OOM with Qwen3-Coder-30B-A3B [DOCUMENTED:
+openvinotoolkit/openvino#34415, peterchen-intel, 2026-06-24]. Seen again with
+Nemotron 3.5 Lightning's grouped-MatMul export (optimum-intel#2085): the 285K
+CPU loads it at 31 GB, the 285K iGPU passes 100 GB, the B60 runs it
+[OBSERVED 2026-11-03/04, T-056].
 
 Verified on Arc 140V, Qwen3-30B-A3B int4, steady state:
 

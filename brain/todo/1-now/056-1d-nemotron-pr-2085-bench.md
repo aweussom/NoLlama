@@ -62,8 +62,10 @@ JSONs in `C:\devel\nemotron\results\`, bench `scripts/nemotron-bench.py`.
       Lightning and Nano-4B on the 285K against the nightly, same 100 GB
       watchdog, compare Nano-4B current vs grouped. `upstream-watch` opens
       an issue on a new head, or once on 2026-11-16 if none came.
-- [ ] 285K iGPU (Arrow Lake) blowup on the grouped Lightning IR: wait for
-      the #2085 thread; the 140V laptop iGPU would say if it is Xe-LPG+
-      only (16-25 GB budget, so expect a refusal either way; still a result).
+- [x] 285K iGPU blowup: no XMX, so no MoE on GPU; Intel says so in
+      openvino#34415 and docs/dev/moe-offload.md had it since 2026-09-11.
+      The contributor pointed it out on #2085 (2026-11-04).
+- [ ] Lightning on the 140V laptop iGPU (XMX, 25.5 GB budget, 15.6 GB of
+      weights): nightly 2026.5.0.dev20261102, bare genai.
 - [ ] Lightning through the NoLlama server on the B60 once a release
       OpenVINO carries GroupedMatMul (nightly-only today: no installer entry).
