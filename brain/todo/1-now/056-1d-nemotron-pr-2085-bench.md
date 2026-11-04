@@ -38,18 +38,32 @@ JSONs in `C:\devel\nemotron\results\`, bench `scripts/nemotron-bench.py`.
   5.13 + torch 2.10 the experts export as grouped MatMul (#1947) and become
   GatherMatmul, int4 kept. Contributor's synthetic 1-layer test: CPU
   5.46 -> 1.35 GB after load, decode 11 -> 96 tok/s. He asked us to retry
-  Lightning. Round 3 on the 285K (`venv-nemotron-nightly`, `*-grouped`
-  IRs, run3.log/mem3.log) started 2026-11-03.
+  Lightning. Round 3, nightly 2026.5.0.dev20261102 [OBSERVED 2026-11-03/04]:
+  grouped export 15.7 min (was 43), `GroupedMatMul` x46. 285K CPU loads
+  it: 31 GB private, all correct, 21-25 tok/s, TTFT 16k 175 s. 285K iGPU
+  still killed at 102.6 GB. B60 (`venv-nightly-1102` on the 5950X box):
+  loads in 53 s, ~23 GB host commit, all correct, 43-44 tok/s, TTFT 16k
+  4.8 s. Nano-4B (no MoE layers) bmm vs grouped identical within noise.
+  Reply 2 posted on #2085 2026-11-04 (issuecomment-6629397783).
+  Caveat for re-runs: the B60 box's watchdog read 0 GB; Store Python's
+  process is not named `python` there. Match on the venv path.
 
 ## Done when
 
 - [x] Reply posted on #2085 2026-11-02 (issuecomment-6589414327).
 - [x] Nano-4B on the B60, bare genai, then the server (2026-11-03).
 - [ ] Nano-4B on the 140V laptop (iGPU), bare genai, then the server.
-- [ ] Lightning again on the grouped-MatMul MoE export. rkazants
+- [x] Lightning on the grouped-MatMul export: CPU and B60 run it, the
+      285K iGPU does not (2026-11-04). Was: Lightning again on the
+      grouped-MatMul MoE export. rkazants
       (2026-11-03) pointed the contributor at optimum-intel#1947 (merged
       2026-10-30, `torch._grouped_mm`, already handles non-gated experts),
       to be tested on openvino-nightly. On a new #2085 head: re-export
       Lightning and Nano-4B on the 285K against the nightly, same 100 GB
       watchdog, compare Nano-4B current vs grouped. `upstream-watch` opens
       an issue on a new head, or once on 2026-11-16 if none came.
+- [ ] 285K iGPU (Arrow Lake) blowup on the grouped Lightning IR: wait for
+      the #2085 thread; the 140V laptop iGPU would say if it is Xe-LPG+
+      only (16-25 GB budget, so expect a refusal either way; still a result).
+- [ ] Lightning through the NoLlama server on the B60 once a release
+      OpenVINO carries GroupedMatMul (nightly-only today: no installer entry).
