@@ -317,10 +317,26 @@ Three hypotheses died on the way, and each is worth not re-running:
 - **Not the BIOS.** A flash from 1.14 (N4IET28W) to 1.16 (N4IET30W) happened
   in the same session and looked causal for a while. It was not — the
   elevation is what changed the outcome. Do not spend a reflash on this.
-- **Not the registry.** `SharedSystemMemorySize`, `DedicatedSegmentSize` and
+- **Not the adapter key.** `SharedSystemMemorySize`, `DedicatedSegmentSize` and
   `AllowSharedMemoryOverride` under the adapter key are **absent in both
   states**, at 16.5 GB and at 25.3 GB. Reading them tells you nothing; they
   are not the mechanism.
+
+**The real lever is one registry value** [OBSERVED 2026-10-04, #38]:
+`HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers\MemoryManager`,
+`SystemPartitionCommitLimitPercentage`. The Intel app is only a front end
+for it; this laptop read 87 while the budget was 27.2 GB. Found by
+TL-A-B-S in #38, whose slider never committed even elevated. When the app
+will not take, set it directly from an elevated shell and reboot (57 is
+the default):
+
+```powershell
+reg add "HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers\MemoryManager" /v SystemPartitionCommitLimitPercentage /t REG_DWORD /d 87 /f
+```
+
+[OBSERVED 2026-11-06] Driver .9150 reset it to 57 here (budget back to
+16.45 GB), and elevating the app no longer helped. Check the value after
+every driver update.
 
 **The only trustworthy check** is the runtime's own view:
 
