@@ -38,7 +38,8 @@ curl http://localhost:8000/v1/chat/completions -H "Content-Type: application/jso
 ```
 
 Ollama clients work too, on port 11434. Images, streaming, Whisper
-transcription, and every flag: [docs/API.md](docs/API.md).
+transcription with segment and word timestamps, and every flag:
+[docs/API.md](docs/API.md).
 
 ## What to expect
 
@@ -54,7 +55,7 @@ it cannot drive a coding agent at all. Treat it as a short-document and
 side-task device, not a daily driver. That gap is closing fast, and the NPU is
 the part of this that gets interesting.
 
-The installer uses the NPU for speech-to-text, not chat. Whisper small runs about 20x faster than real time there, as accurate as on the CPU. The push-to-talk button in the web UI talks to it. Chat, coding and vision models go on the GPU or the CPU.
+The installer uses the NPU for speech-to-text, not chat. Whisper small runs about 20x faster than real time there, as accurate as on the CPU. The push-to-talk button in the web UI talks to it. Ask for `response_format=verbose_json` and you get segment and word timestamps in OpenAI's shape, enough for subtitles or karaoke. Word timing costs: a minute of song took 1.4 s plain and 7.1 s with words on the NPU, and the first word request waits a bit over two minutes while that pipeline compiles. Chat, coding and vision models go on the GPU or the CPU.
 
 Below ~3B, expect trouble. Asked for the capital of Norway, a 1.5B once answered
 that "Norway is a small island". Fine for testing the plumbing.
@@ -71,7 +72,7 @@ reads your generation and your runtime and warns when it loads a pairing that
 is known bad on that runtime. If you are picking models by hand,
 [docs/MODELS.md](docs/MODELS.md) carries the per-generation notes.
 
-**Raising the iGPU memory budget.** On Core Ultra the iGPU gets about half of system RAM by default, and a 13 GB model plus a KV pool does not fit in half of 32 GB. Intel Graphics Software has a "Shared GPU Memory Override" slider for it (driver 101.6987 and up). Run the app as Administrator; unelevated the toggle is greyed out and the app crashes, on two machines so far. If the slider refuses to stick, which one user hit on an Arc Pro 140T across three drivers ([#38](https://github.com/aweussom/NoLlama/issues/38)), set the value it writes directly, from an elevated PowerShell:
+**Raising the iGPU memory budget.** On Core Ultra the iGPU gets about half of system RAM by default, and a 13 GB model plus a KV pool does not fit in half of 32 GB. Intel Graphics Software has a "Shared GPU Memory Override" slider for it (driver 101.6987 and up). Run the app as Administrator; unelevated the toggle is greyed out and the app crashes, on two machines so far. That stopped working for me too: driver 32.0.101.9150 reset my value to 57, and the elevated app would not take a new one. If the slider refuses to stick, which one user also hit on an Arc Pro 140T across three drivers ([#38](https://github.com/aweussom/NoLlama/issues/38)), set the value it writes directly, from an elevated PowerShell:
 
 ```powershell
 reg add "HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers\MemoryManager" /v SystemPartitionCommitLimitPercentage /t REG_DWORD /d 70 /f
