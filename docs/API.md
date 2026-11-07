@@ -406,8 +406,37 @@ with open("jfk.wav", "rb") as f:
   loudness, so quiet speech still goes through; `--whisper-min-spread`
   sets it (default 10 dB, 0 disables). A phrase the model repeats four or
   more times back to back is cut to one copy.
-- `response_format`: `json` (default, `{"text": ...}`) or `text`. No
-  `verbose_json`, no timestamps, no `translate` endpoint.
+- `response_format`: `json` (default, `{"text": ...}`), `text`, or
+  `verbose_json`. Anything else (`srt`, `vtt`) is a 400. No `translate`
+  endpoint.
+- `timestamp_granularities[]`: `segment` and/or `word`, with
+  `verbose_json` only (default `segment`, as OpenAI). The answer has
+  `task`, `language` (what you sent, or null; the detected language is not
+  reported), `duration`, `text`, and `segments` (`id`, `start`, `end`,
+  `text`) and/or `words` (`word`, `start`, `end`), in seconds. OpenAI's
+  `avg_logprob`, `no_speech_prob` and friends are left out, not faked.
+  The repeat-loop cut above is not applied here: it would remove repeated
+  choruses, and the words would stop matching the text.
+
+  ```python
+  r = client.audio.transcriptions.create(model="whisper", file=f, language="en",
+      response_format="verbose_json", timestamp_granularities=["segment", "word"])
+  for w in r.words: print(w.start, w.end, w.word)
+  ```
+
+  Word timestamps need a second Whisper pipeline, built on the first word
+  request, because one built for words aligns on every call. On the NPU
+  that first request takes about 2.5 minutes, and later ones are about 5x
+  a plain call (60 s of song: 1.4 s plain, 7.1 s with words); CPU and GPU
+  pay seconds [OBSERVED 2026-11-07, whisper-small int8, 258V laptop, genai
+  2026.4.1, bare and through the server, same 15 segments / 111 words on
+  NPU, CPU and GPU]. The first word of a song can absorb the instrumental
+  intro (0.00 to 7.10 s for "I" in that test); segment starts are the
+  better anchor there.
+- Send 32-bit float WAV if you can (`ffmpeg -ac 1 -ar 16000 -c:a pcm_f32le`).
+  The same minute as 16-bit WAV gave 14 segments with different
+  boundaries instead of 15, in bare genai as well as the server
+  [OBSERVED 2026-11-07, one song; not yet checked on others].
 - `model` is accepted and ignored; the loaded Whisper answers.
 
 ### Other endpoints

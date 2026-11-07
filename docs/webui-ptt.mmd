@@ -3,7 +3,7 @@
 %% Legend: solid = normal path, dashed = refused/empty/failure paths,
 %%         ALL-CAPS nodes = prose annotations.
 %% covers: static/js/app.js:initPushToTalk,pttDefaultLanguage,pttStart,pttStop,pttStopTracks,pttFinish,pttToWav,pttEncodeWav,pttInsert,pttNotice
-%% covers: nollama.py:audio_transcriptions,_load_audio,audio_level_spread,collapse_repeat_loop
+%% covers: nollama.py:audio_transcriptions,_load_audio,audio_level_spread,collapse_repeat_loop,transcribe_timed,whisper_verbose_json
 flowchart TB
   initPushToTalk["initPushToTalk<br/>GET /health: whisper.status ready?<br/>fill language picker"]
   pttDefaultLanguage["pttDefaultLanguage<br/>localStorage, else navigator.language<br/>nb/nn -> no"]
@@ -40,6 +40,13 @@ flowchart TB
   audio_level_spread --- SPREADWHY
 
   collapse_repeat_loop --> pttInsert["pttInsert<br/>at the cursor, never auto-sent"]
+
+  apiclient(["API client, not the web UI:<br/>response_format=verbose_json,<br/>timestamp_granularities segment/word"]) --> audio_transcriptions
+  audio_transcriptions -.->|"srt/vtt, unknown granularity,<br/>granularities without verbose_json"| bad400["400"]
+  audio_level_spread -->|"yes, verbose_json (T-057)"| transcribe_timed["WhisperSlot.transcribe_timed<br/>return_timestamps; word pipeline<br/>built on first word request"]
+  transcribe_timed --> whisper_verbose_json["whisper_verbose_json<br/>segments / words, start/end in s"]
+  TIMEDWHY["NO LOOP COLLAPSE ON TIMED OUTPUT:<br/>it would cut repeated choruses,<br/>and words would no longer match text.<br/>WORD PIPELINE IS SEPARATE: it aligns on every<br/>call, 1.4 s -> 7.1 s per minute on the NPU"]
+  transcribe_timed --- TIMEDWHY
   empty -.-> pttNotice["pttNotice<br/>placeholder for 3 s:<br/>Nothing heard / failure"]
   pttFinish -.->|"HTTP error / decode failure"| pttNotice
 
@@ -48,6 +55,6 @@ flowchart TB
   classDef client fill:#fef9c3,stroke:#854d0e,color:#000
   classDef warn fill:#ffedd5,stroke:#9a3412,color:#000
   class initPushToTalk,pttDefaultLanguage,pttStart,pttStop,pttFinish,pttStopTracks route
-  class pttToWav,pttEncodeWav,audio_transcriptions,_load_audio,audio_level_spread,generate,collapse_repeat_loop gen
-  class press,release,pttInsert,pttNotice,hidden,disabled,empty client
-  class SECURE,WAVWHY,SPREADWHY warn
+  class pttToWav,pttEncodeWav,audio_transcriptions,_load_audio,audio_level_spread,generate,collapse_repeat_loop,transcribe_timed,whisper_verbose_json gen
+  class press,release,pttInsert,pttNotice,hidden,disabled,empty,apiclient,bad400 client
+  class SECURE,WAVWHY,SPREADWHY,TIMEDWHY warn

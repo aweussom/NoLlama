@@ -4307,6 +4307,42 @@ def collapse_repeat_loop(text, min_repeats=4, max_phrase=10):
     return " ".join(out)
 
 
+def whisper_verbose_json(result, duration, language, want_segments, want_words):
+    """Shape a genai Whisper result as OpenAI's verbose_json transcript.
+
+    Why: clients built for OpenAI's /v1/audio/transcriptions (the openai
+    SDK's `verbose_json` + `timestamp_granularities`) read `segments` and
+    `words` with start/end in seconds; matching that shape lets one client
+    switch between a hosted model and NoLlama by base_url alone (T-057).
+
+    In: WhisperDecodedResults or None (silence guard skipped the clip), the
+    clip length in seconds, the requested ISO language or None, and which
+    granularities were asked for. Out: dict with task, language, duration,
+    text, plus `segments` and/or `words` as asked. genai's word and segment
+    text carries Whisper's leading space; it is stripped, as OpenAI does.
+    Segment fields genai does not give (avg_logprob, no_speech_prob,
+    tokens, ...) are left out rather than faked; `language` is None when
+    the caller did not set one, since genai does not report what it detected.
+    """
+    body = {"task": "transcribe", "language": language,
+            "duration": round(duration, 2), "text": ""}
+    segments, words = [], []
+    if result is not None:
+        body["text"] = (result.texts[0] if result.texts else "").strip()
+        for i, chunk in enumerate(result.chunks or []):
+            segments.append({"id": i, "start": round(chunk.start_ts, 2),
+                             "end": round(chunk.end_ts, 2),
+                             "text": chunk.text.strip()})
+        for w in result.words or []:
+            words.append({"word": w.word.strip(), "start": round(w.start_ts, 2),
+                          "end": round(w.end_ts, 2)})
+    if want_segments:
+        body["segments"] = segments
+    if want_words:
+        body["words"] = words
+    return body
+
+
 class EmbedSlot:
     """Holds a TextEmbeddingPipeline — serves /v1/embeddings and /api/embed.
 
@@ -4515,6 +4551,8 @@ class WhisperSlot:
         self.device_id = device_id or device_name
         self.device_full = ""
         self.pipe = None
+        self.word_pipe = None  # built on the first word-timestamp request, see transcribe_timed
+        self.model_dir = None
         self.model_name = ""
         self.model_type = "stt"
         self.status = "not_configured"
@@ -4536,6 +4574,7 @@ class WhisperSlot:
         mismatch = ir_runtime_mismatch(model_dir)
         if mismatch:
             raise RuntimeError(mismatch)
+        self.model_dir = model_dir
         self.pipe = WhisperPipe(str(model_dir), self.device_id)
 
     def warmup(self):
@@ -4584,6 +4623,61 @@ class WhisperSlot:
                   f"{len(collapsed.split())} words", flush=True)
             return collapsed
         return text
+
+    def transcribe_timed(self, audio_samples, language=None, want_words=False):
+        """Transcribe with segment timestamps, and word timestamps if asked.
+
+        Why: verbose_json (OpenAI's timed transcript, T-057) needs start/end
+        per segment and per word; karaoke and subtitles are built on them.
+        Word timestamps need a pipeline built with word_timestamps=True, and
+        that pipeline pays for word alignment on EVERY call, asked or not:
+        60 s of song on the NPU went from 1.4 s to 7.1 s per call, and the
+        load from 37 s to 137 s [OBSERVED 2026-11-07, whisper-model, 258V
+        NPU 4, genai 2026.4.1; CPU 4.2 -> 5.5 s, GPU 1.9 -> 2.2 s]. So the
+        plain pipeline keeps serving push-to-talk and segment requests, and
+        a second one is built on the first word request.
+
+        In: float32 numpy at 16 kHz, optional ISO language, want_words.
+        Out: the genai WhisperDecodedResults (texts, chunks, words), or None
+        when the silence guard skips the clip. The repeat-loop collapse is
+        NOT applied: it would cut repeated choruses out of a song, and the
+        timestamps could no longer line up with the text. A loop it would
+        have cut is logged instead. The first word request blocks for the
+        word pipeline's compile, minutes on the NPU, and says so in the log.
+        """
+        if WHISPER_MIN_SPREAD_DB > 0:
+            spread = audio_level_spread(audio_samples)
+            if spread < WHISPER_MIN_SPREAD_DB:
+                print(f"{datetime.now():%H:%M:%S} -- [{self.device_name}] Whisper "
+                      f"skipped: level spread {spread:.1f} dB < {WHISPER_MIN_SPREAD_DB:g} "
+                      f"(silence or steady noise; --whisper-min-spread)", flush=True)
+                return None
+        kwargs = {"return_timestamps": True}
+        if language:
+            kwargs["language"] = f"<|{language}|>"
+            kwargs["task"] = "transcribe"
+        with self.lock:
+            pipe = self.pipe
+            if want_words:
+                if self.word_pipe is None:
+                    print(f"{datetime.now():%H:%M:%S} .. [{self.device_name}] Building "
+                          f"the word-timestamp Whisper pipeline (first word request; "
+                          f"minutes on the NPU, seconds elsewhere)", flush=True)
+                    t0 = time.perf_counter()
+                    self.word_pipe = ovg.WhisperPipeline(
+                        str(self.model_dir), self.device_id, word_timestamps=True)
+                    print(f"{datetime.now():%H:%M:%S} .. [{self.device_name}] "
+                          f"Word-timestamp pipeline ready in "
+                          f"{time.perf_counter() - t0:.1f}s", flush=True)
+                pipe = self.word_pipe
+                kwargs["word_timestamps"] = True
+            result = pipe.generate(audio_samples, **kwargs)
+        text = result.texts[0] if result.texts else ""
+        if len(collapse_repeat_loop(text).split()) < len(text.split()):
+            print(f"{datetime.now():%H:%M:%S} -- [{self.device_name}] Whisper "
+                  f"repeat loop left in place (timed transcript; would collapse "
+                  f"{len(text.split())} words)", flush=True)
+        return result
 
     @property
     def info(self):
@@ -5435,7 +5529,18 @@ def cancel_generation():
 
 @app.route("/v1/audio/transcriptions", methods=["POST"])
 def audio_transcriptions():
-    """OpenAI-compatible speech-to-text. Accepts multipart form with audio file."""
+    """OpenAI-compatible speech-to-text. Accepts multipart form with audio file.
+
+    Why: the STT surface clients already speak. `json`/`text` give the
+    transcript; `verbose_json` adds segment and word timestamps (T-057),
+    which is what karaoke and subtitle tools are built on.
+
+    In: multipart `file`, optional `language`, `response_format` (json,
+    text, verbose_json), `timestamp_granularities[]` (segment, word;
+    verbose_json only, default segment, as OpenAI). Out: JSON or text;
+    400 for any other format or granularity, or granularities without
+    verbose_json, rather than quietly answering in a shape nobody asked for.
+    """
     if not whisper_slot or whisper_slot.status != "ready":
         return openai_error(
             "No speech-to-text model loaded. Use --whisper-dir.", "server_error", 503,
@@ -5447,6 +5552,22 @@ def audio_transcriptions():
     audio_file = request.files["file"]
     language = request.form.get("language")
     response_format = request.form.get("response_format", "json")
+    if response_format not in ("json", "text", "verbose_json"):
+        return openai_error(
+            f"response_format '{response_format}' is not supported; "
+            "use json, text or verbose_json")
+    # The openai SDK sends the list as repeated `timestamp_granularities[]`
+    # fields; curl users tend to drop the brackets. Accept both.
+    granularities = (request.form.getlist("timestamp_granularities[]")
+                     + request.form.getlist("timestamp_granularities"))
+    unknown = [g for g in granularities if g not in ("segment", "word")]
+    if unknown:
+        return openai_error(
+            f"timestamp_granularities {unknown} not supported; use segment and/or word")
+    if granularities and response_format != "verbose_json":
+        return openai_error("timestamp_granularities needs response_format=verbose_json")
+    if response_format == "verbose_json" and not granularities:
+        granularities = ["segment"]
 
     try:
         audio_samples = _load_audio(audio_file)
@@ -5457,6 +5578,25 @@ def audio_transcriptions():
     lang_tag = f", lang={language}" if language else ""
     print(f"\n{datetime.now():%H:%M:%S} <- [{whisper_slot.device_name}] "
           f"Whisper {duration:.1f}s audio{lang_tag}", flush=True)
+
+    if response_format == "verbose_json":
+        want_words = "word" in granularities
+        t0 = time.perf_counter()
+        try:
+            result = whisper_slot.transcribe_timed(
+                audio_samples, language=language, want_words=want_words)
+        except Exception as e:
+            print(f"{datetime.now():%H:%M:%S} !! [{whisper_slot.device_name}] "
+                  f"Whisper error: {e}", flush=True)
+            return openai_error(f"Transcription failed: {e}", "server_error", 500)
+        body = whisper_verbose_json(result, duration, language,
+                                    "segment" in granularities, want_words)
+        elapsed = time.perf_counter() - t0
+        print(f"{datetime.now():%H:%M:%S} -> [{whisper_slot.device_name}] "
+              f"Whisper {len(body['text'])} chars, "
+              f"{len(body.get('segments', []))} segments, "
+              f"{len(body.get('words', []))} words in {elapsed:.1f}s", flush=True)
+        return jsonify(body)
 
     t0 = time.perf_counter()
     try:
