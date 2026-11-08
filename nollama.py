@@ -2303,8 +2303,6 @@ def parse_tool_calls(text, tools):
 class DeviceSlot:
     """One loaded model on one device."""
 
-    backend = "genai"  # which runtime serves this slot (surfaced in /health)
-
     def __init__(self, device_name, device_id=None, npu_platform=None):
         """Bare slot, nothing loaded; every field's meaning is inline below.
 
@@ -3379,7 +3377,6 @@ class DeviceSlot:
             "type": self.model_type,
             "device": self.device_full,
             "device_name": self.device_name,   # canonical NPU/GPU/CPU (routing/checks)
-            "backend": self.backend,            # always "genai" since the optimum backend went (N-033); kept for /health clients
             "tools": _tools_supported(self),    # can this slot drive an agent loop?
             "prewarmed": self.prewarmed,        # did the --prewarm prefill succeed
             "kv_pool_gb": self.kv_pool_gb or None,  # resolved KV pool (null: no prefix cache)
