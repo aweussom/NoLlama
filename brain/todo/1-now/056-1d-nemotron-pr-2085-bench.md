@@ -52,7 +52,16 @@ JSONs in `C:\devel\nemotron\results\`, bench `scripts/nemotron-bench.py`.
 
 - [x] Reply posted on #2085 2026-11-02 (issuecomment-6589414327).
 - [x] Nano-4B on the B60, bare genai, then the server (2026-11-03).
-- [ ] Nano-4B on the 140V laptop (iGPU), bare genai, then the server.
+- [x] Nano-4B on the 140V laptop, bare genai, then the server
+      [OBSERVED 2026-11-08]: grouped IR copied from the 285K, nightly
+      2026.5.0.dev20261102, driver .9150. All correct, needle 3/3 on every
+      arm. iGPU 35-38 tok/s, TTFT 1k/4k/16k 1.4/3.2/17.8 s; CPU (258V)
+      14-22 tok/s, 12.6/59.8/252.5 s. Server (7621ea4, same nightly venv,
+      flask/pillow/soundfile added to `venv-nightly-1102`): all correct,
+      ~37 tok/s; its TTFTs are not comparable, the needle prompts share a
+      filler prefix and the cache serves it. The Ollama surface reports no
+      durations, so the bench's server timings are junk; read the server
+      log. The 2026.4.1 `venv` refuses this IR (our IR-version guard).
 - [x] Lightning on the grouped-MatMul export: CPU and B60 run it, the
       285K iGPU does not (2026-11-04). Was: Lightning again on the
       grouped-MatMul MoE export. rkazants
@@ -65,7 +74,15 @@ JSONs in `C:\devel\nemotron\results\`, bench `scripts/nemotron-bench.py`.
 - [x] 285K iGPU blowup: no XMX, so no MoE on GPU; Intel says so in
       openvino#34415 and docs/dev/moe-offload.md had it since 2026-09-11.
       The contributor pointed it out on #2085 (2026-11-04).
-- [ ] Lightning on the 140V laptop iGPU (XMX, 25.5 GB budget, 15.6 GB of
-      weights): nightly 2026.5.0.dev20261102, bare genai.
+- [x] Lightning on the 140V laptop iGPU, bare genai [OBSERVED 2026-11-08]:
+      nightly 2026.5.0.dev20261102, driver .9150, budget 24.7 GB (override
+      85), 31.5 GB RAM. Loads in 29 s, all correct, needle 3/3, 23-28
+      tok/s, TTFT 1k/4k/16k 2.1/4.9/21.0 s. Bench process peaks 22.1 GB
+      private at the 16k needle; free RAM bottoms at 0.7 GB, commit 33.9
+      GB, so it leans on the pagefile briefly. A first run with a
+      free-RAM < 1.5 GB kill died 42 s into the load (started with 16.6 GB
+      free vs 20.9 the second time): on a 32 GB laptop, close things first.
+      JSON: `C:\devel\nemotron\results\` on the laptop. Reply 3 posted on
+      #2085 2026-11-08 (issuecomment-6722201082).
 - [ ] Lightning through the NoLlama server on the B60 once a release
       OpenVINO carries GroupedMatMul (nightly-only today: no installer entry).

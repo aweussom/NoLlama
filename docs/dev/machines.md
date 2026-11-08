@@ -338,6 +338,10 @@ reg add "HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers\MemoryManager" /v
 16.45 GB), and elevating the app no longer helped. Check the value after
 every driver update.
 
+[OBSERVED 2026-11-08] Set to 85 from PowerShell, rebooted: the runtime
+reports 24.7 GB on driver 32.0.101.9150. The direct write survives where
+the app did not.
+
 **The only trustworthy check** is the runtime's own view:
 
 ```powershell
