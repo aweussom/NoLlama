@@ -15,14 +15,11 @@
 %%          client (yellow) = external effects, warn (orange) = annotations.
 %% Updated 2026-10-02: ir_runtime_mismatch refuses an IR newer than the runtime
 %%   before any pipeline is built (T-009); every slot type checks it.
-%% covers: nollama.py:_gpu_keepalive,_keepalive_eligible,_LoadProgress,_load_time_key,_remembered_load_time,_record_load_time,main,needs_optimum,is_vlm,_verify_weights_integrity,ir_runtime_mismatch,_runtime_pair,read_ir_rt_info,_resolve_kv_pool,_gpu_is_integrated,_preflight_memory,_preflight_verdict,_largest_weight_tensor_bytes,_gpu_large_alloc_props,npu_arch_warning,load,warmup,_prewarm_slot,_idle_watchdog,ensure_loaded,_reload_failed,_build_pipeline,unload,_load_in_background
-%% (_slot_class is nested inside main and invisible to the checker's AST scan
-%%  — its box below is covered via main.)
+%% covers: nollama.py:_gpu_keepalive,_keepalive_eligible,_LoadProgress,_load_time_key,_remembered_load_time,_record_load_time,main,is_vlm,_verify_weights_integrity,ir_runtime_mismatch,_runtime_pair,read_ir_rt_info,_resolve_kv_pool,_gpu_is_integrated,_preflight_memory,_preflight_verdict,_largest_weight_tensor_bytes,_gpu_large_alloc_props,npu_arch_warning,load,warmup,_prewarm_slot,_idle_watchdog,ensure_loaded,_reload_failed,_build_pipeline,unload,_load_in_background
+%% Updated 2026-11-08: _slot_class and the OptimumSlot branch are gone (N-033);
+%%   every LLM/VLM slot is a DeviceSlot.
 flowchart TB
-  main["main<br/>ports, devices, flag policy"] --> _slot_class
-  _slot_class{"_slot_class<br/>--backend / NEEDS_OPTIMUM"}
-  _slot_class -->|"genai (default)"| load
-  _slot_class -.->|"nemotron_h or --backend optimum"| optimum_load["OptimumSlot.load<br/>python runtime, no prefix cache,<br/>text-only even for VLM-shaped exports"]
+  main["main<br/>ports, devices, flag policy"] --> load
 
   main --> _load_in_background["_load_in_background<br/>one thread per slot; prints the ready
   banner once when ALL slots settled"]
@@ -69,7 +66,6 @@ flowchart TB
   npu_pipe --> _LoadDone
   plain_pipe --> _LoadDone
   cb_fallback --> _LoadDone
-  optimum_load --> warmup
 
   warmup --> _prewarm_slot{"_prewarm_slot<br/>PREWARM_FILE + live kv pool<br/>AND slot is PREWARM_SLOT?"}
   _prewarm_slot -->|"yes: prefill saved prompt<br/>(VLM replays via parse_messages<br/>so the token prefix matches)"| ready["ready<br/>(first real turn = cache hit)"]
@@ -233,8 +229,8 @@ flowchart TB
   classDef gen fill:#e6ffe6,stroke:#00b300,color:#000
   classDef client fill:#ffffcc,stroke:#b3b300,color:#000
   classDef warn fill:#fec,stroke:#a60,color:#000
-  class _gpu_keepalive,main,_slot_class,_verify_weights_integrity,ir_runtime_mismatch,_resolve_kv_pool,_preflight_memory,alloc_gate,_gpu_large_alloc_props,pipebuild,npu_arch,_prewarm_slot,_idle_watchdog,_load_in_background route
-  class load,optimum_load,npu_pipe,npu_warn,cb_pipe,plain_pipe,cb_fallback,template_probe,warmup,ready,ensure_loaded gen
+  class _gpu_keepalive,main,_verify_weights_integrity,ir_runtime_mismatch,_resolve_kv_pool,_preflight_memory,alloc_gate,_gpu_large_alloc_props,pipebuild,npu_arch,_prewarm_slot,_idle_watchdog,_load_in_background route
+  class load,npu_pipe,npu_warn,cb_pipe,plain_pipe,cb_fallback,template_probe,warmup,ready,ensure_loaded gen
   class embed_load,embed_warm,embed_ready gen
   class _LoadProgress,_LoadDone client
   class loaderr,unload,poisoned_slot,_reload_failed client

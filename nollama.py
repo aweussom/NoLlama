@@ -138,38 +138,6 @@ def is_vlm(model_dir):
         return False
 
 
-# Architectures openvino_genai pipelines cannot run, served through
-# optimum-intel's python runtime (OptimumSlot) instead. Empty today.
-# nemotron_h left this set on 2026-11-03: the optimum-intel#2085 export of
-# Nemotron-3-Nano-4B runs on bare LLMPipeline (285K CPU + iGPU, 5950X CPU,
-# B60) and through the server on the B60 with the prefix cache on, all
-# answers right [OBSERVED 2026-11-03, genai 2026.4.1, T-056]; the optimum
-# backend meanwhile failed to load it on the B60's main venv. muse_glimmer
-# left on 2026-08-18:
-# every Glimmer export in existence (Intel's official one and ours) is
-# VLM-shaped, and VLMPipeline feeds its language model from embeddings by
-# design — the "takes inputs_embeds" problem only ever ruled out
-# LLMPipeline. So Glimmer is served as a plain VLM (verified on the 2026.4
-# GenAI nightly, B60 2026-08-18, ~14 tok/s vs 8-11 on optimum). If an
-# LLM-shaped Glimmer export ever appears, put it back; meanwhile
-# --backend optimum still forces the python runtime for any model.
-NEEDS_OPTIMUM = set()
-
-
-def needs_optimum(model_dir):
-    """True when this model must run on the optimum-intel python backend.
-
-    Reads the *top-level* model_type deliberately (not _text_config): for a
-    VLM-shaped export, the top-level type is the one that names the
-    architecture GenAI would have to support.
-    """
-    try:
-        with open(os.path.join(model_dir, "config.json")) as f:
-            return json.load(f).get("model_type", "").lower() in NEEDS_OPTIMUM
-    except Exception:
-        return False
-
-
 # Model families that compile cleanly, decode at full speed, and return wrong
 # tokens anyway — on one NPU generation only. Keyed by config.json model_type,
 # valued by the DEVICE_ARCHITECTURE strings where that was measured.
@@ -1359,16 +1327,12 @@ def describe_model(model_dir):
         kind = "VLM (vision + text)"
     else:
         kind = "LLM (text)"
-    if needs_optimum(model_dir):
-        kind += ", served text-only via optimum backend"
 
     return {
         "path": os.path.abspath(model_dir),
         "name": name,
         "name_source": why,
         "kind": kind,
-        "backend": "optimum-intel (python runtime)" if needs_optimum(model_dir)
-                   else "openvino_genai",
         "architecture": (cfg.get("architectures") or [None])[0],
         "model_type": cfg.get("model_type"),
         "layers": geo.get("num_hidden_layers"),
@@ -1462,13 +1426,6 @@ def scan_models(paths):
         if info["model_type"] and info["architecture"]:
             arch += f" / {info['model_type']}"
         print(f"    Architecture   : {arch}")
-        if info["backend"] != "openvino_genai":
-            note = ""
-            import importlib.util
-            if importlib.util.find_spec("optimum") is None:
-                note = ("  — NOT importable in this python; serve from the "
-                        "model-lab venv (see README)")
-            print(f"    Backend        : {info['backend']}{note}")
         print(f"    Weights        : {info['precision']}", end="")
         if info["size_bytes"]:
             print(f"   {info['size_bytes'] / (1 << 30):,.1f} GB on disk")
@@ -1586,7 +1543,7 @@ def usage_block(usage):
     a zero-token prompt. Clients that do arithmetic on usage should see an
     obvious sentinel rather than a plausible lie.
 
-    In: the dict extract_usage (or OptimumSlot) filled, possibly empty or
+    In: the dict extract_usage filled, possibly empty or
     None. Out: {prompt_tokens, completion_tokens, total_tokens}; -1 in every
     field unless both counts are present.
     """
@@ -2372,7 +2329,7 @@ class DeviceSlot:
         self.model_dir = None            # remembered so we can reload after unload
         self.last_ttft_ms = None         # last request's time-to-first-token (prefix-cache hit ≈ low)
         self.prewarmed = False           # did _prewarm_slot succeed for this load
-        self.supports_prefix_cache = True  # GenAI CB backend can prefix-cache; OptimumSlot can't
+        self.supports_prefix_cache = True  # every DeviceSlot; Whisper/Embed slots lack the attr (getattr default False)
         self.kv_pool_gb = 0              # resolved KV pool for THIS slot (_resolve_kv_pool)
         self._atem = False               # Muse Glimmer channel stream needs translating
         self.think_preseeded = False     # chat template opens <think> in the generation prompt (Qwen3.5/3.8)
@@ -3145,8 +3102,7 @@ class DeviceSlot:
 
         `prompt`, when given, is an already-rendered chat prompt
         (render_native_tool_prompt): generated as-is, template off, and
-        raw_messages is then ignored. OptimumSlot's twin has no such
-        parameter; the caller only passes it to a genai slot.
+        raw_messages is then ignored.
 
         `usage`, when given, is filled by the worker from generate's return
         value (extract_usage) BEFORE the end sentinel is queued, so it is
@@ -3423,7 +3379,7 @@ class DeviceSlot:
             "type": self.model_type,
             "device": self.device_full,
             "device_name": self.device_name,   # canonical NPU/GPU/CPU (routing/checks)
-            "backend": self.backend,            # genai or optimum runtime
+            "backend": self.backend,            # always "genai" since the optimum backend went (N-033); kept for /health clients
             "tools": _tools_supported(self),    # can this slot drive an agent loop?
             "prewarmed": self.prewarmed,        # did the --prewarm prefill succeed
             "kv_pool_gb": self.kv_pool_gb or None,  # resolved KV pool (null: no prefix cache)
@@ -3434,106 +3390,16 @@ class DeviceSlot:
 
 
 # ---------------------------------------------------------------------------
-# Optimum-intel slot — python-runtime backend for architectures GenAI can't run
+# Stream filters: ATEM channels, <think> spans, tool-call gating
 # ---------------------------------------------------------------------------
-
-class _AtemStreamFilter:
-    """Incremental translator for Muse Glimmer's ATEM channel stream.
-
-    The model emits harmony-style channels after the generation prompt
-    ('<|start|>assistant'): ' to=self<|message|>reasoning<|eom|>' then
-    '<|start|>assistant to=user<|message|>answer<|eot|>'. NoLlama's surface
-    for reasoning is <think> blocks (the web UI collapses them, agents skip
-    them), so: to=self content -> <think>...</think>, to=user -> plain text,
-    tool channels (to=<name>) -> passthrough (the ATEM XML flows to
-    parse_tool_calls). Feed decoded text WITH special tokens; markers may
-    split across chunks, so a possible marker prefix is held back.
-    """
-
-    _MARKERS = ("<|start|>", "<|message|>", "<|eom|>", "<|eot|>", "<|return|>")
-    _END = ("<|eom|>", "<|eot|>", "<|return|>")
-
-    def __init__(self):
-        """Fresh filter, one per generation — state below is per-stream."""
-        self._buf = ""
-        self._in_header = True   # generation prompt ends mid-header
-        self._thinking = False
-        self._done = False
-
-    def _held_tail(self):
-        """Length of the buffer tail that could be the start of a marker."""
-        for ln in range(min(len(self._buf), 11), 0, -1):
-            tail = self._buf[-ln:]
-            if any(m.startswith(tail) for m in self._MARKERS):
-                return ln
-        return 0
-
-    def feed(self, text):
-        """Translate one decoded chunk; safe to call with any split point.
-
-        Why the buffer-and-hold dance: markers split arbitrarily across
-        chunks, so a possible marker prefix at the buffer tail is held back
-        (_held_tail) rather than emitted — emitting half a marker would leak
-        channel soup into the client. In: decoded text WITH special tokens.
-        Out: the translated text ready to emit now ('' while holding).
-        """
-        if self._done:
-            return ""
-        self._buf += text
-        out = []
-        while True:
-            if self._in_header:
-                i = self._buf.find("<|message|>")
-                if i < 0:
-                    break  # header still streaming — swallow, wait
-                header = self._buf[:i]
-                self._buf = self._buf[i + len("<|message|>"):]
-                self._in_header = False
-                if "to=self" in header:
-                    self._thinking = True
-                    out.append("<think>")
-                continue
-            hits = [(self._buf.find(m), m) for m in self._MARKERS]
-            hits = [(p, m) for p, m in hits if p >= 0]
-            if not hits:
-                held = self._held_tail()
-                emit = self._buf[:-held] if held else self._buf
-                self._buf = self._buf[-held:] if held else ""
-                if emit:
-                    out.append(emit)
-                break
-            pos, marker = min(hits)
-            if self._buf[:pos]:
-                out.append(self._buf[:pos])
-            self._buf = self._buf[pos + len(marker):]
-            if self._thinking and marker in self._END:
-                out.append("</think>\n")
-                self._thinking = False
-            if marker in ("<|eot|>", "<|return|>"):
-                self._done = True  # end of turn — drop any trailing decode
-                self._buf = ""
-                break
-            if marker in ("<|eom|>", "<|start|>"):
-                self._in_header = True  # next channel header follows
-        return "".join(out)
-
-    def close(self):
-        """Flush whatever remains (worker ended mid-channel)."""
-        rest = "" if (self._in_header or self._done) else self._buf
-        self._buf = ""
-        if self._thinking:
-            self._thinking = False
-            return rest + "</think>\n"
-        return rest
-
 
 class _AtemPlainFilter:
     """ATEM channel translator for the GenAI path, where the markers are gone.
 
     VLMPipeline strips special tokens when decoding (GenerationConfig has no
     skip_special_tokens; only Tokenizer.decode takes one, and the pipeline
-    doesn't expose it), so unlike _AtemStreamFilter there is no <|start|> or
-    <|message|> to key on. What survives of Muse Glimmer's channel framing is
+    doesn't expose it), so there is no <|start|> or <|message|> to key on
+    (the marker-keyed filter went with the optimum backend, 2026-11-08). What survives of Muse Glimmer's channel framing is
     the routing the model emits as ordinary text: generation begins mid-header
     (the prompt ends with '<|start|>assistant'), so the stream opens with
     'to=self' glued straight onto the reasoning, and the channel switch
@@ -3541,14 +3407,14 @@ class _AtemPlainFilter:
     pair between them detokenizes to nothing. [OBSERVED 2026-08-18] shape
     verified against real VLMPipeline output (B60).
 
-    Same surface as _AtemStreamFilter: to=self content -> <think>...</think>,
+    Surface: to=self content -> <think>...</think>,
     to=user -> plain text; ATEM XML tool calls are ordinary text and pass
     through to parse_tool_calls. A tool turn ends in a to=<name> channel
     rather than to=user, so the think block also closes at the first
     <atem:function_calls> — any 'assistant to=<name>' header glued in front
     of it stays hidden inside the think block (channel names are glued to
     their content; there is no delimiter to split them out reliably).
-    Necessarily more fragile than the marker filter — 'assistant to=user'
+    Necessarily more fragile than keying on markers — 'assistant to=user'
     could legitimately occur inside reasoning content — but the alternative
     is raw channel soup in every client.
     """
@@ -3575,7 +3441,7 @@ class _AtemPlainFilter:
     def feed(self, text):
         """Translate one detokenized chunk; safe to call with any split point.
 
-        Same hold-back contract as _AtemStreamFilter.feed, but keyed on the
+        A possible marker prefix is held back across chunks, keyed on the
         plain-text routing words that survive detokenization (see the class
         docstring for why the markers are gone on this path). In: decoded
         text, special tokens already stripped. Out: text to emit now
@@ -3641,7 +3507,7 @@ class _AtemPlainFilter:
         return rest
 
 
-def _prompt_preseeds_think(tokenizer, hf=False):
+def _prompt_preseeds_think(tokenizer):
     """True when the chat template itself opens a <think> block at the end of the prompt.
 
     Why: Qwen3.5/3.8-style templates append '<think>\n' to the assistant turn,
@@ -3651,19 +3517,14 @@ def _prompt_preseeds_think(tokenizer, hf=False):
     entirely in delta.content]. Rendering one dummy turn through the loaded
     tokenizer answers it exactly, per model, at load time.
 
-    In: a genai Tokenizer (pipe.get_tokenizer()) or, hf=True, a transformers
-    tokenizer; None is accepted. Out: bool — False on any failure (no
+    In: a genai Tokenizer (pipe.get_tokenizer()); None is accepted. Out: bool — False on any failure (no
     template, runtime without apply_chat_template), never an exception.
     """
     if tokenizer is None:
         return False
     msgs = [{"role": "user", "content": "hi"}]
     try:
-        if hf:
-            rendered = tokenizer.apply_chat_template(msgs, add_generation_prompt=True,
-                                                     tokenize=False)
-        else:
-            rendered = tokenizer.apply_chat_template(msgs, add_generation_prompt=True)
+        rendered = tokenizer.apply_chat_template(msgs, add_generation_prompt=True)
     except Exception:
         return False
     return str(rendered).rstrip().endswith("<think>")
@@ -3892,326 +3753,6 @@ class _ToolCallGate:
         if out.strip():
             self._emitted = True
         return out
-
-
-_HF_PENALTY_NOTED = [False]
-
-
-def _hf_gen_kwargs(gen):
-    """Translate the routes' ovg.GenerationConfig into transformers generate
-    kwargs. The routes keep building GenAI configs (no churn there); the
-    optimum backend translates at the edge."""
-    kw = dict(max_new_tokens=gen.max_new_tokens, do_sample=bool(gen.do_sample),
-              repetition_penalty=gen.repetition_penalty)
-    if gen.do_sample:
-        # Greedy is do_sample=False alone — the routes' top_k=1 is a GenAI-ism.
-        kw.update(temperature=gen.temperature, top_p=gen.top_p, top_k=int(gen.top_k))
-    if any(getattr(gen, a, 0) for a in ("frequency_penalty", "presence_penalty")):
-        if not _HF_PENALTY_NOTED[0]:
-            print("  [optimum] frequency/presence penalties are not supported by "
-                  "transformers generate — ignored (repetition_penalty still applies)",
-                  flush=True)
-            _HF_PENALTY_NOTED[0] = True
-    return kw
-
-
-class OptimumSlot(DeviceSlot):
-    """One model served through optimum-intel's python runtime instead of an
-    openvino_genai pipeline — for the NEEDS_OPTIMUM architectures GenAI can't
-    run (none today; nemotron_h moved to GenAI 2026-11-03), and for anything
-    forced here with --backend optimum. Muse Glimmer lived here until Intel's VLM-shaped
-    export moved it to the GenAI path (2026-08-18); this slot remains its
-    fallback on release runtimes whose VLMPipeline lacks the arch.
-
-    TEXT-ONLY for now: model_type reports "llm" even for a VLM-shaped export
-    like Muse Glimmer, so the routes reject images with a clean 400 and hand
-    us role-structured messages (the VLM paths flatten roles away). No prefix
-    cache (that's a GenAI CB-scheduler feature) — prewarm and the KV-pool
-    preflight are gated off via supports_prefix_cache.
-    """
-
-    backend = "optimum"
-
-    def __init__(self, device_name, device_id=None, npu_platform=None):
-        """DeviceSlot fields plus the HF pair; prefix cache off from birth.
-
-        Why supports_prefix_cache=False here and not at load: _resolve_kv_pool
-        and _prewarm_slot consult it, and both can run before/without a
-        successful load — the capability is a property of the backend, not of
-        a loaded model. npu_platform is accepted for signature parity with
-        DeviceSlot (the optimum backend has no NPU path, so it is unused).
-        """
-        super().__init__(device_name, device_id, npu_platform=npu_platform)
-        self.supports_prefix_cache = False
-        self.model = None
-        self.tokenizer = None
-
-    def _lazy_import(self):
-        """Import the heavy stack at load time (soundfile pattern): plain
-        installs don't carry optimum/transformers, and GenAI-only serving
-        must not pay the torch import."""
-        try:
-            import transformers  # noqa: F401
-            import optimum.intel  # noqa: F401
-        except ImportError as e:
-            raise RuntimeError(
-                f"{self.model_name} needs the optimum-intel python backend, "
-                f"but it is not installed in this python ({e}). Serve from the "
-                f"model-lab venv instead (see README: scripts/glimmer-export "
-                f"builds it; one-time 'pip install flask openvino-genai')."
-            )
-        # transformers 5.16-dev materializes checkpoint shards in a 4-worker
-        # thread pool with no env knob; parallel mmap copies die with a native
-        # access violation (0xC0000005) on 32 GB machines. Serialize — same
-        # workaround as scripts/glimmer-export/run-export.py.
-        import transformers.core_model_loading as _cml
-        _cml.GLOBAL_WORKERS = 1
-
-    def load(self, model_dir):
-        """Load through optimum-intel: integrity check, GPU-corruption warning
-        keyed on the OpenVINO version (issue #37419, fixed in 2026.4), then
-        OVModelForVisualCausalLM for VLM-shaped exports / OVModelForCausalLM
-        for plain LMs — the visual class is structural, needed even for
-        text-only generate on a VLM-shaped export like Glimmer.
-        """
-        self.status = "loading"
-        self.model_dir = model_dir
-        self.model_name = model_display_name(model_dir)
-        self.model_type = "llm"  # text-only phase, even when the export is VLM-shaped
-        print(f"  [{self.device_name}] Detected: LLM ({self.model_name}, "
-              f"optimum backend)")
-        integrity_err = _verify_weights_integrity(model_dir)
-        if integrity_err:
-            raise RuntimeError(integrity_err)
-        mismatch = ir_runtime_mismatch(model_dir)
-        if mismatch:
-            raise RuntimeError(mismatch)
-        self._preflight_memory(vlm=False)
-        self._lazy_import()
-        if self.device_name == "GPU":
-            # The corruption is OpenVINO-version-dependent, so key the warning
-            # on the runtime rather than the device. On 2026.3 every GPU tested
-            # was wrong: Xe-LPG died at warmup on a dynamic-shape op; Xe2 (140V,
-            # Windows), Xe3 (B390, Linux — issue #24) and discrete Battlemage
-            # (Arc Pro B60) warmed up fine and SILENTLY computed garbage — the
-            # model half-perceives the prompt and greedy-loops, while the same
-            # IR is correct on CPU. [OBSERVED 2026-08-15] fixed on
-            # 2026.4.0.dev20260814 (B60): the issue's own repro now quotes the
-            # prompt verbatim on GPU. Warn before the compile, which costs minutes.
-            try:
-                import openvino as _ov
-                _ov_ver = _ov.__version__
-            except Exception:
-                _ov_ver = ""
-            # 2026.4+ (including its nightlies) carries the fix; anything older
-            # is a known-bad combination for this backend. Compare numerically,
-            # not as strings: "2026.10" < "2026.4" lexically but not in fact.
-            _m = re.match(r"(\d+)\.(\d+)", _ov_ver or "")
-            _fixed = bool(_m) and (int(_m.group(1)), int(_m.group(2))) >= (2026, 4)
-            if _fixed:
-                print(f"  [GPU] NOTE: the optimum backend on GPU corrupted "
-                      f"output on OpenVINO <=2026.3 (issue #37419); this "
-                      f"runtime ({_ov_ver}) is past the fix. Sanity-check the "
-                      f"first reply anyway — the failure is silent.",
-                      flush=True)
-            else:
-                print(f"  [GPU] WARNING: the optimum backend on GPU produces "
-                      f"CORRUPTED OUTPUT on OpenVINO <=2026.3 — every device "
-                      f"tested (Xe-LPG/Xe2/Xe3 iGPUs and the discrete Arc Pro "
-                      f"B60) fails, silently (openvino issue #37419). This "
-                      f"runtime is {_ov_ver or 'unknown'}. Use --device CPU, "
-                      f"or 2026.4+ where it is verified fixed.",
-                      flush=True)
-        print(f"  [{self.device_name}] Loading (optimum-intel runtime)...",
-              flush=True)
-        from optimum.intel import OVModelForCausalLM, OVModelForVisualCausalLM
-        from transformers import AutoTokenizer
-        # Structural pick: a VLM-shaped export (Glimmer) must go through the
-        # visual class even for text-only generate; nemotron_h is a plain LM.
-        cls = OVModelForVisualCausalLM if is_vlm(model_dir) else OVModelForCausalLM
-        try:
-            self.model = cls.from_pretrained(model_dir, device=self.device_id)
-        except KeyError as e:
-            raise RuntimeError(
-                f"transformers {__import__('transformers').__version__} does not "
-                f"know this architecture ({e}) — the model-lab venv carries "
-                f"transformers from git main, which does.")
-        self.tokenizer = AutoTokenizer.from_pretrained(model_dir)
-        # We always pass max_new_tokens; a max_length in the model's
-        # generation_config.json makes transformers warn about the pair on
-        # every request. Drop it once here instead.
-        if getattr(self.model, "generation_config", None) is not None:
-            self.model.generation_config.max_length = None
-        # Muse Glimmer streams ATEM channel markers (reasoning/user/tool
-        # routing) — those need translating; other architectures stream plain
-        # text and get special tokens stripped at the streamer instead.
-        try:
-            with open(os.path.join(model_dir, "config.json")) as f:
-                self._atem = json.load(f).get("model_type") == "muse_glimmer"
-        except Exception:
-            self._atem = False
-        self.pipe = self.model  # inherited ensure_loaded/unload key on .pipe
-        self.think_preseeded = _prompt_preseeds_think(self.tokenizer, hf=True)
-
-    def _stopping_criteria(self):
-        """Cancel hook for transformers generate — polls slot._cancel.
-
-        Why: this backend has no streamer-callback return-True protocol, so
-        /v1/cancel needs a StoppingCriteria instead. Checked per decode step —
-        same limitation as GenAI: a blocked prefill can't be interrupted.
-        """
-        from transformers import StoppingCriteria, StoppingCriteriaList
-
-        slot = self
-
-        class _CancelStop(StoppingCriteria):
-            def __call__(self, input_ids, scores, **kwargs):
-                return slot._cancel.is_set()
-
-        return StoppingCriteriaList([_CancelStop()])
-
-    def _generate_unlocked(self, raw_messages, hf_kwargs, streamer=None):
-        """The bare generate call, no locking — exists because ensure_loaded()
-        calls warmup() while HOLDING self.lock (non-reentrant), mirroring how
-        DeviceSlot.warmup talks to the pipeline directly.
-
-        Out: (prompt_tokens, completion_tokens). HF generate returns prompt
-        and continuation as one id row, so the split is the rendered
-        prompt's length; this backend has no perf_metrics to read instead.
-        """
-        inputs = self.tokenizer.apply_chat_template(
-            raw_messages, add_generation_prompt=True,
-            return_tensors="pt", return_dict=True)
-        if debug:
-            # The request dump above shows messages as the CLIENT sent them
-            # (pre-sanitization); this is the prompt the model actually gets.
-            print(f"{datetime.now():%H:%M:%S} [DEBUG/{self.device_name}] "
-                  f"rendered prompt:\n"
-                  f"{self.tokenizer.decode(inputs['input_ids'][0])}",
-                  flush=True)
-        out = self.model.generate(
-            **inputs, streamer=streamer,
-            stopping_criteria=self._stopping_criteria(),
-            pad_token_id=self.tokenizer.eos_token_id, **hf_kwargs)
-        n_in = int(inputs["input_ids"].shape[-1])
-        return n_in, int(out.shape[-1]) - n_in
-
-    def warmup(self):
-        """Same contract as DeviceSlot.warmup, via _generate_unlocked because
-        ensure_loaded() calls this while already holding self.lock."""
-        self.status = "warming_up"
-        print(f"  [{self.device_name}] Warmup...", flush=True)
-        t0 = time.perf_counter()
-        self._generate_unlocked([{"role": "user", "content": "Hi"}],
-                                dict(max_new_tokens=5, do_sample=False))
-        print(f"  [{self.device_name}] Warmup done "
-              f"({time.perf_counter() - t0:.1f}s)", flush=True)
-        self.status = "ready"
-        self.last_used = time.time()
-
-    def stream_tokens(self, raw_messages, gen, heartbeat, tag="", cancel=None, usage=None):
-        """Same contract as DeviceSlot.stream_tokens, over TextIteratorStreamer.
-
-        The per-request `cancel` token is bound to self._cancel inside the
-        lock exactly as in the genai seam; _stopping_criteria polls
-        self._cancel, so it sees this request's token and no other.
-        `usage` is filled from _generate_unlocked's counts, and the promise
-        is the same "complete once exhausted" — but kept differently: HF's
-        generate calls streamer.end() itself, BEFORE it returns, so the
-        consumer can see StopIteration while the worker has yet to write the
-        counts. The generator therefore joins the worker at end of stream;
-        generate has already finished by then, so the join is immediate.
-        """
-        from transformers import TextIteratorStreamer
-
-        # ATEM models need the channel markers (special tokens) visible to the
-        # filter; plain models get them stripped by the streamer directly.
-        atem = _AtemStreamFilter() if getattr(self, "_atem", False) else None
-        streamer = TextIteratorStreamer(
-            self.tokenizer, skip_prompt=True,
-            skip_special_tokens=atem is None,
-            timeout=heartbeat)  # None → block forever (non-stream join)
-        self._stream_error = None
-        if cancel is None:
-            cancel = threading.Event()
-
-        def _generate():
-            try:
-                with self.lock:
-                    if cancel.is_set():
-                        streamer.end()  # client gone while queued; release the consumer
-                        return
-                    self._cancel = cancel
-                    n_in, n_out = self._generate_unlocked(raw_messages, _hf_gen_kwargs(gen),
-                                                          streamer=streamer)
-                    self.last_used = time.time()
-                if usage is not None:
-                    usage["prompt_tokens"], usage["completion_tokens"] = n_in, n_out
-            except Exception as e:
-                self._stream_error = e
-                print(f"{datetime.now():%H:%M:%S} !! [{self.device_name}] "
-                      f"{tag}generate error: {e}", flush=True)
-                # Same contract as the genai slot: the GPU under this backend
-                # is the same GPU, so CL_OUT_OF_RESOURCES poisons it the same
-                # way and the slot must go out of service (issue #38).
-                self._note_poisoned(e)
-                streamer.end()  # unblock the consumer even on pre-generate failure
-
-        t = threading.Thread(target=_generate, daemon=True)
-        t.start()
-
-        it = iter(streamer)
-        while True:
-            try:
-                chunk = next(it)
-            except Empty:  # TextIteratorStreamer raises queue.Empty on timeout
-                if not t.is_alive():
-                    return
-                yield None  # heartbeat marker
-                continue
-            except StopIteration:
-                t.join(timeout=5)  # usage is written after generate's own streamer.end()
-                tail = atem.close() if atem else ""
-                if tail:
-                    yield tail
-                return
-            if atem is not None:
-                chunk = atem.feed(chunk)
-            if chunk:
-                yield chunk
-
-    def generate_llm(self, raw_messages, gen, usage=None):
-        """Non-streaming = joined stream: one code path, wall-clock TTFT
-        (extract_perf has nothing to read on this backend). `usage` passes
-        straight through to stream_tokens."""
-        t0 = time.perf_counter()
-        chunks = []
-        for chunk in self.stream_tokens(raw_messages, gen, heartbeat=None, usage=usage):
-            if not chunks:
-                self.last_ttft_ms = (time.perf_counter() - t0) * 1000
-            chunks.append(chunk)
-        if self._stream_error is not None:
-            raise self._stream_error
-        return "".join(chunks).strip()
-
-    def generate_vlm(self, text_prompt, images, gen, raw_prompt=False, usage=None):
-        """Refuse loudly: the routes reject images first (model_type is 'llm'),
-        so reaching this means a routing bug — fail, don't improvise."""
-        raise RuntimeError("vision path not enabled on the optimum backend yet")
-
-    def stream_vlm(self, text_prompt, images, gen, completion_id, created, t0,
-                   raw_prompt=False, include_usage=False):
-        """Refuse loudly — same contract as generate_vlm above."""
-        raise RuntimeError("vision path not enabled on the optimum backend yet")
-
-    def unload(self):
-        """Idle unload: also drop the HF model/tokenizer refs — .pipe aliases
-        .model here, so clearing only .pipe would keep the weights alive."""
-        if self.pipe is None:
-            return
-        self.model = None
-        self.tokenizer = None
-        super().unload()
 
 
 # ---------------------------------------------------------------------------
@@ -5184,9 +4725,9 @@ def _prewarm_slot(slot):
             and getattr(slot, "supports_prefix_cache", False)
             and getattr(slot, "kv_pool_gb", 0)):
         # No live cache pool — a prewarm prefill would burn a full 30B-scale
-        # prefill at startup for nothing (OptimumSlot; slots whose runtime
-        # rejected the scheduler config and fell back to the plain pipeline,
-        # which zero kv_pool_gb at load).
+        # prefill at startup for nothing (slots whose runtime rejected the
+        # scheduler config and fell back to the plain pipeline, which zero
+        # kv_pool_gb at load).
         return
     # Only the slot plain text routes to. In dual mode the OTHER slot exists
     # for an agent's SIDE requests — OpenCode's small_model, which sends short
@@ -5674,11 +5215,10 @@ def chat_completions():
                 prepare_messages_for_tools(messages, tools), max_dim)
         except Exception as e:
             return openai_error(f"Failed to parse request: {e}")
-        # --tool-template native: genai LLM slots only. A VLM prompt carries
-        # image tags the renderer does not know, and OptimumSlot's seam takes
-        # messages, not a prompt string.
+        # --tool-template native: LLM slots only. A VLM prompt carries
+        # image tags the renderer does not know.
         if (TOOL_TEMPLATE == "native" and slot.model_type == "llm"
-                and not isinstance(slot, OptimumSlot) and slot.model_dir):
+                and slot.model_dir):
             native_prompt = render_native_tool_prompt(slot.model_dir, messages, tools)
     elif tools:
         print(f"{datetime.now():%H:%M:%S} -- [{slot.device_name}] "
@@ -6968,13 +6508,6 @@ def parse_args():
                         "(name, precision, architecture, integrity) and exit. "
                         "Searches the NoLlama directory and ~/models by "
                         "default; pass directories to search those instead.")
-    p.add_argument("--backend", choices=("auto", "genai", "optimum"),
-                   default="auto",
-                   help="Runtime for LLM/VLM slots: openvino_genai pipelines "
-                        "(genai), optimum-intel python runtime (optimum), or "
-                        "pick per model (auto — optimum only for architectures "
-                        "GenAI can't run: "
-                        f"{', '.join(sorted(NEEDS_OPTIMUM)) or 'none today'}).")
     return p.parse_args()
 
 
@@ -7135,58 +6668,20 @@ def main():
         print(f"ERROR: Embedding model directory not found: {args.embed_model_dir}")
         sys.exit(1)
 
-    # 4b. Pick the serving backend per model. GenAI pipelines are the default;
-    # NEEDS_OPTIMUM architectures (or --backend optimum) go through the
-    # optimum-intel python runtime instead.
-    def _slot_class(mdir):
-        if args.backend == "genai":
-            return DeviceSlot
-        if args.backend == "optimum":
-            return OptimumSlot
-        return OptimumSlot if needs_optimum(mdir) else DeviceSlot
-
-    primary_cls = _slot_class(model_dir)
-    secondary_cls = _slot_class(args.gpu_model_dir) if args.gpu_model_dir else None
-
-    if OptimumSlot in (primary_cls, secondary_cls):
-        # Fast wrong-venv check (find_spec only — no heavy imports): the
-        # common failure is running from a plain install, and the load-time
-        # error would otherwise arrive minutes later, mid-startup.
-        import importlib.util
-        missing = [m for m in ("optimum", "transformers")
-                   if importlib.util.find_spec(m) is None]
-        if missing:
-            print(f"ERROR: this model needs the optimum-intel backend, but "
-                  f"{'/'.join(missing)} is not installed in this python.")
-            print("Serve from the model-lab venv instead — see README "
-                  "(scripts\\glimmer-export builds it; one-time: "
-                  "pip install flask openvino-genai).")
-            sys.exit(1)
-
-    if primary_cls is OptimumSlot and device == "NPU":
-        if args.device.upper() == "NPU":
-            print("ERROR: this model runs on the optimum-intel backend, which "
-                  "has no NPU path. Use --device GPU or CPU.")
-            sys.exit(1)
-        # AUTO resolved to NPU — re-route to a device the backend can drive.
-        device = "GPU" if "GPU" in devices else "CPU"
-        print(f"  [auto] optimum-backend model — using {device} (NPU has no "
-              f"optimum path)", flush=True)
-
     # 5. Create device slots
     npu_plat = devices.get("NPU", {}).get("platform", "")
     if embed_only:
         primary = None
         all_slots = []
     else:
-        primary = primary_cls(device, _id_of(device), npu_platform=npu_plat)
+        primary = DeviceSlot(device, _id_of(device), npu_platform=npu_plat)
         all_slots = [primary]
 
     if args.gpu_model_dir:
         if "GPU" not in devices:
             print("WARNING: --gpu-model-dir given but no GPU detected. Ignoring.")
         else:
-            secondary = secondary_cls("GPU", _id_of("GPU"), npu_platform=npu_plat)
+            secondary = DeviceSlot("GPU", _id_of("GPU"), npu_platform=npu_plat)
             all_slots.append(secondary)
 
     # Resolve the prewarm target now, from the topology, while nothing has
@@ -7303,17 +6798,9 @@ def main():
         )
         watchdog.start()
     elif PREWARM_FILE and not args.prewarm:
-        if primary_cls is OptimumSlot and secondary_cls is not DeviceSlot:
-            # No GenAI LLM slot to warm — prompts are still captured to the
-            # file (useful if the model later moves to a GenAI export), but
-            # nothing prefills at startup. Don't promise otherwise.
-            print(f"  Prewarm: inert on the optimum backend (no prefix cache); "
-                  f"prompts still captured to "
-                  f"{os.path.basename(PREWARM_FILE)}", flush=True)
-        else:
-            print(f"  Prewarm auto-enabled (--idle-timeout 0): "
-                  f"{os.path.basename(PREWARM_FILE)} (--no-prewarm to disable)",
-                  flush=True)
+        print(f"  Prewarm auto-enabled (--idle-timeout 0): "
+              f"{os.path.basename(PREWARM_FILE)} (--no-prewarm to disable)",
+              flush=True)
 
     # Suppress Flask's default "Serving Flask app" banner — we have our own
     import logging

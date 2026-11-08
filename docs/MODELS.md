@@ -442,129 +442,20 @@ What to know before switching:
   prompt does every turn). Prewarm covers VLM slots too, so a restart
   prefills the captured agent prompt before the first request (Glimmer/B60:
   first turn 12.4s → 0.65s TTFT). Images are untested on Glimmer.
-- `--backend optimum` still forces the old path (needs `venv-optimum/`).
 
-## Brand-new architectures: the optimum backend
+## Brand-new architectures: no second backend any more
 
-Some architectures land in optimum-intel (export) before openvino_genai
-(serving) learns to run them. None do today: NVIDIA Nemotron (`nemotron_h`)
-moved to GenAI on 2026-11-03, when the optimum-intel#2085 export of
-Nemotron-3-Nano-4B ran on plain LLMPipeline on CPU, iGPU and the B60 (the
-30B-A3B Lightning export does not load yet, upstream). Muse Glimmer lived
-here until Intel's official export (above), and its history fills the rest
-of this section. NoLlama
-serves these through optimum-intel's python runtime instead: detection is
-automatic (`--scan` shows a `Backend` line; `--backend` overrides), tool
-calling works, and both API surfaces behave identically. Differences from
-GenAI slots: **text-only for now** (images get a clean 400), no prefix
-cache / prewarm (a GenAI feature), no `--offload-ratio`, and no NPU. GPU
-support also depends on the OpenVINO GPU plugin executing the model's
-dynamic-shape graph. On OpenVINO **2026.3 and earlier, no Intel GPU runs
-Glimmer correctly on this backend — integrated or discrete** — so on a
-release runtime, use `--device CPU`. **Fixed in 2026.4** (verified on the
-nightly, see below):
-
-- **2026.4.0.dev20260814** (Arc Pro B60, 2026-08-15): the issue's own repro
-  script now quotes the prompt **verbatim** on GPU and reasons coherently to
-  the right answer, where 2026.3 misquoted it and answered a question that
-  was never asked. Decode also went from ~2 to **8–9 tok/s** — nine times the
-  CPU control on the same box, which turns Glimmer-on-GPU from
-  verification-only into something usable. NoLlama checks the runtime version
-  at load and downgrades its GPU warning to a note on 2026.4+.
-
-  **So Glimmer on an Intel GPU is coming, and we know it works** — but the
-  fix is only in a nightly today, and NoLlama stays leading edge rather
-  than bleeding edge. It moves into `install.ps1`/`models.json` when 2026.4
-  ships as a *release* (and the stack gate closes too — see `TODONT.md`,
-  "nightly stack in the default install"); until then the manual path
-  below is the honest
-  offering. Sanity-check your first reply regardless: the failure mode was
-  always silent.
-
-The 2026.3 evidence, kept because it's what the version check is protecting
-you from:
-
-- **Xe-LPG** (desktop Arrow Lake iGPU): fails loudly at warmup
-  (`Count is called for dynamic shape`).
-- **Xe2** (Arc 140V, Windows, verified 2026-08-13): loads and warms up
-  fine, then **silently computes garbage** — the model half-perceives the
-  prompt (drops words) and greedy decoding degenerates into a two-word
-  loop inside the think channel. The same IR with the same sampling params
-  comprehends and complies perfectly on CPU. There is no error to catch:
-  the only symptom is a model that seems drunk.
-- **Xe3** (Arc B390 iGPU in Core Ultra X7 358H, **Linux**, community
-  report in issue #24, 2026-08-13): identical corruption fingerprint —
-  same "the user message is garbled" half-perception, same think-loop
-  hang under greedy. Three iGPU generations and two OSes rule out any
-  Windows-driver or Xe2-specific theory. (Runtime confirmed after the fact
-  as `2026.3.0-22451` — a release, not the 2026.4 nightly, so it is *this*
-  bug and not a hole in Intel's fix. The same device runs Glimmer correctly
-  on the GenAI path — see above.)
-- **Discrete Battlemage** (Arc Pro B60 24 GB, Windows, verified
-  2026-08-15): **same corruption.** Dedicated VRAM does not save it, which
-  kills the shared-memory theory the iGPU-only evidence had suggested.
-  "Say hi" returned `Respond directly.` in the think channel — the system
-  prompt restated with most of its words missing — then the `HELLO!`
-  prompt looped until cancelled, GPU pegged near 100% the whole time. It
-  is a runaway generation, not a deadlock: it would have ground on to
-  `max_tokens` and returned garbage.
-
-  Controlled on the same machine, same venv, same IR, same session: CPU
-  quoted the instruction back verbatim and answered `HELLO!` correctly.
-  That control matters more than it looks — `scripts\New-OptimumVenv.ps1` tracks
-  transformers `main`, so without it "the GPU is broken" and "transformers
-  regressed this week" fit the evidence equally well.
-
-  Read the *think channel*, not the answer — but note that restating the
-  system prompt there is normal Glimmer behaviour, on CPU too. The tell is
-  words going *missing* from that restatement, not the restatement itself.
-  (Distinct from the Xe2 case, where it quoted a system prompt that was
-  never sent at all — that one really is hallucination.)
-
-Four device classes across two OSes, so on 2026.3 this was plugin-wide rather
-than any one generation; tracked upstream as
-[openvinotoolkit/openvino#37419](https://github.com/openvinotoolkit/openvino/issues/37419),
-and **fixed in 2026.4**. Re-run the comprehension test on each new OpenVINO
-release anyway — and note the GenAI path was never affected: Qwen3.8-27B runs
-correctly on the same B60 on both runtimes.
-
-Test it yourself with `.\scripts\New-OptimumVenv.ps1 -Nightly`, which builds a second
-`venv-optimum-nightly/` and leaves the release venv intact as a control. Keep
-that control: without a same-venv, same-session CPU run, "the GPU plugin
-changed" and "transformers main moved" are indistinguishable, because
-`scripts\New-OptimumVenv.ps1` tracks git main for both.
-
-The catch is the python stack: these models need transformers **from git
-main** plus optimum-intel **from git main**, which no NoLlama venv pins.
-`scripts\New-OptimumVenv.ps1` (Windows and Linux, needs git on PATH) builds a
-dedicated `venv-optimum/` with the right stack in the right order — the
-order matters: optimum-intel pins `transformers<5.6`, so the git
-transformers goes in last to override it:
-
-```powershell
-.\scripts\New-OptimumVenv.ps1
-venv-optimum\Scripts\python.exe nollama.py --model-dir ~\models\Muse-Glimmer-30B-int4-ov --backend optimum --device CPU --idle-timeout 0
-```
-
-(`--device CPU` is deliberate — see the iGPU verdicts above. `--backend
-optimum` is now required for Glimmer: auto-detection routes its VLM-shaped
-export to the GenAI path, which this venv's release runtime can't run. If
-upstream main breaks, pin with `-TransformersRef <commit>` /
-`-OptimumIntelRef <commit>`.)
-
-Running a plain install against such a model exits immediately with an
-error naming this section instead of failing minutes into the load. When
-openvino_genai gains these architectures, `--backend genai` (or just
-re-exporting) moves them onto the faster path with prefix caching.
-
-Measured on this backend (Muse Glimmer 30B int4, short chat prompts,
-2026-08-13 — historical; Glimmer's current path is GenAI, see above):
-Core Ultra 7 258V laptop CPU 1.4 tok/s / TTFT 12.9 s; Core Ultra 9 285K
-desktop CPU 2.6 tok/s / TTFT 9.6 s. Dense-30B bandwidth physics — fine
-for verification, not agent loops; a 24 GB Arc-class card is the real
-host. Note Glimmer *always* reasons by default (`reasoning_strength`
-defaults to high in its template); the web UI's no-think toggle sends its
-native `Reasoning strength: low.` directive.
+Until 2026-11-08 NoLlama had a second serving backend on optimum-intel's
+python runtime (`--backend optimum`, `venv-optimum/`) for architectures that
+export before openvino_genai can run them. Its two tenants both moved to
+genai: Muse Glimmer on 2026-08-18 (above) and NVIDIA Nemotron (`nemotron_h`,
+the optimum-intel#2085 export) on 2026-11-03. With nothing left on it, it
+was removed. A model genai cannot run is now simply not served; `bare-probe.py`
+says so in minutes. The reasoning is in `TODONT.md`, "A second serving
+backend on optimum-intel's python runtime"; the old section, including the
+Glimmer GPU-corruption evidence behind
+[openvinotoolkit/openvino#37419](https://github.com/openvinotoolkit/openvino/issues/37419)
+(every Intel GPU on 2026.3, fixed in 2026.4), is in git history.
 
 ## Qwen3.8-27B: a release model since 2026.3.1
 

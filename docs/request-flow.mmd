@@ -50,7 +50,7 @@ flowchart TB
   _tools_supported -->|no tools| pathpick
 
   prepare_messages_for_tools --> pathpick
-  prepare_messages_for_tools -->|"--tool-template native,<br/>genai LLM slot"| render_native_tool_prompt
+  prepare_messages_for_tools -->|"--tool-template native,<br/>LLM slot"| render_native_tool_prompt
   render_native_tool_prompt["render_native_tool_prompt<br/>the model's own chat_template.jinja via<br/>_load_native_template (sandboxed jinja2):<br/>its tool list, its call syntax, its tool role.<br/>native_prompt rides to the LLM seam,<br/>generated with the pipeline template off"]
   render_native_tool_prompt -->|native_prompt| pathpick
   render_native_tool_prompt -.->|"no template / render raised:<br/>None, the Qwen-XML render stands"| pathpick

@@ -37,9 +37,7 @@ RUN mkdir -p /tmp/neo && cd /tmp/neo && \
 
 # Serving dependencies only. requirements.txt is deliberately NOT used: it
 # also carries optimum-intel/transformers, which exist for model *export* —
-# and nothing is ever exported or downloaded inside a container. Cost of that
-# choice: the `--backend optimum` path is unavailable here, so the
-# NEEDS_OPTIMUM architectures (nemotron_h) cannot be served from this image.
+# and nothing is ever exported or downloaded inside a container.
 COPY requirements-container.txt /tmp/requirements-container.txt
 RUN python3 -m venv /opt/venv && \
     /opt/venv/bin/pip install --no-cache-dir -r /tmp/requirements-container.txt && \

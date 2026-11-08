@@ -20,23 +20,18 @@ a given model.
 
 ## The venvs
 
-Four, none interchangeable. Activate before running.
+Two, not interchangeable. Activate before running.
 
 | venv | Built by | Stack | Use for |
 |---|---|---|---|
 | `venv/` | `install.ps1` | `requirements.txt` — OpenVINO 2026.4 release + genai 2026.4, transformers `<5` (4.57.6), optimum-intel `>=1.27` | Everything normal. **Qwen3-Next conversions must use this one** — the exporter refuses to run on transformers 5.x |
 | `venv-nightly/` | `install.ps1 -Nightly` | `requirements-nightly.txt` + nightly OpenVINO/genai/tokenizers wheels (2026.5.x), transformers `==5.2`, optimum-intel from git | Dating an upstream fix before it reaches a release (LFM2 on NPU 4, #37501, whisper on NPU 4). No `models.json` entry needs it since 2026.3.1; kept on purpose (N-002, 2026-10-24) |
-| `venv-optimum/` | `scripts\New-OptimumVenv.ps1` | transformers **and** optimum-intel from git `main`, release runtime | `NEEDS_OPTIMUM` architectures via `--backend optimum` |
-| `venv-optimum-nightly/` | `scripts\New-OptimumVenv.ps1 -Nightly` | same, nightly runtime | Testing an OpenVINO GPU fix while `venv-optimum/` stays as the control |
 
 Things that keep biting:
 
 - The transformers pin in `requirements.txt` (`<5`) is the **opposite** of
   the one in `requirements-nightly.txt` (`==5.2`), on purpose. Read the
   comment blocks in both files before "harmonising" them.
-- `scripts\New-OptimumVenv.ps1` tracks git `main` for two packages, so without a
-  same-venv, same-session CPU control run, "the GPU plugin changed" and
-  "transformers main moved" are indistinguishable. Keep the control.
 - Nightly wheels move daily and carry no reproducibility promise, which is
   why `venv/` must keep pointing at `requirements.txt` (see `TODONT.md`,
   "Making the nightly OpenVINO stack the default install").
@@ -45,27 +40,20 @@ Things that keep biting:
   `==2026.5.0.dev<date>` for openvino, openvino-tokenizers and
   openvino-genai together.
 
-## Two serving backends
+## One serving backend
 
-Most models run on **openvino_genai** (`LLMPipeline`/`VLMPipeline`) — the
-fast path, and everything else in these notes assumes it.
+Every model runs on **openvino_genai** (`LLMPipeline`, `VLMPipeline`,
+`WhisperPipeline`, `TextEmbeddingPipeline`).
 
-Some architectures land in optimum-intel (export) before openvino_genai
-(serving) learns to run them. Those are served through **optimum-intel's
-python runtime** instead: `NEEDS_OPTIMUM` in `nollama.py`, empty since
-2026-11-03, when `nemotron_h` (optimum-intel#2085 export) was seen running on
-bare LLMPipeline and through the server on CPU, iGPU and the B60 (T-056). Detection is automatic from `config.json`'s `model_type`;
-`--backend auto|genai|optimum` overrides, and `--scan` prints a `Backend`
-line.
+There used to be a second one: `OptimumSlot`, serving through optimum-intel's
+python runtime for architectures that exported before genai could run them
+(`NEEDS_OPTIMUM`, `--backend`, `venv-optimum/`). Both of its tenants moved to
+genai, Muse Glimmer on 2026-08-18 and `nemotron_h` on 2026-11-03 (T-056), and
+it was cut on 2026-11-08 (N-033). Why, and what would bring it back:
+`TODONT.md`, "A second serving backend on optimum-intel's python runtime".
 
-What an optimum slot does **not** get: images (clean 400), prefix cache,
-prewarm, `--offload-ratio`, NPU. Tool calling works, and both API surfaces
-behave identically.
-
-Muse Glimmer lived on this backend until Intel published a VLM-shaped
-export — it is now a plain GenAI VLM slot, and `muse_glimmer` is out of
-`NEEDS_OPTIMUM`. `--backend optimum` remains the escape hatch on a release
-runtime. See `docs/MODELS.md`.
+optimum-intel is still installed: it is the **export** stack
+(`download-model.ps1 -Convert`, `install.ps1`).
 
 ## Policy: leading edge, not bleeding edge
 

@@ -37,8 +37,9 @@ or CPU. The server still runs a chat model on the NPU when asked by hand.
   tool-call opener (`_ToolCallGate`); `<think>` spans travel as
   `reasoning_content` (`_ThinkSplitter`; `--think-in-content` restores the
   old shape). → `docs/dev/tool-calling.md`
-- Most models run on openvino_genai; a few need optimum-intel's python
-  runtime (`--backend`). → `docs/dev/runtime-stacks.md`
+- Every model runs on openvino_genai. The optimum-intel python-runtime
+  backend (`OptimumSlot`, `--backend`) was cut 2026-11-08 with no model on
+  it; optimum-intel stays as the export stack. → `docs/dev/runtime-stacks.md`
 - `models.json` — curated model registry (npu, gpu_vlm, gpu_llm, whisper,
   embed).
   `install.ps1` detects devices, asks speech-to-text first on NPU machines,
@@ -73,7 +74,7 @@ never inside.
 | `docs/dev/prefix-cache.md` | caching, KV pool sizing, prewarm, `--idle-timeout`, TTFT logging, `/health`, memory preflight |
 | `docs/dev/tool-calling.md` | `tools` handling, `render_tools_prompt`, `parse_tool_calls`, SSE heartbeat, agent-client quirks |
 | `docs/dev/models.md` | model discovery/naming, `--scan`, weight integrity, `download-model.ps1`, NPU export rule, the verified-model list |
-| `docs/dev/runtime-stacks.md` | installs, dependency pins, which venv runs what, genai vs optimum backend |
+| `docs/dev/runtime-stacks.md` | installs, dependency pins, which venv runs what, why there is no second serving backend |
 | `docs/dev/moe-offload.md` | `--offload-ratio` and anything XMX-dependent |
 | `docs/dev/machines.md` | which box to run a test on, and which one is off-limits |
 | `TODONT.md` | **anything structural** — it records approaches already rejected, with the reason |
