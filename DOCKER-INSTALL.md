@@ -656,7 +656,8 @@ replacing it costs you `libopenvino.so` and looks like a broken install.
   24.04 + upstream compute-runtime, NEO/IGC/GMM pinned as build args that
   move as a set. Model-free, 1.28 GB
 - `requirements-container.txt` — serving deps only. Dropping the export half
-  costs the `--backend optimum` path inside the image; documented
+  costs the `--backend optimum` path inside the image (the backend itself
+  was cut 2026-11-08, N-033); documented
 - `docker-compose.yml` — native Linux `/dev/dri`, **untested**, marked as
   such in the file itself. Publishes 8000 **and** 11434, binds models under
   their real directory names (1.1), `/state` volume for prewarm (1.7)

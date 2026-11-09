@@ -5,11 +5,15 @@ what is merely *built*, and what is in flight. Three minutes to read; updated at
 the end of a working session. If `README.md` disagrees, this one is younger —
 say so and fix the older.
 
-**As of 2026-10-29. Release `2026-10-29` cut that day (192 commits after `v1.0.0`),
-all on `main`.** Recent theme: the NPU's job is speech-to-text, not chat
-(Tommy, 2026-10-27); the installer asks for Whisper first on NPU machines and
-puts every generative model on the GPU or CPU (T-042, verified by real
-installs on the laptop, NPU 4, and the 285K, NPU 3, where medium is offered). A failed reload no longer sticks in `loading` (T-046).
+**As of 2026-11-09. Release `2026-11-08` cut that day (22 commits after
+`2026-10-29`), all on `main`.** Recent theme: NVIDIA Nemotron runs on
+openvino_genai through the optimum-intel#2085 export, Lightning 30B-A3B
+included, but only on the 2026.5 nightly (GroupedMatMul), so it has no
+installer entry (T-056). With nothing left on it, the second serving backend
+(optimum-intel's python runtime, `--backend`) was cut 2026-11-08 (N-033,
+`TODONT.md`); `/health` lost its `backend` field with it. Whisper answers
+`verbose_json` with segment and word timestamps (T-057). The NPU's job is
+still speech-to-text, not chat (Tommy, 2026-10-27).
 
 **Read this first if you are picking up the agent work.** Decode speed tracks
 **active** parameters, not model size: a 30B-A3B MoE runs 18-32 tok/s on a 140V
@@ -25,9 +29,10 @@ NoLlama serves chat, vision, transcription and embeddings from one process
 across the full Intel stack, on both the OpenAI and Ollama wire protocols.
 GPU and iGPU are the usable path: prefix caching on by default, tool calling on
 LLM *and* VLM slots, agents (OpenCode, Goose, Copilot Chat) working. CPU works
-and is deliberately not invested in — llama.cpp's CPU kernels beat every
-OpenVINO row including ours, and `docs/BENCHMARKS.md` now measures that
-directly. The NPU is real but narrow: short prompts, no tool calling, no prefix
+and is deliberately not invested in — llama.cpp's CPU kernels beat OpenVINO
+on AMD (5950X), OpenVINO is 1.2x ahead on Intel (285K); `docs/BENCHMARKS.md`
+has both. Every model runs on openvino_genai; optimum-intel is the export
+stack only. The NPU is real but narrow: short prompts, no tool calling, no prefix
 cache, and a per-generation correctness split that the installer now gates on.
 Working state is `brain/next/` (needs Tommy), `brain/todo/` (startable cold) and
 `brain/proposed/` (noticed, not trusted), one file per item.
@@ -63,6 +68,10 @@ Working state is `brain/next/` (needs Tommy), `brain/todo/` (startable cold) and
 | **A failed idle reload no longer sticks the slot in `loading` (T-046).** It returns to `idle_unloaded` with the reason in `/health`, and the next request retries; the endless "still loading..." was the load ticker never being stopped, not a hung pipeline. Laptop iGPU end to end: 500, 500, 200 | 2026-10-27 |
 | Qwen3.5-4B's B60 crash (T-051) was the driver: on 32.0.101.8976 bare `bare-probe.py` passes 12/12 and the server survives the sequence that killed it on .8805. Same 2026.4.1 runtime | 2026-10-25 |
 | **The B60 KV-pool overshoot was the driver too (T-031).** On 32.0.101.8976 Qwen3.8 (5 GB), Qwen3-Coder-30B (5 GB) and Glimmer (3 GB) each pass a 35-request ~40k-token agent load at their auto pool, no host spill. Glimmer peaks 0.13 GiB under the budget. Sizer unchanged | 2026-10-26 |
+| **Whisper `verbose_json` timestamps (T-057)**: same 15 segments / 111 words on the NPU, CPU and GPU, bare and through the server (whisper-small int8, laptop, 2026.4.1). Words cost a second pipeline: on the NPU 60 s of song takes 1.4 s plain, 7.1 s with words, and the first word request ~2.5 min | 2026-11-07 |
+| **Nemotron Lightning 30B-A3B on genai, grouped-MatMul export (#2085 head f294ba2, nightly 2026.5.0.dev20261102)**: all correct, needle 3/3. B60 43-44 tok/s, 16k TTFT 4.8 s; 285K CPU 21-25 tok/s, 175 s; 140V iGPU 23-28 tok/s, 21.0 s, peaks 22.1 GB private and touches the pagefile on 32 GB. 285K iGPU cannot (no XMX, openvino#34415). Release 2026.4.1 refuses the IR. Not agent-probed | 2026-11-04 / 11-08 |
+| **Nemotron Nano-4B, same export**: B60 97-118 tok/s bare, ~119 through the server, prefix-cache repeats 48 ms; 140V iGPU 35-38 tok/s, ~37 through the server | 2026-11-03 / 11-08 |
+| **GPU driver 32.0.101.9150 resets the iGPU override to 57** (laptop budget 16.45 GB) and the elevated Intel app would not take a new value. `SystemPartitionCommitLimitPercentage` = 85 written directly, reboot: 24.7 GB. README says so | 2026-11-08 |
 | OpenCode completes a real task on the 140V with `Qwen3-Coder-30B-A3B-int4`: 333 s, correct fix, tests green — TTFT 0.2–0.7 s cached against 16–28 s on a new suffix. The CPU side-model split is a **dGPU** recipe: 1.6 s idle, 40 s while an iGPU prefills | 2026-09-23 |
 | Agent-capable models, measured: `Qwen3-Coder-30B-A3B` PASS, `Qwen3-14B` PARTIAL (correct but 9 min), `Qwen2.5-Coder-14B`/`-7B` and `Qwen3-8B` FAIL — they narrate or fake tool calls. Tool training, not coding ability, is the constraint | 2026-09-23 |
 
@@ -86,14 +95,16 @@ Qwen3-Coder-30B does not fit (2026-09-24). Qwen3-8B and LFM2.5-8B-A1B fail in
 both tool dialects. MoE offload is out for interactive agents, and coding
 installs run one server: the OpenCode side lane is gone (both in `TODONT.md`).
 What a better 16 GB answer needs is a ~10 GB MoE with ~3B active and real
-tool training -- none exists in an OpenVINO export yet.
+tool training -- none exists in an OpenVINO export yet. Nemotron Lightning
+(30B-A3B, ~16 GB int4, NVIDIA pitches it for agents) is the next 32 GB candidate, waiting on a
+release OpenVINO with GroupedMatMul before it gets an agent probe (T-056).
 
 ## Built, not yet proven
 
 - **`brain/` itself.** Adopted from `ace-brain` on 2026-09-18 and this repo is
   its first instance outside that one. The `triage` and `premise-sweep` skills
   there have never run against a repo.
-- **The release ZIP** (v1.0.0, 2026-10-29). Nobody has yet unzipped one on
+- **The release ZIP** (every release since v1.0.0). Nobody has yet unzipped one on
   a clean box and run `install-windows.bat` from it. That is the path
   release-ZIP users take and the one a checkout never exercises.
 - **Docker Phase 3.** `Dockerfile`, `docker-compose.yml` and
@@ -139,9 +150,10 @@ back. Logs in `C:\Users\wossn\b60-eval\`. Its HF login is now an API token.
 
 ## Blocked on someone else
 
-Three community reporters and Intel. Details in `brain/next/waiting/` and
-`brain/next/waiting-on-time/007` (the upstream ticket watch list — openvino
-#37501, #38211, genai #4405, #4343, optimum-intel PR #1789).
+Two community reporters (#38, #24, `brain/next/waiting/`) and upstream:
+Intel's OpenVINO and genai tickets plus optimum-intel, all on one watch list,
+`brain/next/waiting-on-time/007` (N-007). The one that unblocks the most is
+a release OpenVINO with GroupedMatMul (Nemotron, T-056).
 
 ## Where everything else lives
 
