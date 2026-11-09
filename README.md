@@ -37,8 +37,8 @@ curl http://localhost:8000/v1/chat/completions -H "Content-Type: application/jso
 ```
 
 Ollama clients work too, on port 11434. Images, streaming, Whisper
-transcription with segment and word timestamps, and every flag:
-[docs/API.md](docs/API.md).
+transcription with segment and word timestamps, embeddings for RAG clients
+(`--embed-model-dir`), and every flag: [docs/API.md](docs/API.md).
 
 ## What to expect
 
@@ -55,12 +55,12 @@ daily driver. That gap is closing fast, and the NPU is where this gets
 interesting.
 
 The installer uses the NPU for speech-to-text, not chat. Whisper small runs
-about 20x faster than real time there, as accurate as on the CPU. The
+10-28x faster than real time there, as accurate as on the CPU. The
 push-to-talk button in the web UI talks to it. Ask for `response_format=verbose_json` and you get
 segment and word timestamps in OpenAI's shape, enough for subtitles or
 karaoke. Word timing costs: a minute of song took 1.4 s plain and 7.1 s with
-words on the NPU, and the first word request waits a bit over two minutes
-while that pipeline compiles. Chat, coding and vision models go on the GPU or
+words on the NPU, and the first word request waits about 2.5 minutes while a
+second pipeline is built for it. Chat, coding and vision models go on the GPU or
 the CPU.
 
 Below ~3B, expect trouble. Asked for the capital of Norway, a 1.5B once
@@ -94,8 +94,8 @@ reg add "HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers\MemoryManager" /v
 ```
 
 Reboot. The number is a percentage of RAM. 57 is the default, 70 is a sane
-start, and my 32 GB laptop runs at 87 set through the app, so it is the same
-value either way. Microsoft documents this key as able to destabilise the
+start, and my 32 GB laptop runs at 85, set this way after .9150 reset it. The
+app writes the same value. Microsoft documents this key as able to destabilise the
 machine, so do not go straight to the ceiling. A driver update can reset it to
 57, so check it after every driver install:
 
@@ -116,8 +116,8 @@ real run on hardware named below.
 
 ᵃ Core Ultra 9 285K desktop, DDR5-6400 · ᵇ Ryzen 9 5950X, DDR4 ·
 ᶜ Core Ultra 7 258V laptop, Arc 140V on LPDDR5X · ᵈ Arc Pro B60 24 GB dGPU ·
-ᵉ Core Ultra X7 358H (Panther Lake), Arc B390 iGPU, 64 GB LPDDR5X-8533, Linux
-- community reports from a laptop and a mini-PC, issues #24 and #32
+ᵉ Core Ultra X7 358H (Panther Lake), Arc B390 iGPU, 64 GB LPDDR5X-8533, Linux,
+community reports from a laptop and a mini-PC, issues #24 and #32
 
 Decode ≈ memory bandwidth ÷ active weight bytes, so the memory column
 predicts the table better than the device column. Treat cells as ±10%. The 30B
@@ -149,15 +149,15 @@ convert anything from HuggingFace: [docs/MODELS.md](docs/MODELS.md).
 NoLlama is not trying to replace Ollama. It covers the Intel devices Ollama
 does not reach. Pick per device, not per project:
 
-- **Intel NPU:** NoLlama. Ollama cannot target it at all. This is the reason
-  NoLlama exists, within the 4096-token, no-tool-calling limits above.
+- **Intel NPU:** NoLlama. Ollama cannot target it at all. Speech-to-text
+  today; chat within the 4096-token, no-tool-calling limits above.
 - **Intel iGPU / ARC, text:** NoLlama on an iGPU; either on a dGPU for chat.
   On an Arc 140V iGPU OpenVINO decodes 1.3-1.5x faster than Ollama 0.40's
   Vulkan (20.3 vs 13.7 tok/s); on an Arc Pro B60 the two are at parity
   (2026-10, [numbers](docs/BENCHMARKS.md)). Both cache a repeated prompt
   prefix; on an OpenCode session NoLlama's cold prefill of the first prompt is
   3x faster on the B60, and its parser recovers tool calls Ollama drops.
-  Ollama on an iGPU still needs `OLLAMA_IGPU_ENABLE=1` or it silently runs on the CPU.
+  Ollama 0.40 on an iGPU needs `OLLAMA_IGPU_ENABLE=1` or it silently runs on the CPU.
 - **Intel iGPU / ARC, images:** NoLlama. Ollama has no Intel path for local
   vision models.
 - **CPU only:** Ollama on AMD, either on Intel. llama.cpp's CPU kernels win on
@@ -196,14 +196,14 @@ Setup for all of them: [docs/AGENTS.md](docs/AGENTS.md).
 
 | | |
 |---|---|
-| [docs/MODELS.md](docs/MODELS.md) | Model registry, downloading, converting, `--scan`, brand-new architectures, the `-Nightly` runtime |
+| [docs/MODELS.md](docs/MODELS.md) | Model registry, downloading, converting, `--scan`, embedding and Whisper models, the `-Nightly` runtime |
 | [docs/API.md](docs/API.md) | OpenAI + Ollama endpoints, all CLI flags, prefix caching, the repetition penalty (`nollama.ini`), web UI |
 | [docs/DEVICES.md](docs/DEVICES.md) | Per-device support and requirements |
 | [docs/BENCHMARKS.md](docs/BENCHMARKS.md) | Methodology, all numbers, MoE offload, vs Ollama and OVMS |
 | [docs/AGENTS.md](docs/AGENTS.md) | OpenCode, Goose and Copilot setup, including the NPU as the agent's side-task model |
 | [docs/INTERNALS.md](docs/INTERNALS.md) | Architecture, file layout, known limitations |
 | [docs/DOCKER.md](docs/DOCKER.md) | Running in a container: GPU/CPU only, no NPU; what it costs and the two defects that bite |
-| [docs/DIAGRAMS.md](docs/DIAGRAMS.md) | Logic diagrams of the core flows (request routing, slot lifecycle, token streaming, web UI rendering), machine-checked against the code, so a diagram that has fallen behind gets flagged, not trusted |
+| [docs/DIAGRAMS.md](docs/DIAGRAMS.md) | Logic diagrams of the core flows (request routing, slot lifecycle, token streaming, web UI rendering, push-to-talk), machine-checked against the code, so a diagram that has fallen behind gets flagged, not trusted |
 
 ## Known limitations
 
