@@ -69,16 +69,7 @@ WATCH = {
 # to re-run a test. Key as in WATCH; value is (why, nudge date). A head change
 # is reported every time; if the head has not moved by the nudge date, one
 # "nothing happened" issue is opened, once. Add the key to WATCH as well.
-WATCH_HEAD = {
-    "huggingface/optimum-intel#2085": (
-        "NemotronH export. Lightning 30B-A3B exported from head dbab784 does "
-        "not load (batched 3D u4 experts fold to f32, >100 GB on a 63 GB box). "
-        "rkazants (2026-11-03) pointed the contributor at the grouped-MatMul "
-        "MoE patch, huggingface/optimum-intel#1947, which already handles "
-        "non-gated experts. A new head is the cue to re-export Lightning on the "
-        "285K against openvino-nightly and re-run T-056.",
-        "2026-11-16"),
-}
+WATCH_HEAD = {}
 # Every WATCH_HEAD PR is also watched for state changes, with the same reason.
 for _key, (_why, _nudge_on) in WATCH_HEAD.items():
     WATCH[_key] = _why
