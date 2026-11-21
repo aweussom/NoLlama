@@ -114,25 +114,55 @@ class OllamaArm:
         return max(1, len(text) // 4)
 
     def run(self, prompt, max_new):
-        """Greedy chat turn through Ollama; durations come from Ollama itself."""
-        body = {"model": self.model, "stream": False,
+        """Greedy streamed chat turn; durations from the server, else the wall clock.
+
+        Why: NoLlama's Ollama surface reports eval_count but no *_duration
+        fields, and the old non-streamed fallback divided by 1 ns, which printed
+        ttft 0.00 s and 39e9 tok/s for the B60 server run [OBSERVED 2026-11-03,
+        nano4b-b60box-gpu-nollama.out]. Streaming lets the client time the
+        first token itself.
+
+        In: prompt, max new tokens. Out: GenaiArm.run's dict plus "timing":
+        "server" when the final chunk carried Ollama's durations, "client"
+        when they came from chunk arrival times. Client TTFT includes HTTP
+        and request parsing, so it reads slightly high next to genai's.
+        """
+        body = {"model": self.model, "stream": True,
                 "messages": [{"role": "user", "content": prompt}],
                 "options": {"temperature": 0, "seed": 1, "num_predict": max_new,
                             "num_ctx": self.num_ctx}}
         req = urllib.request.Request(self.url + "/api/chat", json.dumps(body).encode(),
                                      {"Content-Type": "application/json"})
         t0 = time.time()
+        t_first = None
+        content, thinking, last = [], [], {}
         with urllib.request.urlopen(req, timeout=3600) as r:
-            d = json.load(r)
-        wall = time.time() - t0
-        msg = d.get("message", {})
-        text = msg.get("content", "")
-        if msg.get("thinking"):
-            text = "<think>" + msg["thinking"] + "</think>" + text
-        ev, evd = d.get("eval_count", 0), d.get("eval_duration", 1)
-        return {"text": text, "prompt_tokens": d.get("prompt_eval_count"),
-                "gen_tokens": ev, "ttft_s": d.get("prompt_eval_duration", 0) / 1e9,
-                "tok_s": ev / (evd / 1e9) if evd else None, "wall_s": wall}
+            for line in r:
+                if not line.strip():
+                    continue
+                d = json.loads(line)
+                msg = d.get("message", {})
+                if t_first is None and (msg.get("content") or msg.get("thinking")):
+                    t_first = time.time()
+                content.append(msg.get("content", ""))
+                thinking.append(msg.get("thinking", ""))
+                last = d
+        t_end = time.time()
+        text = "".join(content)
+        if any(thinking):
+            text = "<think>" + "".join(thinking) + "</think>" + text
+        ev = last.get("eval_count", 0)
+        evd, ped = last.get("eval_duration"), last.get("prompt_eval_duration")
+        if evd and ped is not None:
+            ttft, tok_s, timing = ped / 1e9, ev / (evd / 1e9), "server"
+        else:
+            ttft = (t_first - t0) if t_first else None
+            span = (t_end - t_first) if t_first else 0
+            tok_s = (ev - 1) / span if ev > 1 and span > 0 else None
+            timing = "client"
+        return {"text": text, "prompt_tokens": last.get("prompt_eval_count"),
+                "gen_tokens": ev, "ttft_s": ttft, "tok_s": tok_s,
+                "wall_s": t_end - t0, "timing": timing}
 
 
 def answer_ok(text, want):
@@ -175,7 +205,7 @@ def main():
         r = dict(r, case=name, ok=ok)
         out["cases"].append(r)
         print(f"  {name:12} ok={ok} in={r['prompt_tokens']} out={r['gen_tokens']} "
-              f"ttft={r['ttft_s']:.2f}s {r['tok_s'] or 0:.1f} tok/s  "
+              f"ttft={r['ttft_s'] or 0:.2f}s {r['tok_s'] or 0:.1f} tok/s{'*' if r.get('timing') == 'client' else ''}  "
               f"{r['text'].split('</think>')[-1].strip()[:80]!r}", flush=True)
 
     arm.run("Say hi.", 16)                                  # warmup, not recorded

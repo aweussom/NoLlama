@@ -182,6 +182,17 @@ without a laptop in the middle — worth knowing before copying 10+ GB twice
 over Tailscale. Mind what the destination is doing first: a big write onto a
 box that is paging hard competes with the thing already running on it.
 
+**C: is the only real disk; G: is Google Drive** [OBSERVED 2026-11-17]:
+`Win32_LogicalDisk` reports G: as a FAT32 volume labelled "Google Drive",
+with "free space" that tracks C: (it swung 56 → 43 → 73 GB in one night).
+Never point an export or a model directory at it — it would upload. It is
+also not mounted for a scheduled task (`New-Item` fails with "Could not find
+a part of the path"), which is what stopped a 16 GB IR going there. C: is
+1.86 TB but typically has well under 100 GB free, and exporting a 30B model
+needs ~60 GB of uncompressed intermediate in `TEMP` *plus* the int4 result:
+Nemotron Lightning's export died in `save_model` with `ios_base::badbit`
+at 59 GB free.
+
 **The banner problem is fixed (2026-08-24).** The login profile used to print
 a shortcut banner and PSReadLine errors into every non-interactive session,
 which contaminated piped output and made `scp` fail outright with `Received
