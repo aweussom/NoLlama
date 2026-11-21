@@ -132,13 +132,12 @@ Cause unknown, and that is the point worth taking away: **enumeration is not
 correctness**. A device list, a clean load and a healthy `/health` all say
 this model is fine. Read the output before you trust a container GPU.
 
-## Not available in the container
+## Not in the container
 
-`--backend optimum`. The image installs serving dependencies only — no
-optimum-intel, no transformers — because nothing is ever exported or
-downloaded inside a container. The `NEEDS_OPTIMUM` architectures
-(`nemotron_h`) therefore cannot be served from this image. Run those
-natively (`docs/dev/runtime-stacks.md`).
+Model export. The image installs serving dependencies only, no
+optimum-intel and no transformers, because nothing is ever exported or
+downloaded inside a container. Export natively (`download-model.ps1
+-Convert`) and mount the result.
 
 ## Building on a different Intel GPU generation
 

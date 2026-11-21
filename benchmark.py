@@ -196,7 +196,7 @@ def collect_provenance(health):
     out["server"] = health.get("provenance")
     out["prompt_cache"] = health.get("prompt_cache_info")
     out["server_devices"] = {
-        name: {k: info.get(k) for k in ("model", "type", "device", "backend", "kv_pool_gb")}
+        name: {k: info.get(k) for k in ("model", "type", "device", "kv_pool_gb")}
         for name, info in (health.get("devices") or {}).items()
         if info.get("status") == "ready"
     }

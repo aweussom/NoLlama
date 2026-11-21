@@ -49,7 +49,7 @@ def _slot(pipe):
     slot.last_ttft_ms = None
     slot.think_preseeded = False
     # what the info property (the /health block) reads
-    slot.model_type = "llm"; slot.device_full = "fake GPU"; slot.backend = "genai"
+    slot.model_type = "llm"; slot.device_full = "fake GPU"
     slot.prewarmed = False; slot.kv_pool_gb = 0; slot.model_dir = "."
     return slot
 

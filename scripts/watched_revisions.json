@@ -61,16 +61,16 @@
     "sha": "d15f4d91eccd11dd44f615ffdb539c61bf1f1e6e"
   },
   "OpenVINO/gemma-4-26b-a4b-it-int4-ov": {
-    "lastModified": "2026-09-17",
-    "sha": "4e5885c3f03844f5887982def09708bdc9f53f7a"
+    "lastModified": "2026-11-05",
+    "sha": "7b3cbc98e24a9946e561f82c752ae26cd53fc660"
   },
   "OpenVINO/gemma-4-E2B-it-int4-ov": {
-    "lastModified": "2026-09-17",
-    "sha": "7cd9ccd5beddc5522462891b2d44668fe898cbfd"
+    "lastModified": "2026-11-05",
+    "sha": "81a7dc381261ebcea9aac4849aac35496475b389"
   },
   "OpenVINO/gemma-4-E4B-it-int8-ov": {
-    "lastModified": "2026-09-17",
-    "sha": "c6b5ecbd721709e06add7072ed323d9469062271"
+    "lastModified": "2026-11-05",
+    "sha": "b2a0529bc3cd694d7ce7e650b46e3084f65eb754"
   },
   "OpenVINO/phi-4-int4-ov": {
     "lastModified": "2025-05-26",

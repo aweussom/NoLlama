@@ -33,6 +33,26 @@ Reply posted on #2085 (issuecomment-6589414327).
   The same bytes as a 2D weight stayed compressed (+0.38). GPU was not
   reproduced synthetically.
 - **Lightning on the 5090** (Ollama Q4_K_M): all correct, 360-440 tok/s.
+- **Nano-4B on the B60 box** (2026-11-03, `venv` genai 2026.4.1, driver
+  .8976, IR copied from the 285K): all correct, needle 3/3 on both.
+  5950X CPU 16 tok/s, TTFT 7.5/29.9/124 s; B60 97-118 tok/s, TTFT
+  0.75/1.3/3.9 s. Through the server on the B60: all correct, ~119 tok/s,
+  3.6 s TTFT at 13k, prefix-cache repeats at 48 ms. Needed
+  `NEEDS_OPTIMUM` emptied first (1f300df): auto-detect sent nemotron_h to
+  the optimum backend, which died on the B60 venv's transformers.
+- **#2085 head f294ba2** (2026-11-03): merged main; from transformers
+  5.13 + torch 2.10 the experts export as grouped MatMul (#1947) and become
+  GatherMatmul, int4 kept. Contributor's synthetic 1-layer test: CPU
+  5.46 -> 1.35 GB after load, decode 11 -> 96 tok/s. He asked us to retry
+  Lightning. Round 3, nightly 2026.5.0.dev20261102 [OBSERVED 2026-11-03/04]:
+  grouped export 15.7 min (was 43), `GroupedMatMul` x46. 285K CPU loads
+  it: 31 GB private, all correct, 21-25 tok/s, TTFT 16k 175 s. 285K iGPU
+  still killed at 102.6 GB. B60 (`venv-nightly-1102` on the 5950X box):
+  loads in 53 s, ~23 GB host commit, all correct, 43-44 tok/s, TTFT 16k
+  4.8 s. Nano-4B (no MoE layers) bmm vs grouped identical within noise.
+  Reply 2 posted on #2085 2026-11-04 (issuecomment-6629397783).
+  Caveat for re-runs: the B60 box's watchdog read 0 GB; Store Python's
+  process is not named `python` there. Match on the venv path.
 
 ## Round 3, grouped MatMul, 2026-11-03/04
 
@@ -76,7 +96,8 @@ PowerShell function returned its Step output along with the python path).
   23.5 s nightly, 15.1 s release (round 3: 62 s).
 - **Lightning main gs64, 285K iGPU: still does not load.** Watchdog killed
   it at 110.5 GB private after ~2 min (nightly). Same as round 3's 102.6 GB:
-  neither grouped MatMul nor main fixes the iGPU path.
+  neither grouped MatMul nor main fixes the iGPU path. Expected: no XMX,
+  so no MoE on that GPU (openvino#34415, below).
 - **Lightning main gs64, B60, 2026.4.1 release: word salad.** Loads (55 s),
   runs at ~40 tok/s, every answer garbage ("up up upnxuel foryy-ytic…"),
   same IR (MD5 `cef22705…`, matches the 285K) that is correct on 285K CPU.
@@ -144,18 +165,44 @@ PowerShell function returned its Step output along with the python path).
       (issuecomment-7031987340) with the A/B, and optimum-intel#2136 with the
       bisect and revert. Once either lands, re-export Nano and rerun the 16k
       needle.
-
-- [ ] Lightning on the 285K iGPU: main still blows past 100 GB, so report
-      it on optimum-intel (or openvino, if a bare-IR repro points there) —
-      the B60 and CPU loading makes it iGPU-specific.
 - [x] Server-path timing fixed in `nemotron-bench.py` (streams; client
       timing when the server sends no durations). 2026-11-16, B60, old
       Nano-4B IR, 2026.4.1, driver 32.0.101.8976, `--backend genai`: all
       correct, 107-118 tok/s, needle 16k TTFT 3.6 s — the same as bare genai.
-- [ ] `NEEDS_OPTIMUM = {"nemotron_h"}` in `nollama.py` is stale: auto picks
-      the optimum backend, which fails to load on this venv ("No module named
-      'transformers.core_model_loading'"), while every number above is bare
-      genai. Drop it once the main export is confirmed on genai, and check
-      `docs/dev/runtime-stacks.md` for the reason it went in.
-- [ ] Nano-4B on the 140V, bare genai, then the server.
+- [x] Reply posted on #2085 2026-11-02 (issuecomment-6589414327).
+- [x] Nano-4B on the B60, bare genai, then the server (2026-11-03).
+- [x] Nano-4B on the 140V laptop, bare genai, then the server
+      [OBSERVED 2026-11-08]: grouped IR copied from the 285K, nightly
+      2026.5.0.dev20261102, driver .9150. All correct, needle 3/3 on every
+      arm. iGPU 35-38 tok/s, TTFT 1k/4k/16k 1.4/3.2/17.8 s; CPU (258V)
+      14-22 tok/s, 12.6/59.8/252.5 s. Server (7621ea4, same nightly venv,
+      flask/pillow/soundfile added to `venv-nightly-1102`): all correct,
+      ~37 tok/s; its TTFTs are not comparable, the needle prompts share a
+      filler prefix and the cache serves it. The Ollama surface reports no
+      durations, so the bench's server timings are junk; read the server
+      log. The 2026.4.1 `venv` refuses this IR (our IR-version guard).
+- [x] Lightning on the grouped-MatMul export: CPU and B60 run it, the
+      285K iGPU does not (2026-11-04). Was: Lightning again on the
+      grouped-MatMul MoE export. rkazants
+      (2026-11-03) pointed the contributor at optimum-intel#1947 (merged
+      2026-10-30, `torch._grouped_mm`, already handles non-gated experts),
+      to be tested on openvino-nightly. On a new #2085 head: re-export
+      Lightning and Nano-4B on the 285K against the nightly, same 100 GB
+      watchdog, compare Nano-4B current vs grouped. `upstream-watch` opens
+      an issue on a new head, or once on 2026-11-16 if none came.
+- [x] 285K iGPU blowup: no XMX, so no MoE on GPU; Intel says so in
+      openvino#34415 and docs/dev/moe-offload.md had it since 2026-09-11.
+      The contributor pointed it out on #2085 (2026-11-04).
+- [x] Lightning on the 140V laptop iGPU, bare genai [OBSERVED 2026-11-08]:
+      nightly 2026.5.0.dev20261102, driver .9150, budget 24.7 GB (override
+      85), 31.5 GB RAM. Loads in 29 s, all correct, needle 3/3, 23-28
+      tok/s, TTFT 1k/4k/16k 2.1/4.9/21.0 s. Bench process peaks 22.1 GB
+      private at the 16k needle; free RAM bottoms at 0.7 GB, commit 33.9
+      GB, so it leans on the pagefile briefly. A first run with a
+      free-RAM < 1.5 GB kill died 42 s into the load (started with 16.6 GB
+      free vs 20.9 the second time): on a 32 GB laptop, close things first.
+      JSON: `C:\devel\nemotron\results\` on the laptop. Reply 3 posted on
+      #2085 2026-11-08 (issuecomment-6722201082).
+- [ ] Lightning through the NoLlama server on the B60 once a release
+      OpenVINO carries GroupedMatMul (nightly-only today: no installer entry).
 - [ ] Results in `docs/dev/models.md`'s verified list, driver recorded.

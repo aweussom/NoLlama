@@ -2013,3 +2013,36 @@ request retries at the normal size.
   `/health`, prewarm and the capacity line all treat as fixed per run
   (`_resolve_kv_pool` sizes from the total budget for exactly that
   stability). Inherited weirdness, Tommy's words.
+
+## A second serving backend on optimum-intel's python runtime (2026-11-08)
+
+**Tried:** `OptimumSlot`, about 300 lines in `nollama.py`, plus
+`NEEDS_OPTIMUM`, `--backend auto|genai|optimum`, `scripts/New-OptimumVenv.ps1`
+(transformers and optimum-intel from git `main`) and its `venv-optimum/`.
+It served, through `OVModelForCausalLM`/`OVModelForVisualCausalLM`, the
+architectures that optimum-intel could export before openvino_genai could
+run them. Live 2026-08 to 2026-11; cut in N-033.
+
+**Verdict:** no. Every model runs on openvino_genai; a model genai cannot
+run is not served.
+
+**Why not:**
+- It never kept a tenant. Muse Glimmer left on 2026-08-18 when Intel's
+  VLM-shaped export ran on VLMPipeline (~14 tok/s on the B60 against 8-11 on
+  this backend). `nemotron_h`, the model it was being kept for, left on
+  2026-11-03: the optimum-intel#2085 export runs on bare LLMPipeline and
+  through the server on CPU, iGPUs and the B60 (T-056), while this backend
+  failed to load it on the B60's main venv. Nothing in `models.json` used it.
+- It was a worse path for everything it ran: text-only even for VLM-shaped
+  exports, no prefix cache, no prewarm, no `--offload-ratio`, no NPU, and
+  on 2026.3 it computed garbage on every Intel GPU (openvino#37419) where
+  the genai path was fine.
+- It tracked transformers `main`, which broke `generate()` for text-only
+  models in `5.16.0.dev0` (the old T-017). Keeping it meant chasing that.
+- Genai has caught up with optimum-intel's exports within weeks both times,
+  and `bare-probe.py` answers "does genai run this" in minutes.
+
+**Re-evaluate if:** a model we want exports through optimum-intel, runs
+through `OVModelForCausalLM`, and has failed on bare openvino_genai for more
+than one release. Recover the code from git (`git log -S OptimumSlot`); the
+last version is the parent of the N-033 commit.

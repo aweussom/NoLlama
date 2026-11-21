@@ -1,10 +1,10 @@
 {
   "huggingface/optimum-intel#2085": {
     "draft": false,
-    "head": "dbab78490476842aaf1080bff712a1787274b926",
+    "head": "22de222cf8a6386e10f0f3362b037fa1a4380791",
     "kind": "pull",
-    "merged": false,
-    "state": "open",
+    "merged": true,
+    "state": "closed",
     "title": "[OpenVINO] Support NemotronH"
   },
   "openvinotoolkit/openvino#37457": {
