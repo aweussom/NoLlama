@@ -11,6 +11,12 @@ a given model.
 - OpenVINO 2026.4+ with `openvino_genai` (the floor moved from 2026.3.1 on
   2026-09-23; Intel now publishes IRs built with 2026.4, and an older runtime
   does not refuse them cleanly — it segfaults on load. See `TODONT.md`).
+- Python: whatever minors OpenVINO ships cp3XX wheels for, which lags new
+  Pythons (3.10–3.14 as of 2026.4.1, checked 2026-11-25). `install.ps1` asks
+  PyPI for that range at install time rather than hardcoding it, and if the
+  default python is outside it, tries `py -3.X` / `python3.X` by name
+  (issue #62: a distro on 3.15 got only pip's "No matching distribution").
+  `-Nightly` skips the check; the nightly index can be ahead of PyPI.
 - Cross-platform: scripts use `#requires -Version 7.0` and branch on
   `$IsWindows`. Linux + PowerShell 7 is confirmed working (user-reported on
   Core Ultra 7 258V with NPU + GPU, issue #6). **There is no install.sh** —

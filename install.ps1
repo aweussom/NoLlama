@@ -156,6 +156,87 @@ function Remove-VenvOrExplain {
     }
 }
 
+function Get-OpenVinoPythonMinors {
+    <#
+    Ask PyPI which Python 3.x minors the current openvino AND openvino-genai
+    release wheels exist for.
+
+    Why: OpenVINO ships compiled cp3XX wheels only, and lags new Pythons. On a
+    distro whose python3 is newer (3.15, issue #62) pip says "No matching
+    distribution found for openvino>=..." and nothing more, which reads like a
+    typo in requirements.txt. Asking PyPI instead of hardcoding 3.14 keeps the
+    bound from going stale the day OpenVINO adds the next Python.
+    [OBSERVED 2026-11-25] 2026.4.1 of both packages: cp310..cp314.
+
+    In: nothing; needs pypi.org, same as pip does. Out: sorted int[] of minors
+    present for both packages, or $null with a printed warning when PyPI cannot
+    be asked. $null means "upper bound unknown", never "everything is fine".
+    #>
+    $common = $null
+    foreach ($pkg in @("openvino", "openvino-genai")) {
+        try {
+            $meta = Invoke-RestMethod -Uri "https://pypi.org/pypi/$pkg/json" -TimeoutSec 20
+        } catch {
+            Write-Host "[!] Could not ask PyPI which Pythons $pkg supports: $($_.Exception.Message)" -ForegroundColor Yellow
+            Write-Host "    Upper-bound check skipped. If pip later says 'No matching distribution'," -ForegroundColor DarkGray
+            Write-Host "    your Python is probably newer than OpenVINO's wheels." -ForegroundColor DarkGray
+            return $null
+        }
+        $minors = @()
+        foreach ($file in $meta.urls) {
+            if ($file.filename -match '-cp3(\d+)-') { $minors += [int]$Matches[1] }
+        }
+        $minors = @($minors | Sort-Object -Unique)
+        if ($minors.Count -eq 0) {
+            Write-Host "[!] PyPI lists no cp3XX wheels for $pkg $($meta.info.version); upper-bound check skipped." -ForegroundColor Yellow
+            return $null
+        }
+        if ($null -eq $common) {
+            $common = $minors
+        } else {
+            $common = @($common | Where-Object { $minors -contains $_ })
+        }
+    }
+    return ,$common
+}
+
+function Get-PythonVersion {
+    <#
+    Run a Python command and report its version and real executable path.
+
+    Why: 'python' on PATH may be the Microsoft Store stub (exists, runs
+    nothing), and 'py -3.13' is a launcher, not an interpreter; the venv
+    must be made from the interpreter itself.
+
+    In: command name plus launcher args (e.g. 'py', @('-3.13')). Out:
+    @{ Major; Minor; Exe } or $null when the command is missing or does not
+    run Python.
+    #>
+    param([string] $Cmd, [string[]] $CmdArgs = @())
+
+    if (-not (Get-Command $Cmd -ErrorAction SilentlyContinue)) { return $null }
+    $out = & $Cmd @CmdArgs -c "import sys; print(sys.version_info[0], sys.version_info[1], sys.executable)" 2>$null
+    if ($LASTEXITCODE -ne 0 -or -not $out) { return $null }
+    $line = @($out)[-1]
+    $parts = $line -split ' ', 3
+    if ($parts.Count -ne 3) { return $null }
+    return @{ Major = [int]$parts[0]; Minor = [int]$parts[1]; Exe = $parts[2] }
+}
+
+# Which Python minors OpenVINO has wheels for. -Nightly skips the question:
+# the nightly index can carry a Python before the release does, and refusing
+# one there would block exactly the experiment -Nightly exists for.
+$OkMinors = $null
+if ($Nightly) {
+    Write-Host "[i] -Nightly: not checking Python against the release wheels on PyPI." -ForegroundColor DarkGray
+} else {
+    Write-Host "Asking PyPI which Python versions OpenVINO has wheels for..."
+    $OkMinors = Get-OpenVinoPythonMinors
+    if ($OkMinors) {
+        Write-Host "[OK] OpenVINO wheels exist for Python 3.$($OkMinors[0]) - 3.$($OkMinors[-1])"
+    }
+}
+
 if (Test-Path $VenvDir) {
     # Probe with python.exe -m pip, NEVER pip.exe. pip.exe is a generated
     # console-script shim, and an application-control policy can refuse to run
@@ -178,6 +259,18 @@ if (Test-Path $VenvDir) {
         # could be releases behind (requirements.txt floors are >=, so a
         # fresh venv always gets the newest OpenVINO).
         $genaiVer = & $venvPython -c "import openvino_genai as og; print(og.__version__)" 2>$null
+        $venvPy = Get-PythonVersion -Cmd $venvPython
+        # A venv without openvino-genai on a Python OpenVINO has no wheels for
+        # is what a failed first run leaves behind (issue #62). Reusing it
+        # fails the same way forever, and it holds nothing worth keeping.
+        if (-not $genaiVer -and $OkMinors -and $venvPy -and ($OkMinors -notcontains $venvPy.Minor)) {
+            Write-Host "[!] $VenvName runs Python $($venvPy.Major).$($venvPy.Minor), which OpenVINO has no wheels for," -ForegroundColor Yellow
+            Write-Host "    and has no OpenVINO in it. Deleting it to rebuild on a supported Python." -ForegroundColor Yellow
+            Remove-VenvOrExplain -Dir $VenvDir
+            $venvOk = $false
+        }
+    }
+    if ($venvOk) {
         if (-not $genaiVer) { $genaiVer = "openvino-genai not installed?" }
         Write-Host "[OK] $VenvName already exists (openvino-genai $genaiVer)"
         Write-Host "     Recreating it pulls the newest OpenVINO runtime." -ForegroundColor DarkGray
@@ -185,27 +278,76 @@ if (Test-Path $VenvDir) {
         if ($reply -in @("y", "Y", "yes")) {
             Remove-VenvOrExplain -Dir $VenvDir
         }
-    } else {
+    } elseif (Test-Path $VenvDir) {
         Write-Host "[!] $VenvName at $VenvDir is broken (likely moved from another path). Recreating..." -ForegroundColor Yellow
         Remove-VenvOrExplain -Dir $VenvDir
     }
 }
 
 if (-not (Test-Path $VenvDir)) {
-    # Windows ships 'python'; most Linux distros only ship 'python3'. Find
-    # whichever is on PATH for the bootstrap. After the venv exists, plain
-    # 'python' resolves to the venv's binary on both platforms.
-    $sysPython = @(
-        (Get-Command python  -ErrorAction SilentlyContinue),
-        (Get-Command python3 -ErrorAction SilentlyContinue)
-    ) | Where-Object { $_ } | Select-Object -First 1
+    # Windows ships 'python'; most Linux distros only ship 'python3'. The
+    # default one wins if OpenVINO has wheels for it. If not (a distro on
+    # 3.15, issue #62), try each supported minor by name: 'py -3.X' on
+    # Windows, 'python3.X' on Linux. After the venv exists, plain 'python'
+    # resolves to the venv's binary on both platforms.
+    $candidates = @()
+    if ($IsWindows) {
+        $candidates += @{ Cmd = "python";  CmdArgs = @() }
+        $candidates += @{ Cmd = "python3"; CmdArgs = @() }
+    } else {
+        $candidates += @{ Cmd = "python3"; CmdArgs = @() }
+        $candidates += @{ Cmd = "python";  CmdArgs = @() }
+    }
+    if ($OkMinors) {
+        $newestFirst = @($OkMinors | Sort-Object -Descending)
+        foreach ($m in $newestFirst) {
+            if ($IsWindows) {
+                $candidates += @{ Cmd = "py"; CmdArgs = @("-3.$m") }
+            } else {
+                $candidates += @{ Cmd = "python3.$m"; CmdArgs = @() }
+            }
+        }
+    }
+
+    $sysPython = $null
+    $rejected = @()
+    foreach ($c in $candidates) {
+        $label = (@($c.Cmd) + $c.CmdArgs) -join ' '
+        $found = Get-PythonVersion -Cmd $c.Cmd -CmdArgs $c.CmdArgs
+        if (-not $found) { continue }
+        $ver = "$($found.Major).$($found.Minor)"
+        if ($found.Major -ne 3 -or $found.Minor -lt 10) {
+            $rejected += "$label -> Python $ver (too old, need 3.10+)"
+            continue
+        }
+        if ($OkMinors -and ($OkMinors -notcontains $found.Minor)) {
+            $rejected += "$label -> Python $ver (no OpenVINO wheels for it)"
+            Write-Host "[i] Skipping '$label': Python $ver, OpenVINO has no wheels for it. Looking for another." -ForegroundColor DarkGray
+            continue
+        }
+        $sysPython = $found
+        break
+    }
     if (-not $sysPython) {
-        Write-Host "ERROR: Neither 'python' nor 'python3' found in PATH." -ForegroundColor Red
-        Write-Host "  Install Python 3.10+ (python.org on Windows, your package manager on Linux)." -ForegroundColor Yellow
+        $range = if ($OkMinors) { "3.$($OkMinors[0]) - 3.$($OkMinors[-1])" } else { "3.10+" }
+        Write-Host "ERROR: no Python in the range OpenVINO supports ($range) was found." -ForegroundColor Red
+        if ($rejected) {
+            Write-Host "  Found, but unusable:" -ForegroundColor Yellow
+            foreach ($r in $rejected) { Write-Host "    $r" -ForegroundColor Yellow }
+        } else {
+            Write-Host "  Neither 'python' nor 'python3' runs from PATH." -ForegroundColor Yellow
+        }
+        # Suggest the newest supported minor; 3.13 when PyPI could not be asked.
+        $suggest = "3.13"
+        if ($OkMinors) { $suggest = "3.$($OkMinors[-1])" }
+        Write-Host "  Install a Python in $range alongside your current one:" -ForegroundColor Yellow
+        Write-Host "    Windows: winget install -e --id Python.Python.$suggest" -ForegroundColor Yellow
+        Write-Host "    Linux:   your package manager (e.g. python$suggest), or: uv python install $suggest" -ForegroundColor Yellow
+        Write-Host "  The installer finds it by name; it does not need to be the default python." -ForegroundColor Yellow
         Pop-Location; exit 1
     }
-    Write-Host "Creating Python $VenvName (using $($sysPython.Source))..."
-    & $sysPython.Source -m venv $VenvDir
+    Write-Host "Creating Python $VenvName (using $($sysPython.Exe), Python $($sysPython.Major).$($sysPython.Minor))..."
+    & $sysPython.Exe -m venv $VenvDir
     if (-not $?) { Write-Host "ERROR: Failed to create venv." -ForegroundColor Red; Pop-Location; exit 1 }
     Write-Host "[OK] $VenvName created"
 }
