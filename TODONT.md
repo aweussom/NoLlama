@@ -1921,10 +1921,40 @@ Q1_0, the binary 1-bit quantization `prism-ml/Bonsai-8B-gguf` ships as its
 release (1.16 GB for 8B). NoLlama issue #49 (the upstream watcher) fired on
 the merge. Test whether NoLlama can now serve it.
 
-**Verdict:** not yet. The frontend reads it; nothing NoLlama runs on can.
-Waiting on openvino.genai#4318, which is now in `scripts/upstream_watch.py`.
+**Verdict (2026-11-26):** it runs now, and it is still not worth serving.
+openvino.genai#4318 merged 2026-10-21; with `GGUF_READER="FRONTEND"` the
+2026.5 nightly answers correctly on the B60. But it is nightly-only, opt-in
+(the default legacy reader still fails), loses the prefix cache, takes almost
+five minutes to load, and decodes slower than a Q4_K_M four times its size.
+The 1-bit file buys disk, not speed.
 
-**Why not** [OBSERVED 2026-10-19, B60 box, release 2026.4.1 and nightly
+**2026-11-26 rerun** [OBSERVED 2026-11-26, B60 box, driver 32.0.101.8976,
+nightly openvino 2026.5.0-23715 (`b63f0947bd9`) / genai
+2026.5.0.0-3588 (`135ea127dee`), `prism-ml/Bonsai-8B-gguf`
+`Bonsai-8B-Q1_0.gguf`, `scripts/gguf-probe.py`, greedy, chat template on]:
+
+| | `GGUF_READER=FRONTEND` | `GGUF_READER=LEGACY` (the default) |
+|---|---|---|
+| Bonsai-8B Q1_0, B60 | **correct** ("Oslo"; "1, 2, ... 10"). Load 285 s, TTFT 211 ms, **40 tok/s** | `IndexError: invalid unordered_map<K, T> key` |
+| Bonsai-8B Q1_0, CPU (5950X) | correct, but load 469 s, **TTFT 315 s**, 30 tokens in ~18 min | same error |
+| Control: Qwen3-8B Q4_K_M (4.68 GB), B60 | load 39 s, **47 tok/s** | not run |
+
+- **Why the CPU crawls is not known.** The box had 8.9 GB of 32 GB free
+  when it started, so swapping is one candidate, and the frontend
+  unpacking Q1_0 into something wider is another [GUESS]. Settle it with
+  peak working set from a run on an idle box before calling it a CPU fault.
+- **No prefix cache, by design.** The PR says the frontend's graph is not
+  accepted by `SDPAToPagedAttention`, so GGUF runs on the SDPA backend only
+  and a `scheduler_config` is dropped with a warning [DOCUMENTED,
+  openvino.genai#4318 description]. That alone rules it out for agent use.
+- **NoLlama does not pass `GGUF_READER`**, so even on the nightly the server
+  would hit the legacy reader's error. Not worth adding for one model on a
+  nightly-only path.
+- Not run: the laptop iGPU (3 GB free that evening) and the NPU.
+
+Re-evaluate when the frontend becomes genai's default reader in a release.
+
+**Why not, 2026-10-19 (before #4318)** [OBSERVED 2026-10-19, B60 box, release 2026.4.1 and nightly
 2026.5.0-23394 (`972aa05b9b6`, 142 commits past the merge), Bonsai-1.7B-Q1_0
 as the fast stand-in, Qwen3-0.6B-Q8_0 as the control]:
 
@@ -1952,12 +1982,11 @@ as the fast stand-in, Qwen3-0.6B-Q8_0 as the control]:
   run, but at int4 it is ~4x the size and no longer the 1-bit model — the only
   reason to want Bonsai here. Not done.
 
-Re-evaluate when openvino.genai#4318 ("Use the OpenVINO GGUF frontend:
-tokenizer from rt_info, stateful graph") merges and reaches a nightly: rerun
-`LLMPipeline` on `Bonsai-8B-Q1_0.gguf`, CPU then the B60. Ternary on GPU also
-waits on openvino#38076 (sub-byte `Concat` segfault), so expect CPU first.
+The 2026-10-19 plan expected CPU first, because ternary on GPU waits on
+openvino#38076 (sub-byte `Concat` segfault). It came out the other way round:
+Q1_0 is binary, not ternary, and the B60 ran it.
 
-**Last checked:** 2026-10-19, as above.
+**Last checked:** 2026-11-26, as above.
 
 ## Measuring context decay by recalling a fact from the first message (2026-10-19)
 

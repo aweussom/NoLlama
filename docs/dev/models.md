@@ -555,8 +555,23 @@ inference stacks (OpenVINO on the B60, Ollama/llama.cpp on an RTX 5090):
     class as the Qwen3.8 `CL_OUT_OF_RESOURCES` on its 34th B60 request
     above [INFERRED: same error, same card, same family; not shown].
 
-Not yet tested here: Qwen3-VL, pre-exported by Intel as
-`OpenVINO/Qwen3-VL-8B-Instruct-int4-ov` (May 2026).
+- **`OpenVINO/Qwen3-VL-8B-Instruct-int4-ov` / `-int8-ov`**, the installer's
+  GPU vision pick. Intel re-exported both on 2026-10-22 (issue #55) under
+  commit titles that say "Update README.md": every IR, tokenizer and
+  config changed, now exported with OpenVINO 2026.4.1, optimum-intel 2.3.0.dev0
+  and transformers 5.0.0 (the old one was 2026.1.0 and 4.57.6).
+  **Re-download it: the old export's vision path fails on CPU, the new one
+  doesn't** [OBSERVED 2026-11-26, B60 box, OpenVINO/genai 2026.4.1, driver
+  32.0.101.8976, `bare-probe.py`]:
+
+  | | B60, text + image | CPU (5950X), text | CPU, image |
+  |---|---|---|---|
+  | int4, old (`f3d0bc7`) | 12/12 OK | 6/6 OK | **6/6 FAIL**: `ScatterNDUpdate` `aten::index_put_` "indices contain values that points to non-existing data tensor element" |
+  | int4, new (`8640be5`) | 12/12 OK | 6/6 OK | 6/6 OK |
+  | int8, new (`a1f012c`) | 12/12 OK | 6/6 OK | 6/6 OK |
+
+  Both new exports `--scan` clean: 36 fused SDPA ops (prefix cache), weights
+  complete. Not run: an iGPU and the NPU.
 
 ## Prompting small models
 

@@ -95,11 +95,14 @@ def run_case(pipe, label, image, vlm, **cfg):
     """Generate once and print a single result row, failures included.
 
     Why it swallows everything: one config blowing up is the interesting
-    output, not a reason to abandon the remaining rows. The row shows the
-    first line of the exception that is not an `Exception from <file>:<line>:`
-    location — OpenVINO stacks those above the actual message, so the first
-    line alone printed only `infer_request.cpp:224:` and hid the reason
-    [OBSERVED 2026-10-19, Qwen3.5-4B on the B60].
+    output, not a reason to abandon the remaining rows. The row shows every
+    line of the exception that is not an `Exception from <file>:<line>:`
+    location, joined with ' | ' and cut at 400 characters — OpenVINO stacks
+    those above the actual message, so the first line alone printed only
+    `infer_request.cpp:224:` and hid the reason
+    [OBSERVED 2026-10-19, Qwen3.5-4B on the B60]; and the first non-location
+    line alone named the failing node but not the reason
+    [OBSERVED 2026-11-26, Qwen3-VL-8B int4 on CPU].
 
     Why the two call shapes: LLMPipeline.generate takes the prompt
     positionally and rejects `prompt=` outright ("incompatible function
@@ -127,9 +130,12 @@ def run_case(pipe, label, image, vlm, **cfg):
         print(f"  {label:26} {kind}  OK    {str(text)[:52]!r}")
     except Exception as e:
         lines = [l.strip() for l in str(e).strip().splitlines() if l.strip()]
-        msg = next((l for l in lines if not l.startswith("Exception from")),
-                   lines[0] if lines else repr(e))
-        print(f"  {label:26} {kind}  FAIL  {msg[:160]}")
+        # Keep every line but the "Exception from <file>:<line>:" locations:
+        # the first remaining line alone named the failing node but not why
+        # (ScatterNDUpdate, Qwen3-VL-8B int4 on CPU, 2026-11-26).
+        reasons = [l for l in lines if not l.startswith("Exception from")]
+        msg = " | ".join(reasons) if reasons else (lines[0] if lines else repr(e))
+        print(f"  {label:26} {kind}  FAIL  {msg[:400]}")
 
 
 def main():
@@ -138,6 +144,11 @@ def main():
     ap.add_argument("--device", default="GPU", help="GPU, CPU or NPU (default GPU)")
     ap.add_argument("--image", help="Real image to use instead of the synthetic one")
     args = ap.parse_args()
+
+    # A model that answers with an emoji made print() raise on a cp1252
+    # console (Windows over SSH), and the row was reported as a model FAIL.
+    # Seen 2026-11-26 with Qwen3-VL-8B saying hello with U+1F44B.
+    sys.stdout.reconfigure(errors="backslashreplace")
 
     model_dir = os.path.abspath(os.path.expanduser(args.model_dir))
     print("openvino      :", ov.__version__)
